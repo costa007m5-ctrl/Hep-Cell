@@ -2,12 +2,24 @@
   "name": "relp-cell-pagamentos-api",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "dependencies": {
+    "@google/genai": "^0.14.0",
+    "@supabase/supabase-js": "^2.43.5",
     "mercadopago": "^2.0.10",
-    "@supabase/supabase-js": "^2.43.5"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.10"
   },
   "scripts": {
-    "build": "echo 'Nenhum passo de build necessário, implantando arquivos estáticos.'"
+    "dev": "vite",
+    "build": "vite build"
   },
   "engines": {
     "node": "20.x"
