@@ -1,26 +1,28 @@
-import { GoogleGenAI } from "@google/genai";
-
 export const generateSuccessMessage = async (
   customerName: string, 
-  amount: string,
-  genAIClient: GoogleGenAI // Recebe o cliente como parâmetro
+  amount: string
 ): Promise<string> => {
-  if (!genAIClient) {
-    console.error("Cliente Gemini não inicializado.");
-    return `Obrigado, ${customerName}! Seu pagamento de R$ ${amount} foi processado com sucesso. Agradecemos por escolher a Relp Cell.`;
-  }
-
   try {
-    const prompt = `Gere uma mensagem curta, amigável e profissional de confirmação de pagamento para um cliente chamado "${customerName}". O valor pago foi de R$ ${amount}. Agradeça ao cliente por sua pontualidade e por escolher a "Relp Cell". A mensagem deve ser em português do Brasil.`;
-
-    const response = await genAIClient.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    const response = await fetch('/api/generate-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ customerName, amount }),
     });
 
-    return response.text;
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({})); // Evita erro se o corpo não for JSON
+        console.error("API error response:", errorData);
+        throw new Error(errorData.error || 'Falha na API ao gerar mensagem.');
+    }
+
+    const data = await response.json();
+    return data.message;
+
   } catch (error) {
-    console.error("Error generating success message with Gemini:", error);
+    console.error("Error generating success message via API:", error);
+    // Mensagem de fallback em caso de erro
     return `Obrigado, ${customerName}! Seu pagamento de R$ ${amount} foi processado com sucesso. Agradecemos por escolher a Relp Cell.`;
   }
 };

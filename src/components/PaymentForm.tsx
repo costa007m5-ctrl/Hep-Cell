@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
-import { genAI } from '../services/clients'; // Importa o cliente Gemini centralizado
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -87,8 +86,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                       try {
                           await new Promise(resolve => setTimeout(resolve, 2500));
 
-                          // Usa a instância genAI importada do serviço de clientes
-                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount), genAI);
+                          // A chamada agora é mais simples e segura
+                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount));
                           setMessage(successMsg);
                           setStatus(PaymentStatus.SUCCESS);
                           setTimeout(() => {

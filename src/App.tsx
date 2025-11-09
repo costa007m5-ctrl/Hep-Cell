@@ -7,79 +7,44 @@ import PageLoja from './components/PageLoja';
 import PagePerfil from './components/PagePerfil';
 import AuthPage from './components/AuthPage';
 import { Tab } from './types';
-import { supabase, initializeClients } from './services/clients';
+import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 
-type AppStatus = 'configuring' | 'ready' | 'error';
+// Chave pública de TESTE do Mercado Pago. Substitua pela sua chave PÚBLICA de produção quando for publicar.
+const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INICIO);
   const [session, setSession] = useState<Session | null>(null);
-  const [appStatus, setAppStatus] = useState<AppStatus>('configuring');
-  const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Efeito para inicializar os clientes na montagem do componente
+  // Efeito para buscar a sessão de autenticação na montagem do componente
   useEffect(() => {
-    const initApp = async () => {
-      try {
-        const config = await initializeClients();
-        setMercadoPagoPublicKey(config.mercadoPagoPublicKey);
-        setAppStatus('ready');
-      } catch (error) {
-        console.error("Falha ao inicializar a configuração do aplicativo:", error);
-        setAppStatus('error');
-      }
+    setAuthLoading(true);
+    const fetchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setAuthLoading(false);
     };
 
-    initApp();
+    fetchSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Efeito para buscar a sessão de autenticação assim que os clientes estiverem prontos
-  useEffect(() => {
-    if (appStatus === 'ready') {
-      setAuthLoading(true);
-      const fetchSession = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session);
-        setAuthLoading(false);
-      };
-
-      fetchSession();
-
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-      });
-
-      return () => subscription.unsubscribe();
-    }
-  }, [appStatus]);
-
-  // Renderiza telas de carregamento ou erro com base no status do aplicativo
-  if (appStatus === 'configuring' || (appStatus === 'ready' && authLoading)) {
+  // Renderiza tela de carregamento enquanto verifica a autenticação
+  if (authLoading) {
     return (
       <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
         <LoadingSpinner />
         <p className="mt-4 text-slate-500 dark:text-slate-400">
-            {appStatus === 'configuring' ? 'Configurando conexão...' : 'Verificando acesso...'}
+            Verificando acesso...
         </p>
-      </div>
-    );
-  }
-
-  if (appStatus === 'error') {
-    return (
-      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
-        <div className="w-full max-w-lg text-center bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Erro de Conexão</h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-300">
-                Não foi possível carregar a configuração do servidor. Verifique sua conexão com a internet ou contate o suporte.
-            </p>
-        </div>
       </div>
     );
   }
@@ -95,7 +60,7 @@ const App: React.FC = () => {
       case Tab.INICIO:
         return <PageInicio />;
       case Tab.FATURAS:
-        return <PageFaturas mpPublicKey={mercadoPagoPublicKey!} />;
+        return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
       case Tab.LOJA:
         return <PageLoja />;
       case Tab.PERFIL:

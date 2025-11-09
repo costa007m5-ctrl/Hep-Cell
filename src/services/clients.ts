@@ -1,50 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from "@google/genai";
 
-// As instâncias do cliente são exportadas, mas inicializadas como nulas.
-// Elas serão preenchidas pela função initializeClients.
-export let supabase: SupabaseClient;
-export let genAI: GoogleGenAI;
+// As chaves públicas do Supabase podem ser expostas com segurança no frontend.
+const supabaseUrl = "https://xmwibxipxjnxvsxtmbvo.supabase.co";
+const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtd2lieGlweGpueHZzeHRtYnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAyODc4NTYsImV4cCI6MjA3NTg2Mzg1Nn0.zYgVMjwFvvrg588F4JbPMp07xWrtvQ3TL973HhbtU5Y";
 
-let isInitialized = false;
+// A instância do cliente Supabase é inicializada diretamente e exportada.
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
-interface AppConfig {
-    supabaseUrl: string;
-    supabaseAnonKey: string;
-    mercadoPagoPublicKey: string;
-    geminiApiKey: string;
-}
-
-// A função de inicialização busca a configuração e cria as instâncias do cliente.
-// Garante que a inicialização ocorra apenas uma vez.
-export const initializeClients = async (): Promise<Omit<AppConfig, 'supabaseUrl' | 'supabaseAnonKey' | 'geminiApiKey'>> => {
-    if (isInitialized) {
-        // Se já foi inicializado, apenas retorna as chaves necessárias.
-        // Isso pode ser aprimorado para retornar a configuração armazenada.
-        console.warn("Os clientes já foram inicializados.");
-        // A rigor, deveríamos ter a config salva para retornar aqui.
-        // Mas o fluxo do App.tsx previne re-chamadas.
-        return { mercadoPagoPublicKey: '' };
-    }
-
-    const response = await fetch('/api/config');
-    if (!response.ok) {
-        throw new Error('Falha ao buscar a configuração do servidor.');
-    }
-    const config: AppConfig = await response.json();
-
-    if (!config.supabaseUrl || !config.supabaseAnonKey || !config.geminiApiKey || !config.mercadoPagoPublicKey) {
-        throw new Error('Configuração recebida do servidor está incompleta.');
-    }
-
-    // Inicializa os clientes com as chaves recebidas
-    supabase = createClient(config.supabaseUrl, config.supabaseAnonKey);
-    genAI = new GoogleGenAI({ apiKey: config.geminiApiKey });
-    
-    isInitialized = true;
-
-    // Retorna as chaves que podem ser necessárias diretamente nos componentes
-    return {
-        mercadoPagoPublicKey: config.mercadoPagoPublicKey,
-    };
-};
+// A inicialização do cliente Gemini foi movida para uma função de backend segura.
+// A função initializeClients foi removida pois não é mais necessária.
