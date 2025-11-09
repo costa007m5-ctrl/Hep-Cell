@@ -1,0 +1,9 @@
+{
+  "name": "relp-cell-pagamentos-api",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "mercadopago": "^2.0.10",
+    "@supabase/supabase-js": "^2.43.5"
+  }
+}

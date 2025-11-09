@@ -1,0 +1,5 @@
+{
+  "name": "Relp Cell Pagamentos",
+  "description": "Um aplicativo moderno para que os clientes da Relp Cell possam pagar suas faturas de forma rápida e segura. A confirmação do pagamento é gerada por IA para uma experiência personalizada.",
+  "requestFramePermissions": []
+}
