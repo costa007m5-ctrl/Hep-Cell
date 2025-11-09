@@ -82,8 +82,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             if (dbError) throw dbError;
             setInvoices(data || []);
         } catch (err: any) {
-            setError('Falha ao carregar as faturas. Tente novamente mais tarde.');
-            console.error('Error fetching invoices:', err);
+            console.error("Supabase query failed. Full error object:", err);
+            const message = (err && err.message) ? err.message : 'Ocorreu um erro, verifique o console para detalhes.';
+            setError(`Falha ao carregar as faturas: ${message}`);
         } finally {
             setIsLoading(false);
         }
