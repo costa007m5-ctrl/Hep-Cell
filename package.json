@@ -6,6 +6,9 @@
     "mercadopago": "^2.0.10",
     "@supabase/supabase-js": "^2.43.5"
   },
+  "scripts": {
+    "build": "echo 'Nenhum passo de build necessário, implantando arquivos estáticos.'"
+  },
   "engines": {
     "node": "20.x"
   }
