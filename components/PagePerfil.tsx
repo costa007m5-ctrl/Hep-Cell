@@ -1,6 +1,6 @@
 import React from 'react';
 import { Session } from '@supabase/supabase-js';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/clients';
 
 interface PagePerfilProps {
     session: Session;

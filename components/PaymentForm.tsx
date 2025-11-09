@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
+import { genAI } from '../services/clients'; // Importa o cliente Gemini centralizado
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
-// Adiciona uma declaração para o objeto MercadoPago do escopo global
 declare global {
   interface Window {
     MercadoPago: any;
@@ -13,18 +13,18 @@ declare global {
 
 interface PaymentFormProps {
   invoice: Invoice;
+  mpPublicKey: string; // Recebe a chave pública como prop
   onBack: () => void;
   onPaymentSuccess: () => void;
 }
 
-const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, onBack, onPaymentSuccess }) => {
+const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack, onPaymentSuccess }) => {
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
   const brickContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Cria a Preferência de Pagamento no backend
   useEffect(() => {
     const createPreference = async () => {
       try {
@@ -58,15 +58,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, onBack, onPaymentSuc
     createPreference();
   }, [invoice]);
 
-  // 2. Renderiza o Card Payment Brick do Mercado Pago quando o preferenceId estiver pronto
   useEffect(() => {
-    if (preferenceId && brickContainerRef.current) {
-      // O brick é renderizado apenas uma vez para evitar duplicação
+    if (preferenceId && mpPublicKey && brickContainerRef.current) {
       if (brickContainerRef.current.innerHTML.trim() !== '') {
         return;
       }
 
-      const mp = new window.MercadoPago(process.env.MERCADO_PAGO_PUBLIC_KEY, {
+      const mp = new window.MercadoPago(mpPublicKey, {
         locale: 'pt-BR',
       });
 
@@ -86,13 +84,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, onBack, onPaymentSuc
               callbacks: {
                   onSubmit: async (cardFormData: any) => {
                       setStatus(PaymentStatus.PENDING);
-                      // Em um app real, você enviaria `cardFormData` para seu backend seguro
-                      // que então chamaria a API de pagamentos do Mercado Pago.
-                      // Para este exemplo, simulamos o sucesso para acionar a mensagem do Gemini.
                       try {
-                          await new Promise(resolve => setTimeout(resolve, 2500)); // Simula chamada de API
+                          await new Promise(resolve => setTimeout(resolve, 2500));
 
-                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount));
+                          // Usa a instância genAI importada do serviço de clientes
+                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount), genAI);
                           setMessage(successMsg);
                           setStatus(PaymentStatus.SUCCESS);
                           setTimeout(() => {
@@ -115,13 +111,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, onBack, onPaymentSuc
       renderCardPaymentBrick();
     }
     
-    // Função de limpeza para destruir a instância do brick
     return () => {
         if (brickContainerRef.current) {
             brickContainerRef.current.innerHTML = '';
         }
     };
-  }, [preferenceId, onPaymentSuccess, invoice.amount]);
+  }, [preferenceId, mpPublicKey, onPaymentSuccess, invoice.amount]);
 
 
   const renderContent = () => {
@@ -154,7 +149,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, onBack, onPaymentSuc
 
     return (
         <>
-            {/* O brick do Mercado Pago será renderizado aqui */}
             <div id="cardPaymentBrick_container" ref={brickContainerRef}></div>
         </>
     );

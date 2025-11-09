@@ -7,87 +7,103 @@ import PageLoja from './components/PageLoja';
 import PagePerfil from './components/PagePerfil';
 import AuthPage from './components/AuthPage';
 import { Tab } from './types';
-import { supabase, isSupabaseConfigured } from './services/supabaseClient';
+import { supabase, initializeClients } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
+
+type AppStatus = 'configuring' | 'ready' | 'error';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INICIO);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [appStatus, setAppStatus] = useState<AppStatus>('configuring');
+  const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
+  // Efeito para inicializar os clientes na montagem do componente
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
-    
-    const fetchSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setLoading(false);
+    const initApp = async () => {
+      try {
+        const config = await initializeClients();
+        setMercadoPagoPublicKey(config.mercadoPagoPublicKey);
+        setAppStatus('ready');
+      } catch (error) {
+        console.error("Falha ao inicializar a configuração do aplicativo:", error);
+        setAppStatus('error');
+      }
     };
 
-    fetchSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    return () => subscription.unsubscribe();
+    initApp();
   }, []);
 
+  // Efeito para buscar a sessão de autenticação assim que os clientes estiverem prontos
+  useEffect(() => {
+    if (appStatus === 'ready') {
+      setAuthLoading(true);
+      const fetchSession = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setAuthLoading(false);
+      };
 
-  if (!isSupabaseConfigured) {
+      fetchSession();
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSession(session);
+      });
+
+      return () => subscription.unsubscribe();
+    }
+  }, [appStatus]);
+
+  // Renderiza telas de carregamento ou erro com base no status do aplicativo
+  if (appStatus === 'configuring' || (appStatus === 'ready' && authLoading)) {
+    return (
+      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <LoadingSpinner />
+        <p className="mt-4 text-slate-500 dark:text-slate-400">
+            {appStatus === 'configuring' ? 'Configurando conexão...' : 'Verificando acesso...'}
+        </p>
+      </div>
+    );
+  }
+
+  if (appStatus === 'error') {
     return (
       <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
         <div className="w-full max-w-lg text-center bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
             <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Erro de Configuração</h1>
+            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Erro de Conexão</h1>
             <p className="mt-2 text-slate-600 dark:text-slate-300">
-                A conexão com o banco de dados não pôde ser estabelecida.
+                Não foi possível carregar a configuração do servidor. Verifique sua conexão com a internet ou contate o suporte.
             </p>
-            <div className="mt-6 text-left bg-slate-100 dark:bg-slate-700 p-4 rounded-lg">
-                <p className="text-sm text-slate-700 dark:text-slate-200">
-                    <strong>Causa:</strong> As variáveis de ambiente do Supabase (`SUPABASE_URL` e `SUPABASE_ANON_KEY`) não foram encontradas.
-                </p>
-                <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
-                    <strong>Solução:</strong> Por favor, certifique-se de que estas variáveis estão corretamente configuradas nas configurações do seu projeto na Vercel.
-                </p>
-            </div>
         </div>
       </div>
     );
   }
 
+  // Renderiza a página de login se não houver sessão
+  if (!session) {
+    return <AuthPage />;
+  }
+
+  // Renderiza o conteúdo principal do aplicativo
   const renderContent = () => {
     switch (activeTab) {
       case Tab.INICIO:
         return <PageInicio />;
       case Tab.FATURAS:
-        return <PageFaturas />;
+        return <PageFaturas mpPublicKey={mercadoPagoPublicKey!} />;
       case Tab.LOJA:
         return <PageLoja />;
       case Tab.PERFIL:
-        return <PagePerfil session={session!} />;
+        return <PagePerfil session={session} />;
       default:
         return <PageInicio />;
     }
   };
-  
-  if (loading) {
-    return (
-        <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
-            <LoadingSpinner />
-        </div>
-    );
-  }
-
-  if (!session) {
-    return <AuthPage />;
-  }
 
   return (
     <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200">

@@ -1,9 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import PaymentForm from './PaymentForm';
 import { Invoice } from '../types';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/clients'; // Atualizado
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+
+interface PageFaturasProps {
+    mpPublicKey: string;
+}
 
 // Icons (unchanged)
 const InvoiceIcon = () => (
@@ -54,7 +58,7 @@ const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => vo
     );
 };
 
-const PageFaturas: React.FC = () => {
+const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -72,7 +76,7 @@ const PageFaturas: React.FC = () => {
             const { data, error: dbError } = await supabase
                 .from('invoices')
                 .select('*')
-                .eq('user_id', user.id) // Busca apenas faturas do usuário logado
+                .eq('user_id', user.id)
                 .order('dueDate', { ascending: false });
 
             if (dbError) throw dbError;
@@ -95,7 +99,6 @@ const PageFaturas: React.FC = () => {
 
     const handlePaymentSuccess = async () => {
         if (selectedInvoice) {
-            // Update the status in Supabase
             const { error: updateError } = await supabase
                 .from('invoices')
                 .update({ status: 'Paga' })
@@ -105,7 +108,6 @@ const PageFaturas: React.FC = () => {
                 console.error('Failed to update invoice status:', updateError);
                 setError('Houve um erro ao atualizar o status do pagamento. Por favor, verifique mais tarde.');
             } else {
-                 // Update local state for immediate UI feedback
                 setInvoices(prevInvoices => prevInvoices.map(inv =>
                     inv.id === selectedInvoice.id ? { ...inv, status: 'Paga' } : inv
                 ));
@@ -118,6 +120,7 @@ const PageFaturas: React.FC = () => {
         return (
           <PaymentForm
             invoice={selectedInvoice}
+            mpPublicKey={mpPublicKey}
             onBack={() => setSelectedInvoice(null)}
             onPaymentSuccess={handlePaymentSuccess}
           />
@@ -143,7 +146,6 @@ const PageFaturas: React.FC = () => {
 
     return (
         <div className="w-full max-w-md space-y-6 animate-fade-in">
-             {/* Summary Card */}
             <section aria-labelledby="summary-title">
                  <h2 id="summary-title" className="sr-only">Resumo das Faturas</h2>
                 {openInvoices.length > 0 ? (
@@ -171,7 +173,6 @@ const PageFaturas: React.FC = () => {
                 )}
             </section>
 
-            {/* Open Invoices List */}
             {openInvoices.length > 0 && (
                 <section className="space-y-3" aria-labelledby="open-invoices-title">
                     <h2 id="open-invoices-title" className="text-xl font-bold text-slate-800 dark:text-slate-200 px-1">
@@ -183,7 +184,6 @@ const PageFaturas: React.FC = () => {
                 </section>
             )}
 
-            {/* Payment History */}
             {paidInvoices.length > 0 && (
                  <section className="space-y-3" aria-labelledby="history-title">
                     <button

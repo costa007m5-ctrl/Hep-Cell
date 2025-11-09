@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/clients'; // Atualizado
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
