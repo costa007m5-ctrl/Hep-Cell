@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PaymentForm from './PaymentForm';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients'; // Atualizado
@@ -108,7 +108,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga'), [invoices]);
     const totalDue = useMemo(() => openInvoices.reduce((sum, inv) => sum + inv.amount, 0), [openInvoices]);
 
-    const handlePaymentSuccess = async () => {
+    const handlePaymentSuccess = useCallback(async () => {
         if (selectedInvoice) {
             const { error: updateError } = await supabase
                 .from('invoices')
@@ -125,7 +125,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             }
         }
         setSelectedInvoice(null);
-    };
+    }, [selectedInvoice]);
 
     if (selectedInvoice) {
         return (

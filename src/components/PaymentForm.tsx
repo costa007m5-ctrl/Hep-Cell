@@ -23,6 +23,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
   const brickContainerRef = useRef<HTMLDivElement>(null);
+  const brickControllerRef = useRef<any>(null); // Ref to store the brick controller
 
   useEffect(() => {
     const createPreference = async () => {
@@ -58,19 +59,17 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   }, [invoice]);
 
   useEffect(() => {
-    if (preferenceId && mpPublicKey && brickContainerRef.current) {
-      if (brickContainerRef.current.innerHTML.trim() !== '') {
-        return;
-      }
+    let isMounted = true;
 
-      const mp = new window.MercadoPago(mpPublicKey, {
-        locale: 'pt-BR',
-      });
+    const initializeBrick = async () => {
+      if (preferenceId && mpPublicKey && brickContainerRef.current) {
+        const mp = new window.MercadoPago(mpPublicKey, {
+          locale: 'pt-BR',
+        });
+        const bricks = mp.bricks();
 
-      const bricks = mp.bricks();
-
-      const renderPaymentBrick = async () => {
-          await bricks.create('payment', brickContainerRef.current!.id, {
+        try {
+          const controller = await bricks.create('payment', brickContainerRef.current.id, {
               initialization: {
                   amount: invoice.amount,
                   preferenceId: preferenceId,
@@ -80,7 +79,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                     ticket: 'all',
                     pix: 'all', 
                     creditCard: 'all',
-                    debitCard: [],
+                    debitCard: 'all', // Habilita cartão de débito
                 },
               },
               callbacks: {
@@ -128,23 +127,29 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   }
               },
           });
-      };
-      
-      renderPaymentBrick();
-    }
-    
-    return () => {
-        if (brickContainerRef.current) {
-            try {
-              const brickInstance = window.MercadoPago?.getBrick("payment");
-              if (brickInstance) {
-                brickInstance.unmount();
-              }
-            } catch (e) {
-                console.error("Error unmounting brick:", e);
+          
+          if (isMounted) {
+            brickControllerRef.current = controller;
+          }
+
+        } catch (error) {
+            if (isMounted) {
+                console.error("Erro ao criar o Payment Brick:", error);
+                setStatus(PaymentStatus.ERROR);
+                setMessage("Não foi possível carregar as opções de pagamento.");
             }
-            brickContainerRef.current.innerHTML = '';
         }
+      }
+    };
+    
+    initializeBrick();
+
+    return () => {
+      isMounted = false;
+      if (brickControllerRef.current) {
+        brickControllerRef.current.unmount();
+        brickControllerRef.current = null;
+      }
     };
   }, [preferenceId, mpPublicKey, onPaymentSuccess, invoice.amount, invoice.month]);
 
