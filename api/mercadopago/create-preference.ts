@@ -9,8 +9,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).end('Method Not Allowed');
   }
 
-  // Extrai os dados da fatura do corpo da requisição, incluindo o novo flag `redirect`
-  const { amount, description, id, redirect } = req.body;
+  // Extrai os dados da fatura do corpo da requisição, incluindo o e-mail do pagador
+  const { amount, description, id, redirect, payerEmail } = req.body;
 
   if (!amount || !description || !id) {
     return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
@@ -38,6 +38,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ],
     };
+
+    // Adiciona o e-mail do pagador ao corpo da preferência para melhorar a análise de risco
+    if (payerEmail) {
+        preferenceBody.payer = {
+            email: payerEmail,
+        };
+    }
 
     // Se o frontend solicitou um redirecionamento, configuramos as URLs de retorno
     if (redirect) {

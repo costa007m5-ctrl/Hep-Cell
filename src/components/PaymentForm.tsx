@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
+import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -65,6 +66,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       setIsLoading(true);
 
       try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !user.email) {
+            if (isComponentMounted) {
+                setStatus(PaymentStatus.ERROR);
+                setMessage("Sua sessão expirou. Por favor, recarregue a página e tente novamente.");
+                setIsLoading(false);
+            }
+            return;
+        }
+
         // 1. Criar a preferência de pagamento no backend
         const prefResponse = await fetch('/api/mercadopago/create-preference', {
           method: 'POST',
@@ -73,6 +84,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             id: invoice.id,
             description: `Fatura Relp Cell - ${invoice.month}`,
             amount: invoice.amount,
+            payerEmail: user.email,
           }),
         });
 
