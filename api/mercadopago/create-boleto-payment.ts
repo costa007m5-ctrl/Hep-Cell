@@ -9,13 +9,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { amount, description, payer } = req.body;
 
-    // Validação agora checa a estrutura plana recebida do frontend
+    // Validação agora checa os campos de nome e sobrenome separados
     if (
         !amount || 
         !description || 
         !payer ||
         !payer.email ||
-        !payer.fullName ||
+        !payer.firstName ||
+        !payer.lastName ||
         !payer.identificationType ||
         !payer.identificationNumber ||
         !payer.zipCode ||
@@ -38,25 +39,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const client = new MercadoPagoConfig({ accessToken });
         const payment = new Payment(client);
         
-        const nameParts = payer.fullName.trim().split(' ');
-        const firstName = nameParts[0];
-        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '.';
-
-        // CORREÇÃO: Mapeia a estrutura plana do 'payer' (frontend) para a estrutura aninhada (API MP)
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'boleto',
+            payment_method_id: 'bolbradesco', // Específico para Bradesco, conforme solicitado. 'boleto' é o genérico.
             payer: {
                 email: payer.email,
-                first_name: firstName,
-                last_name: lastName,
+                first_name: payer.firstName,
+                last_name: payer.lastName,
                 identification: {
-                    type: payer.identificationType, // De payer.identificationType
-                    number: payer.identificationNumber.replace(/\D/g, ''), // De payer.identificationNumber
+                    type: payer.identificationType,
+                    number: payer.identificationNumber.replace(/\D/g, ''),
                 },
                 address:  {
-                    zip_code: payer.zipCode.replace(/\D/g, ''), // De payer.zipCode
+                    zip_code: payer.zipCode.replace(/\D/g, ''),
                     street_name: payer.streetName,
                     street_number: payer.streetNumber,
                     neighborhood: payer.neighborhood,

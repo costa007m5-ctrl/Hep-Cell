@@ -15,7 +15,8 @@ interface BoletoPaymentProps {
 // Componente para o formulário de dados do boleto
 const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
   const [formData, setFormData] = useState({
-    fullName: '', // Alterado para Nome Completo
+    firstName: '',
+    lastName: '',
     identificationType: 'CPF',
     identificationNumber: '',
     zipCode: '',
@@ -92,7 +93,10 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
         <p className="text-sm text-slate-500 dark:text-slate-400">
             Para gerar o boleto, precisamos de algumas informações suas.
         </p>
-        <InputField label="Nome Completo" name="fullName" value={formData.fullName} onChange={handleChange} required />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <InputField label="Nome" name="firstName" value={formData.firstName} onChange={handleChange} required />
+            <InputField label="Sobrenome" name="lastName" value={formData.lastName} onChange={handleChange} required />
+        </div>
         <div>
             <label htmlFor="identificationType" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tipo de Documento</label>
             <select name="identificationType" value={formData.identificationType} onChange={handleChange} className={selectClasses}>

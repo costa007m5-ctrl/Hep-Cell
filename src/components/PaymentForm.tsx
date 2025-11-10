@@ -94,8 +94,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         cardFormRef.current = cardForm;
     } catch (e: any) {
         console.error("Falha ao inicializar o formulário do Mercado Pago:", e);
+        let errorMessage = "Não foi possível carregar o formulário de pagamento seguro. Por favor, tente novamente.";
+        // Melhora a extração da mensagem de erro
+        if (Array.isArray(e) && e.length > 0 && e[0].message) {
+            errorMessage = e[0].message;
+        } else if (e.message) {
+            errorMessage = e.message;
+        }
         setStatus(PaymentStatus.ERROR);
-        setMessage("Não foi possível carregar o formulário de pagamento seguro. Por favor, tente novamente.");
+        setMessage(errorMessage);
     }
 
   }, [mpPublicKey, invoice.amount]);
@@ -234,14 +241,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         <p className="text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - R$ {invoice.amount.toFixed(2).replace('.', ',')}</p>
       </div>
 
-      <form id="form-checkout" onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4">
+      <form id="form-checkout" onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4 relative min-h-[500px]">
+        {/* CORREÇÃO: Overlay de carregamento que não remove o formulário do DOM */}
         {!isSDKReady && status !== PaymentStatus.ERROR && (
-             <div className="flex flex-col items-center justify-center p-8 space-y-4">
+             <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 space-y-4 z-10">
                 <LoadingSpinner />
                 <p className="text-slate-500 dark:text-slate-400">Carregando formulário seguro...</p>
             </div>
         )}
-        <div className={isSDKReady ? 'space-y-4' : 'hidden'}>
+        {/* CORREÇÃO: O conteúdo do formulário está sempre presente, mas com opacidade controlada */}
+        <div className={`space-y-4 transition-opacity duration-300 ${isSDKReady ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Detalhes do Titular</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <InputField label="Nome" name="firstName" value={formData.firstName} onChange={handleFormChange} required />
@@ -266,16 +275,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 pt-2">Dados do Cartão</h3>
             <div>
                  <label htmlFor="form-checkout-cardNumber" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Número do Cartão</label>
-                <div id="form-checkout-cardNumber" className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
+                <div id="form-checkout-cardNumber" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label htmlFor="form-checkout-expirationDate" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Vencimento</label>
-                    <div id="form-checkout-expirationDate" className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
+                    <div id="form-checkout-expirationDate" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
                 </div>
                 <div>
                      <label htmlFor="form-checkout-securityCode" className="block text-sm font-medium text-slate-700 dark:text-slate-300">CVV</label>
-                    <div id="form-checkout-securityCode" className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
+                    <div id="form-checkout-securityCode" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
                 </div>
             </div>
             {installments.length > 0 && (
