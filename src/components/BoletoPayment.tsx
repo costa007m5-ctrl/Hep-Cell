@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import InputField from './InputField';
 
 interface BoletoPaymentProps {
   invoice: Invoice;
   onBack: () => void;
   onPaymentConfirmed: () => void;
 }
+
 
 // Componente para o formulário de dados do boleto
 const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
@@ -24,16 +26,66 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
     city: '',
     federalUnit: '',
   });
+  const [isFetchingCep, setIsFetchingCep] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
+  const streetNumberRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    let { name, value } = e.target;
+
+    // Limpa o erro de CEP ao digitar
+    if (name === 'zipCode') {
+        setCepError(null);
+        value = value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2').substring(0, 9);
+    } else if (name === 'identificationNumber') {
+        value = value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }));
   };
+  
+  // Efeito para buscar o endereço quando o CEP for preenchido
+  useEffect(() => {
+    const cep = formData.zipCode.replace(/\D/g, '');
+    if (cep.length !== 8) {
+        return;
+    }
+
+    const fetchAddress = async () => {
+        setIsFetchingCep(true);
+        setCepError(null);
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            if (!res.ok) throw new Error('API do ViaCEP falhou');
+            const data = await res.json();
+            if (data.erro) {
+                setCepError('CEP não encontrado. Por favor, verifique o número.');
+            } else {
+                setFormData(prev => ({
+                    ...prev,
+                    streetName: data.logradouro,
+                    neighborhood: data.bairro,
+                    city: data.localidade,
+                    federalUnit: data.uf,
+                }));
+                streetNumberRef.current?.focus();
+            }
+        } catch (error) {
+            console.error('Erro ao buscar CEP', error);
+            setCepError('Não foi possível buscar o CEP. Tente novamente.');
+        } finally {
+            setIsFetchingCep(false);
+        }
+    };
+    fetchAddress();
+  }, [formData.zipCode]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
   };
+
+  const selectClasses = "mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 
   return (
     <form onSubmit={handleSubmit} className="p-6 space-y-4 animate-fade-in w-full">
@@ -47,15 +99,15 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
         </div>
         <div>
             <label htmlFor="identificationType" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tipo de Documento</label>
-            <select name="identificationType" value={formData.identificationType} onChange={handleChange} className="input-style">
+            <select name="identificationType" value={formData.identificationType} onChange={handleChange} className={selectClasses}>
                 <option value="CPF">CPF</option>
             </select>
         </div>
-        <InputField label="Número do Documento" name="identificationNumber" value={formData.identificationNumber} onChange={handleChange} required placeholder="000.000.000-00" />
-        <InputField label="CEP" name="zipCode" value={formData.zipCode} onChange={handleChange} required placeholder="00000-000" />
+        <InputField label="Número do Documento" name="identificationNumber" value={formData.identificationNumber} onChange={handleChange} required placeholder="000.000.000-00" maxLength={14}/>
+        <InputField label="CEP" name="zipCode" value={formData.zipCode} onChange={handleChange} required placeholder="00000-000" maxLength={9} isLoading={isFetchingCep} error={cepError} />
         <InputField label="Rua / Avenida" name="streetName" value={formData.streetName} onChange={handleChange} required />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <InputField label="Número" name="streetNumber" value={formData.streetNumber} onChange={handleChange} required />
+            <InputField label="Número" name="streetNumber" value={formData.streetNumber} onChange={handleChange} required ref={streetNumberRef} />
             <InputField label="Bairro" name="neighborhood" value={formData.neighborhood} onChange={handleChange} required />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -69,25 +121,6 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
     </form>
   );
 };
-
-// Componente reutilizável para campos de input
-const InputField: React.FC<{ label: string; name: string; value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; required?: boolean; type?: string; maxLength?: number; placeholder?: string; }> = 
-({ label, name, value, onChange, required = false, type = 'text', maxLength, placeholder }) => (
-    <div>
-        <label htmlFor={name} className="block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</label>
-        <input
-            type={type}
-            id={name}
-            name={name}
-            value={value}
-            onChange={onChange}
-            required={required}
-            maxLength={maxLength}
-            placeholder={placeholder}
-            className="input-style"
-        />
-    </div>
-);
 
 
 const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymentConfirmed }) => {
@@ -202,24 +235,8 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
     }
   };
 
-  const commonInputStyle = `
-    .input-style {
-        margin-top: 0.25rem; display: block; width: 100%;
-        padding: 0.5rem 0.75rem; border-width: 1px; border-radius: 0.375rem;
-        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-        background-color: rgb(248 250 252); border-color: rgb(203 213 225);
-    }
-    .dark .input-style { border-color: rgb(71 85 105); background-color: rgb(51 65 85); }
-    .input-style:focus {
-        outline: 2px solid transparent; outline-offset: 2px;
-        --tw-ring-color: rgb(99 102 241); border-color: rgb(99 102 241);
-        box-shadow: 0 0 0 2px var(--tw-ring-color);
-    }
-  `;
-
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all">
-      <style>{commonInputStyle}</style>
       <div className="text-center p-6 sm:p-8 border-b border-slate-200 dark:border-slate-700">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pagamento via Boleto</h2>
         <p className="text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - R$ {invoice.amount.toFixed(2).replace('.', ',')}</p>
