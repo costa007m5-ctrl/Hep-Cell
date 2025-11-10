@@ -6,16 +6,19 @@ export default function handler(req: any, res: any) {
     return res.status(405).end('Method Not Allowed');
   }
 
-  // A chave pública é lida de forma segura das variáveis de ambiente no servidor.
-  // No Vercel, esta variável deve ser configurada como MERCADO_PAGO_PUBLIC_KEY.
-  const mercadoPagoPublicKey = process.env.MERCADO_PAGO_PUBLIC_KEY;
+  // As chaves públicas são lidas das variáveis de ambiente no servidor.
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const mercadoPagoPublicKey = process.env.VITE_MERCADO_PAGO_PUBLIC_KEY;
 
-  if (!mercadoPagoPublicKey) {
-    console.error('A chave pública do Mercado Pago (MERCADO_PAGO_PUBLIC_KEY) não está configurada nas variáveis de ambiente.');
-    return res.status(500).json({ error: 'A configuração do gateway de pagamento está ausente.' });
+  if (!supabaseUrl || !supabaseAnonKey || !mercadoPagoPublicKey) {
+    console.error('Uma ou mais variáveis de ambiente públicas não estão configuradas: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_MERCADO_PAGO_PUBLIC_KEY');
+    return res.status(500).json({ error: 'A configuração do servidor está incompleta.' });
   }
 
   res.status(200).json({
+    supabaseUrl,
+    supabaseAnonKey,
     mercadoPagoPublicKey,
   });
 }
