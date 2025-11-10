@@ -59,7 +59,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
   useEffect(() => {
     if (preferenceId && mpPublicKey && brickContainerRef.current) {
-      // Previne re-renderização do brick
       if (brickContainerRef.current.innerHTML.trim() !== '') {
         return;
       }
@@ -71,9 +70,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       const bricks = mp.bricks();
 
       const renderPaymentBrick = async () => {
-          // ATUALIZAÇÃO: Trocamos o 'cardPayment' pelo 'payment' brick.
-          // Este componente renderiza de forma inteligente as opções de pagamento
-          // disponíveis, incluindo Pix, Boleto e Cartão de Crédito.
           await bricks.create('payment', brickContainerRef.current!.id, {
               initialization: {
                   amount: invoice.amount,
@@ -81,19 +77,31 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               },
               customization: {
                 paymentMethods: {
-                    ticket: 'all', // Habilita Boleto
-                    pix: 'all', // Habilita Pix
-                    creditCard: 'all', // Habilita Cartão de Crédito
-                    debitCard: [], // Desabilita Cartão de Débito para focar nas 3 opções principais
+                    ticket: 'all',
+                    pix: 'all', 
+                    creditCard: 'all',
+                    debitCard: [],
                 },
               },
               callbacks: {
                   onSubmit: async (formData: any) => {
-                      // O onSubmit é chamado para todos os tipos de pagamento
                       setStatus(PaymentStatus.PENDING);
                       try {
-                          // Simula o processamento do backend
-                          await new Promise(resolve => setTimeout(resolve, 2500));
+                          const response = await fetch('/api/process-payment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              ...formData,
+                              description: `Fatura Relp Cell - ${invoice.month}`,
+                              transaction_amount: invoice.amount,
+                            })
+                          });
+                          
+                          const result = await response.json();
+
+                          if (!response.ok) {
+                            throw new Error(result.message || 'Falha no processamento do pagamento.');
+                          }
 
                           const customerName = formData?.payer?.firstName || 'Cliente';
                           const successMsg = await generateSuccessMessage(customerName, String(invoice.amount));
@@ -103,10 +111,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                           setTimeout(() => {
                               onPaymentSuccess();
                           }, 4000);
-                      } catch (error) {
+
+                      } catch (error: any) {
                           console.error(error);
                           setStatus(PaymentStatus.ERROR);
-                          setMessage('Erro ao finalizar pagamento.');
+                          setMessage(error.message || 'Erro ao finalizar pagamento.');
                       }
                   },
                   onError: (error: any) => {
@@ -124,17 +133,20 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       renderPaymentBrick();
     }
     
-    // Cleanup: desmonta o brick ao sair do componente para evitar erros
     return () => {
         if (brickContainerRef.current) {
-            const brickInstance = window.MercadoPago.getBrick("payment");
-            if (brickInstance) {
-              brickInstance.unmount();
+            try {
+              const brickInstance = window.MercadoPago?.getBrick("payment");
+              if (brickInstance) {
+                brickInstance.unmount();
+              }
+            } catch (e) {
+                console.error("Error unmounting brick:", e);
             }
             brickContainerRef.current.innerHTML = '';
         }
     };
-  }, [preferenceId, mpPublicKey, onPaymentSuccess, invoice.amount]);
+  }, [preferenceId, mpPublicKey, onPaymentSuccess, invoice.amount, invoice.month]);
 
 
   const renderContent = () => {
