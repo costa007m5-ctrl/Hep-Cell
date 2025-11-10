@@ -3,7 +3,11 @@ import { supabase } from '../services/clients'; // Atualizado
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
-const AuthPage: React.FC = () => {
+interface AuthPageProps {
+  onAdminLoginClick: () => void;
+}
+
+const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -35,7 +39,7 @@ const AuthPage: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-screen p-4">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center space-x-3 mb-8">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg xmlns="http://www.w.org/2000/svg" className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
@@ -112,6 +116,11 @@ const AuthPage: React.FC = () => {
             </button>
           </p>
         </div>
+        <footer className="mt-8 text-center">
+            <button onClick={onAdminLoginClick} className="text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                Área do Administrador
+            </button>
+        </footer>
       </div>
     </div>
   );

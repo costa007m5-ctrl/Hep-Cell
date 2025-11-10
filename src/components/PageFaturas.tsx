@@ -82,9 +82,17 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             if (dbError) throw dbError;
             setInvoices(data || []);
         } catch (err: any) {
-            console.error("Supabase query failed. Full error object:", err);
-            const message = (err && err.message) ? err.message : 'Ocorreu um erro, verifique o console para detalhes.';
-            setError(`Falha ao carregar as faturas: ${message}`);
+            console.error("Falha ao buscar faturas:", err);
+            let errorMessage = 'Não foi possível carregar suas faturas.';
+
+            if (err && err.message) {
+                if (err.message.includes('permission denied')) {
+                    errorMessage = "Acesso negado ao buscar faturas. Por favor, verifique se as Políticas de Segurança (RLS) do Supabase foram aplicadas corretamente. Consulte a aba 'Dev' para obter os scripts necessários e as instruções.";
+                } else {
+                    errorMessage = `Erro ao carregar faturas: ${err.message}`;
+                }
+            }
+            setError(errorMessage);
         } finally {
             setIsLoading(false);
         }
