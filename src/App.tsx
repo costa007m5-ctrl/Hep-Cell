@@ -1,4 +1,3 @@
-// Removed /// <reference types="vite/client" />
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import Navbar from './components/Navbar';
@@ -10,57 +9,47 @@ import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
 import { Tab } from './types';
-import { initializeClients, supabase } from './services/clients';
+import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 
-type AppStatus = 'configuring' | 'ready' | 'error';
+const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
+
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INICIO);
   const [session, setSession] = useState<Session | null>(null);
-  const [appStatus, setAppStatus] = useState<AppStatus>('configuring');
-  const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
 
+  // Efeito para verificar sessão de admin ou buscar a do cliente
   useEffect(() => {
-    const initApp = async () => {
-      try {
-        const config = await initializeClients();
-        setMercadoPagoPublicKey(config.mercadoPagoPublicKey);
+    if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
+      setView('adminDashboard');
+      setIsAdmin(true); // Garante que o estado é consistente
+      setAuthLoading(false);
+      return;
+    }
 
-        if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
-          setView('adminDashboard');
-          setIsAdmin(true);
-          setAppStatus('ready');
-          setAuthLoading(false);
-          return;
-        }
-
-        // Supabase client is now initialized. Proceed with auth.
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
-        setSession(initialSession);
-        setAuthLoading(false);
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
-            setSession(session);
-          }
-        });
-
-        setAppStatus('ready');
-
-        return () => subscription.unsubscribe();
-      } catch (error) {
-        console.error("Falha ao inicializar o aplicativo:", error);
-        setAppStatus('error');
-      }
+    setAuthLoading(true);
+    const fetchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setAuthLoading(false);
     };
 
-    initApp();
+    fetchSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Se já somos admin, não mude a sessão
+      if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
+        setSession(session);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleAdminLoginSuccess = () => {
@@ -72,44 +61,16 @@ const App: React.FC = () => {
   const handleAdminLogout = async () => {
     sessionStorage.removeItem('isAdminLoggedIn');
     setIsAdmin(false);
-    if (supabase) {
-        await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut(); // Também desloga do Supabase
     setView('customer');
     window.location.reload();
   };
-
+  
   const handleBackToCustomer = () => {
     setView('customer');
   }
 
-  if (appStatus === 'configuring' || (appStatus === 'ready' && authLoading)) {
-    return (
-      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
-        <LoadingSpinner />
-        <p className="mt-4 text-slate-500 dark:text-slate-400">
-          {appStatus === 'configuring' ? 'Configurando conexão...' : 'Verificando acesso...'}
-        </p>
-      </div>
-    );
-  }
-
-  if (appStatus === 'error') {
-    return (
-      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
-        <div className="w-full max-w-lg text-center bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
-            <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Erro de Configuração</h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-300">
-                Não foi possível carregar as configurações do servidor. Verifique sua conexão com a internet e se as variáveis de ambiente no seu ambiente de hospedagem (Vercel) estão configuradas corretamente.
-            </p>
-        </div>
-      </div>
-    );
-  }
-
+  // Renderiza a área de Admin
   if (view === 'adminLogin') {
     return <AdminLoginPage 
       onLoginSuccess={handleAdminLoginSuccess} 
@@ -121,7 +82,20 @@ const App: React.FC = () => {
     return <AdminDashboard onLogout={handleAdminLogout} />;
   }
 
-  if (!session && !isAdmin) {
+  // --- Renderização da área do cliente ---
+
+  if (authLoading) {
+    return (
+      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <LoadingSpinner />
+        <p className="mt-4 text-slate-500 dark:text-slate-400">
+            Verificando acesso...
+        </p>
+      </div>
+    );
+  }
+
+  if (!session) {
     return <AuthPage onAdminLoginClick={() => setView('adminLogin')} />;
   }
 
@@ -130,11 +104,11 @@ const App: React.FC = () => {
       case Tab.INICIO:
         return <PageInicio />;
       case Tab.FATURAS:
-        return <PageFaturas mpPublicKey={mercadoPagoPublicKey!} />;
+        return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
       case Tab.LOJA:
         return <PageLoja />;
       case Tab.PERFIL:
-        return <PagePerfil session={session!} />;
+        return <PagePerfil session={session} />;
       default:
         return <PageInicio />;
     }
