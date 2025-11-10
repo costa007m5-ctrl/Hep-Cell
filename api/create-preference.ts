@@ -14,16 +14,12 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
   }
 
-  // NOTA DE DESENVOLVIMENTO:
-  // O Access Token NUNCA deve ser exposto no código-fonte em um ambiente de produção.
-  // Ele deve ser carregado de forma segura a partir de Variáveis de Ambiente.
-  // Este valor de teste é fornecido abaixo para permitir que o aplicativo funcione para demonstração.
-  // Para produção, configure a variável MERCADO_PAGO_ACCESS_TOKEN no seu provedor de hospedagem (ex: Vercel).
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN || "TEST-649033862371721-061014-9b58e3f3595f553345495e267b140614-1851084223";
+  // O Access Token é lido de forma segura das variáveis de ambiente do servidor (Vercel).
+  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
   if (!accessToken) {
-    console.error('Mercado Pago Access Token não configurado.');
-    return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
+    console.error('Mercado Pago Access Token (MERCADO_PAGO_ACCESS_TOKEN) não está configurado nas variáveis de ambiente.');
+    return res.status(500).json({ error: 'O provedor de pagamento não está configurado corretamente.' });
   }
 
   try {
