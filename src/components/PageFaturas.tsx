@@ -5,17 +5,18 @@ import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import PaymentMethodSelector from './PaymentMethodSelector';
+import PixPayment from './PixPayment';
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
 
-type PaymentStep = 'list' | 'select_method' | 'form';
+type PaymentStep = 'list' | 'select_method' | 'form' | 'pix';
 
 // Icons (unchanged)
 const InvoiceIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2-0-01-2-2V5a2 2 0-01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0-01-2 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
 );
 const CheckIcon = () => (
@@ -110,6 +111,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const handleMethodSelect = async (method: string) => {
         if (method === 'brick') {
             setPaymentStep('form');
+        } else if (method === 'pix') {
+            setPaymentStep('pix');
         } else if (method === 'redirect') {
             setIsRedirecting(true);
             setError(null);
@@ -148,6 +151,10 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const handlePaymentSuccess = useCallback(async () => {
         if (selectedInvoice) {
+            // No caso do PIX, o pagamento pode levar um tempo para ser confirmado via webhook.
+            // Aqui, simplesmente voltamos para a lista. A atualização do status
+            // será refletida na próxima vez que a lista for carregada.
+            // Para o 'brick', a confirmação é mais imediata.
             const { error: updateError } = await supabase
                 .from('invoices')
                 .update({ status: 'Paga' })
@@ -179,6 +186,16 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 onSelectMethod={handleMethodSelect}
                 onBack={handleBackToList}
             />
+        );
+    }
+
+    if (paymentStep === 'pix' && selectedInvoice) {
+        return (
+          <PixPayment
+            invoice={selectedInvoice}
+            onBack={handleBackToMethodSelection}
+            onPaymentConfirmed={handleBackToList} // Após o PIX, apenas volta para a lista. A confirmação é via webhook.
+          />
         );
     }
     
