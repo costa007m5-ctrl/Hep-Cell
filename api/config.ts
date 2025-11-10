@@ -8,7 +8,7 @@
 //
 // Este arquivo pode ser removido com segurança do projeto.
 
-export default function handler(req: any, res: any) {
+export default function handler(_req: any, res: any) {
   res.status(404).json({ 
     code: 'endpoint_deprecated',
     message: 'This API endpoint is deprecated and no longer in use.' 

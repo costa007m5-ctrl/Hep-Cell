@@ -31,6 +31,7 @@ export default async function handler(req: any, res: any) {
       body: {
         items: [
           {
+            id: `relp-cell-item-${Date.now()}`, // Adiciona um ID único, que é obrigatório
             title: title,
             quantity: Number(quantity),
             unit_price: Number(price),
