@@ -13,6 +13,7 @@ import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 
+// A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
 type View = 'customer' | 'adminLogin' | 'adminDashboard';

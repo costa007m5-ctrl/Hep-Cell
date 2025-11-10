@@ -80,14 +80,18 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 .order('due_date', { ascending: false });
 
             if (dbError) throw dbError;
-            setInvoices(data || []);
+            
+            // Mapeia 'due_date' para 'dueDate' para manter a consistência no frontend
+            const mappedData = data.map(inv => ({ ...inv, dueDate: inv.due_date }));
+            setInvoices(mappedData || []);
+
         } catch (err: any) {
             console.error("Falha ao buscar faturas:", err);
             let errorMessage = 'Não foi possível carregar suas faturas.';
 
             if (err && err.message) {
                 if (err.message.includes('permission denied')) {
-                    errorMessage = "Acesso negado ao buscar faturas. Por favor, verifique se as Políticas de Segurança (RLS) do Supabase foram aplicadas corretamente. Consulte a aba 'Dev' para obter os scripts necessários e as instruções.";
+                    errorMessage = "Acesso negado ao buscar faturas. Por favor, verifique se as Políticas de Segurança (RLS) do Supabase foram aplicadas corretamente. Consulte a aba 'Desenvolvedor' no painel de admin para obter os scripts necessários.";
                 } else {
                     errorMessage = `Erro ao carregar faturas: ${err.message}`;
                 }

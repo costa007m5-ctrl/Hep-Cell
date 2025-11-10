@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Validação mínima para garantir que os dados essenciais estão presentes
         if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
-            return res.status(400).json({ error: 'Dados de pagamento incompletos.' });
+            return res.status(400).json({ message: 'Dados de pagamento incompletos.' });
         }
         
         const client = new MercadoPagoConfig({ accessToken });

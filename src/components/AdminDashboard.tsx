@@ -164,7 +164,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-              {/* ... table head ... */}
               <thead className="bg-slate-50 dark:bg-slate-800">
                     <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês</th>

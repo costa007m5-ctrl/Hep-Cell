@@ -7,5 +7,5 @@ const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 // A instância do cliente Supabase é inicializada diretamente e exportada.
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
-// A inicialização do cliente Gemini foi movida para uma função de backend segura.
-// A função initializeClients foi removida pois não é mais necessária.
+// A inicialização do cliente Gemini e Mercado Pago foi movida para funções de backend seguras.
+// Este arquivo agora lida apenas com clientes seguros para o frontend.

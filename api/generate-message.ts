@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 // Esta função é executada como uma Vercel Serverless Function
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).end('Method Not Allowed');

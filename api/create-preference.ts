@@ -1,7 +1,9 @@
 import { MercadoPagoConfig, Preference } from 'mercadopago';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
 
 // Esta função é executada como uma Vercel Serverless Function
-export default async function handler(req: any, res: any) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).end('Method Not Allowed');
@@ -14,12 +16,8 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
   }
 
-  // NOTA DE DESENVOLVIMENTO:
-  // O Access Token NUNCA deve ser exposto no código-fonte em um ambiente de produção.
-  // Ele deve ser carregado de forma segura a partir de Variáveis de Ambiente.
-  // Este valor de teste é fornecido abaixo para permitir que o aplicativo funcione para demonstração.
-  // Para produção, configure a variável MERCADO_PAGO_ACCESS_TOKEN no seu provedor de hospedagem (ex: Vercel).
-  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN || "TEST-649033862371721-061014-9b58e3f3595f553345495e267b140614-1851084223";
+  // O Access Token é lido de forma segura das variáveis de ambiente no servidor.
+  const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
   if (!accessToken) {
     console.error('Mercado Pago Access Token não configurado.');
@@ -41,24 +39,20 @@ export default async function handler(req: any, res: any) {
             currency_id: 'BRL',
           },
         ],
-        // Para uma aplicação real, você coletaria informações do pagador.
-        // Por enquanto, usamos um placeholder.
-        payer: {
-            email: `customer-${Date.now()}@relpcell.com`
-        },
-        // URLs de retorno após o pagamento
-        back_urls: {
-            success: `${req.headers.origin}/?payment_status=success&invoice_id=${id}`,
-            failure: `${req.headers.origin}/?payment_status=failure&invoice_id=${id}`,
-            pending: `${req.headers.origin}/?payment_status=pending&invoice_id=${id}`,
-        },
-        auto_return: 'approved',
+        // O `payment brick` lida com o fluxo de pagamento, então `back_urls`
+        // e `auto_return` não são estritamente necessários para este fluxo.
+        // back_urls: {
+        //     success: `${req.headers.origin}/`,
+        //     failure: `${req.headers.origin}/`,
+        //     pending: `${req.headers.origin}/`,
+        // },
+        // auto_return: 'approved',
       },
     };
 
     const result = await preference.create(preferenceData);
 
-    // Retorna o ID da preferência para o frontend
+    // Retorna o ID da preferência para o frontend inicializar o Brick
     res.status(200).json({ id: result.id });
   } catch (error) {
     console.error('Erro ao criar preferência do Mercado Pago:', error);

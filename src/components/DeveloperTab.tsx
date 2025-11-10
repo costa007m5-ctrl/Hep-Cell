@@ -41,27 +41,21 @@ const DeveloperTab: React.FC = () => {
 -- ====================================================================
 -- Script Completo de Configuração do Banco de Dados para Relp Cell
 -- Execute este bloco inteiro de uma vez no Editor SQL do Supabase.
+-- ATENÇÃO: Substitua 'SEU_ADMIN_USER_ID' pelo ID do seu usuário Admin.
+-- Você pode encontrar o ID na seção Authentication -> Users do Supabase.
 -- ====================================================================
 
 -- Parte 1: Tabela de Perfis de Usuários
--- Cria uma tabela pública 'profiles' para armazenar dados seguros dos usuários.
--- Esta tabela espelha os usuários da autenticação e é essencial para
--- que administradores possam listar clientes sem expor dados sensíveis.
 CREATE TABLE public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email VARCHAR(255)
 );
--- Habilita RLS na tabela de perfis
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
--- Políticas para perfis: Usuários podem ver o próprio perfil.
 CREATE POLICY "Usuários podem ver o próprio perfil." ON public.profiles FOR SELECT USING (auth.uid() = id);
--- Políticas para perfis: Administradores podem ver todos os perfis.
-CREATE POLICY "Admins podem ver todos os perfis." ON public.profiles FOR SELECT USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+CREATE POLICY "Admins podem ver todos os perfis." ON public.profiles FOR SELECT USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'); -- SUBSTITUA O ID AQUI
 
 
 -- Parte 2: Trigger para Sincronizar Novos Usuários
--- Cria uma função que será executada automaticamente sempre que um novo usuário
--- se cadastrar no sistema (auth.users).
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -70,14 +64,13 @@ BEGIN
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
--- Aciona a função 'handle_new_user' após cada novo registro em auth.users.
+
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 
 -- Parte 3: Tabela de Faturas
--- Esta tabela armazena os detalhes das faturas dos clientes.
 CREATE TABLE public.invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -86,39 +79,31 @@ CREATE TABLE public.invoices (
   amount NUMERIC(10, 2) NOT NULL,
   status VARCHAR(50) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
-  -- Campos adicionais para detalhes do pagamento
   payment_method VARCHAR(50),
   payment_date TIMESTAMPTZ,
   transaction_id VARCHAR(255),
   notes TEXT
 );
--- Habilita RLS na tabela de faturas
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
--- Políticas para faturas: Clientes podem ver e atualizar suas próprias faturas.
-CREATE POLICY "Clientes podem ver suas próprias faturas." ON public.invoices FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Clientes podem atualizar o status de suas faturas." ON public.invoices FOR UPDATE USING (auth.uid() = user_id);
--- Políticas para faturas: Administradores têm controle total.
-CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+CREATE POLICY "Clientes podem gerenciar suas próprias faturas." ON public.invoices FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'); -- SUBSTITUA O ID AQUI
   `;
 
   const updateSQL = `
 -- ====================================================================
 -- Script de Atualização para Aplicações Existentes
--- Execute este script se você já configurou a tabela inicial 'invoices'
--- e precisa adicionar as novas funcionalidades (tabela de perfis e campos extras).
+-- ATENÇÃO: Substitua 'SEU_ADMIN_USER_ID' pelo ID do seu usuário Admin.
 -- ====================================================================
 
 -- Parte 1: Adicionar Tabela de Perfis e Trigger
--- Cria a tabela 'profiles' para listagem segura de usuários.
 CREATE TABLE public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email VARCHAR(255)
 );
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Usuários podem ver o próprio perfil." ON public.profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Admins podem ver todos os perfis." ON public.profiles FOR SELECT USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+CREATE POLICY "Admins podem ver todos os perfis." ON public.profiles FOR SELECT USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'); -- SUBSTITUA O ID AQUI
 
--- Cria a função de trigger para sincronizar novos usuários
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -127,7 +112,7 @@ BEGIN
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
--- Cria o trigger
+
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
@@ -138,12 +123,23 @@ SELECT id, email FROM auth.users
 ON CONFLICT (id) DO NOTHING;
 
 
--- Parte 2: Adicionar Novos Campos à Tabela 'invoices'
--- Adiciona colunas para detalhes de pagamento, se ainda não existirem.
+-- Parte 2: Adicionar Novos Campos e Políticas à Tabela 'invoices'
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS payment_date TIMESTAMPTZ;
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS transaction_id VARCHAR(255);
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- Garante que a RLS está ativa
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+
+-- Remove políticas antigas se existirem para evitar conflitos
+DROP POLICY IF EXISTS "Clientes podem ver suas próprias faturas." ON public.invoices;
+DROP POLICY IF EXISTS "Clientes podem atualizar o status de suas faturas." ON public.invoices;
+DROP POLICY IF EXISTS "Admins podem gerenciar todas as faturas." ON public.invoices;
+
+-- Cria as novas políticas
+CREATE POLICY "Clientes podem gerenciar suas próprias faturas." ON public.invoices FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'); -- SUBSTITUA O ID AQUI
   `;
 
   return (
@@ -164,15 +160,16 @@ ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS notes TEXT;
 
         <div className="space-y-8 text-left">
             <div>
+                 <Alert 
+                    type="error"
+                    message="IMPORTANTE: Antes de executar os scripts, você precisa encontrar o ID do seu usuário administrador na seção 'Authentication > Users' do seu painel Supabase e substituir o valor '1da77e27-f1df-4e35-bcec-51dc2c5a9062' nos scripts abaixo."
+                />
+            </div>
+            <div>
                 <CodeBlock 
                     title="1. Script de Configuração Inicial" 
                     code={fullSetupSQL}
                     explanation="Para uma instalação nova. Copie este script inteiro, cole no Editor SQL do Supabase e clique em 'RUN'."
-                />
-
-                <Alert 
-                    type="error"
-                    message="Aviso: As Políticas de Segurança (RLS) foram configuradas com um ID de administrador específico. Se o administrador do sistema for alterado, estas políticas precisarão ser atualizadas manualmente no Supabase com o novo ID."
                 />
             </div>
             
@@ -185,7 +182,7 @@ ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS notes TEXT;
                 <CodeBlock 
                     title="2. Script de Atualização" 
                     code={updateSQL}
-                    explanation="Se você já tinha o app configurado, execute este script para adicionar a tabela de perfis e os novos campos de fatura, permitindo a criação de faturas pelo admin."
+                    explanation="Se você já tinha o app configurado, execute este script para adicionar a tabela de perfis, os novos campos de fatura e as políticas de segurança corretas."
                 />
             </div>
         </div>
