@@ -83,25 +83,52 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               callbacks: {
                   onSubmit: async (cardFormData: any) => {
                       setStatus(PaymentStatus.PENDING);
+                      setMessage(''); // Limpa mensagens anteriores
                       try {
-                          await new Promise(resolve => setTimeout(resolve, 2500));
+                          // 1. Envia os dados do cartão para o backend para processamento real
+                          const response = await fetch('/api/process-payment', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(cardFormData),
+                          });
 
-                          // A chamada agora é mais simples e segura
-                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount));
-                          setMessage(successMsg);
-                          setStatus(PaymentStatus.SUCCESS);
-                          setTimeout(() => {
-                              onPaymentSuccess();
-                          }, 4000);
-                      } catch (error) {
-                          console.error(error);
+                          const paymentResult = await response.json();
+
+                          if (!response.ok) {
+                              // Usa a mensagem de erro da API do Mercado Pago se disponível
+                              throw new Error(paymentResult.error || 'Ocorreu um erro ao processar seu pagamento.');
+                          }
+
+                          // 2. Verifica o status retornado pelo backend
+                          if (paymentResult.status === 'approved') {
+                              // 3. Pagamento aprovado, gera mensagem de sucesso com Gemini
+                              const successMsg = await generateSuccessMessage(
+                                  cardFormData.payer.firstName || 'Cliente',
+                                  String(invoice.amount)
+                              );
+                              setMessage(successMsg);
+                              setStatus(PaymentStatus.SUCCESS);
+                              
+                              // 4. Aguarda um pouco para o usuário ler a mensagem e então chama o callback de sucesso
+                              setTimeout(() => {
+                                  onPaymentSuccess();
+                              }, 4000);
+                          } else {
+                              // Lida com outros status (rejeitado, em processo, etc.)
+                              const userMessage = `Seu pagamento foi ${paymentResult.status === 'rejected' ? 'rejeitado' : 'recusado'}. Por favor, verifique os dados ou tente com outro cartão.`;
+                              throw new Error(userMessage);
+                          }
+                      } catch (error: any) {
+                          console.error("Payment submission error:", error);
                           setStatus(PaymentStatus.ERROR);
-                          setMessage('Erro ao finalizar pagamento.');
+                          setMessage(error.message || 'Erro ao finalizar o pagamento. Tente novamente.');
                       }
                   },
                   onError: (error: any) => {
+                      // Este callback é para erros de validação do Brick (ex: número de cartão inválido)
+                      console.error("Mercado Pago Brick validation error:", error);
                       setStatus(PaymentStatus.ERROR);
-                      setMessage('Dados do cartão inválidos. Verifique e tente novamente.');
+                      setMessage('Dados do cartão inválidos. Verifique as informações e tente novamente.');
                   },
               },
           });

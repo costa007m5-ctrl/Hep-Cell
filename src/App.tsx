@@ -13,43 +13,54 @@ import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 
-const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
-
+type AppStatus = 'configuring' | 'ready' | 'error';
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INICIO);
   const [session, setSession] = useState<Session | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState<string | null>(null);
+  const [appStatus, setAppStatus] = useState<AppStatus>('configuring');
   const [view, setView] = useState<View>('customer');
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Efeito para verificar sessão de admin ou buscar a do cliente
+  // Efeito para inicializar o app (buscar chaves) e verificar sessão
   useEffect(() => {
-    if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
-      setView('adminDashboard');
-      setIsAdmin(true); // Garante que o estado é consistente
-      setAuthLoading(false);
-      return;
-    }
+    const initApp = async () => {
+      try {
+        const response = await fetch('/api/config');
+        if (!response.ok) {
+          throw new Error('Falha ao carregar a configuração de pagamento.');
+        }
+        const config = await response.json();
+        setMercadoPagoPublicKey(config.mercadoPagoPublicKey);
+      } catch (error) {
+        console.error("Falha ao inicializar a configuração do aplicativo:", error);
+        setAppStatus('error');
+        return; // Para a execução se a config falhar
+      }
 
-    setAuthLoading(true);
-    const fetchSession = async () => {
+      if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
+        setView('adminDashboard');
+        setIsAdmin(true);
+        setAppStatus('ready');
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
-      setAuthLoading(false);
+      setAppStatus('ready'); // Pronto após buscar a sessão
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
+          setSession(session);
+        }
+      });
+
+      return () => subscription.unsubscribe();
     };
 
-    fetchSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Se já somos admin, não mude a sessão
-      if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
-        setSession(session);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    initApp();
   }, []);
 
   const handleAdminLoginSuccess = () => {
@@ -70,6 +81,33 @@ const App: React.FC = () => {
     setView('customer');
   }
 
+  if (appStatus === 'configuring') {
+    return (
+      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <LoadingSpinner />
+        <p className="mt-4 text-slate-500 dark:text-slate-400">
+            Configurando conexão segura...
+        </p>
+      </div>
+    );
+  }
+
+  if (appStatus === 'error') {
+    return (
+      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
+        <div className="w-full max-w-lg text-center bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
+            <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Erro de Configuração</h1>
+            <p className="mt-2 text-slate-600 dark:text-slate-300">
+                Não foi possível carregar as configurações de pagamento. Verifique se as variáveis de ambiente (MERCADO_PAGO_PUBLIC_KEY) estão configuradas corretamente no servidor.
+            </p>
+        </div>
+      </div>
+    );
+  }
+
   // Renderiza a área de Admin
   if (view === 'adminLogin') {
     return <AdminLoginPage 
@@ -84,7 +122,7 @@ const App: React.FC = () => {
 
   // --- Renderização da área do cliente ---
 
-  if (authLoading) {
+  if (appStatus !== 'ready') {
     return (
       <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
         <LoadingSpinner />
@@ -95,7 +133,8 @@ const App: React.FC = () => {
     );
   }
 
-  if (!session) {
+
+  if (!session && !isAdmin) {
     return <AuthPage onAdminLoginClick={() => setView('adminLogin')} />;
   }
 
@@ -104,11 +143,11 @@ const App: React.FC = () => {
       case Tab.INICIO:
         return <PageInicio />;
       case Tab.FATURAS:
-        return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
+        return <PageFaturas mpPublicKey={mercadoPagoPublicKey!} />;
       case Tab.LOJA:
         return <PageLoja />;
       case Tab.PERFIL:
-        return <PagePerfil session={session} />;
+        return <PagePerfil session={session!} />;
       default:
         return <PageInicio />;
     }
