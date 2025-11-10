@@ -25,19 +25,14 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const paymentBrickContainerRef = useRef<HTMLDivElement>(null);
   const brickControllerRef = useRef<any>(null);
   
-  // Para evitar que o efeito de inicialização seja executado em cada renderização
-  // devido à recriação da função onPaymentSuccess no pai, usamos uma ref.
   const onPaymentSuccessRef = useRef(onPaymentSuccess);
   useEffect(() => {
     onPaymentSuccessRef.current = onPaymentSuccess;
   }, [onPaymentSuccess]);
 
-  // Efeito principal para gerenciar o ciclo de vida do brick do Mercado Pago.
-  // Ele agora depende apenas da fatura e da chave pública, evitando loops.
   useEffect(() => {
     let isComponentMounted = true;
     
-    // Função para limpar e destruir qualquer instância do brick existente
     const unmountBrick = () => {
       if (brickControllerRef.current) {
         brickControllerRef.current.unmount();
@@ -46,18 +41,18 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     };
 
     const initializePayment = async () => {
+      // O contêiner de ref deve existir para a inicialização.
       if (!mpPublicKey || !paymentBrickContainerRef.current) {
+        console.warn("O formulário de pagamento não pode ser inicializado, o contêiner não está pronto.");
         return;
       }
       
-      // 1. Limpa o estado e destrói o brick anterior
       unmountBrick();
       setStatus(PaymentStatus.IDLE);
       setMessage('');
       setIsLoading(true);
 
       try {
-        // 2. Cria uma nova preferência de pagamento
         const prefResponse = await fetch('/api/mercadopago/create-preference', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -74,9 +69,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
         const preference = await prefResponse.json();
         
-        if (!isComponentMounted) return; // Verifica se o componente ainda está montado
+        if (!isComponentMounted) return;
 
-        // 3. Inicializa o novo brick com a preferência criada
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         const bricks = mp.bricks();
 
@@ -116,7 +110,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   setMessage(successMsg);
                   setStatus(PaymentStatus.SUCCESS);
                   setTimeout(() => {
-                    // Chama a versão mais recente do callback através da ref
                     onPaymentSuccessRef.current();
                   }, 4000);
                 }
@@ -156,45 +149,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
     initializePayment();
 
-    // Função de limpeza para desmontar o brick quando o componente for destruído
     return () => {
       isComponentMounted = false;
       unmountBrick();
     };
   }, [invoice, mpPublicKey]);
 
-
-  const renderContent = () => {
-    if (isLoading) {
-      return (
-        <div className="flex flex-col items-center justify-center p-8 space-y-4">
-            <LoadingSpinner />
-            <p className="text-slate-500 dark:text-slate-400">Preparando pagamento seguro...</p>
-        </div>
-      );
-    }
-
-    if (status === PaymentStatus.ERROR) {
-      return <div className="p-4"><Alert message={message} type="error" /></div>;
-    }
-
-    if (status === PaymentStatus.SUCCESS) {
-      return <div className="p-4"><Alert message={message} type="success" /></div>;
-    }
-    
-    if (status === PaymentStatus.PENDING) {
-        return (
-            <div className="flex flex-col items-center justify-center p-8 space-y-4">
-                <LoadingSpinner />
-                <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
-                <p className="text-sm text-slate-400">Por favor, não feche ou atualize a página.</p>
-            </div>
-        )
-    }
-
-    // O contêiner do brick será preenchido pelo useEffect
-    return <div id="paymentBrick_container" ref={paymentBrickContainerRef}></div>;
-  };
 
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in">
@@ -204,7 +164,33 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       </div>
 
       <div className="p-6 sm:p-8 min-h-[200px] flex items-center justify-center">
-        {renderContent()}
+        {/* O container do brick agora está sempre no DOM, mas sua visibilidade é controlada. */}
+        {/* Ele fica escondido durante o carregamento ou estados de feedback, e visível quando o pagamento está pronto. */}
+        <div id="paymentBrick_container" ref={paymentBrickContainerRef} className={!isLoading && status === PaymentStatus.IDLE ? 'w-full' : 'hidden'}></div>
+
+        {/* Indicadores de Status */}
+        {isLoading && (
+            <div className="flex flex-col items-center justify-center space-y-4">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Preparando pagamento seguro...</p>
+            </div>
+        )}
+
+        {status === PaymentStatus.ERROR && (
+            <div className="w-full"><Alert message={message} type="error" /></div>
+        )}
+
+        {status === PaymentStatus.SUCCESS && (
+            <div className="w-full"><Alert message={message} type="success" /></div>
+        )}
+        
+        {status === PaymentStatus.PENDING && (
+            <div className="flex flex-col items-center justify-center space-y-4">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
+                <p className="text-sm text-slate-400">Por favor, não feche ou atualize a página.</p>
+            </div>
+        )}
       </div>
       
       {status !== PaymentStatus.PENDING && status !== PaymentStatus.SUCCESS && (
