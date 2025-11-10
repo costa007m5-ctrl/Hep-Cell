@@ -15,7 +15,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [error, setError] = useState<string | null>(null);
   const [adminView, setAdminView] = useState<'invoices' | 'dev'>('invoices');
   
-  // States para o formulário de criação
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [users, setUsers] = useState<Profile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,45 +26,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     due_date: '',
   });
 
-  const fetchAllInvoices = useCallback(async () => {
-    try {
-      const { data, error: invoicesError } = await supabase
-        .from('invoices')
-        .select('*')
-        .order('due_date', { ascending: false });
-      if (invoicesError) throw invoicesError;
-      setInvoices(data || []);
-    } catch (err: any) {
-      throw err;
-    }
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchAllData = useCallback(async () => {
       setIsLoading(true);
       setError(null);
       try {
-        await fetchAllInvoices();
+        // Busca todas as faturas (requer permissão de admin via RLS)
+        const { data: invoicesData, error: invoicesError } = await supabase
+          .from('invoices')
+          .select('*, profiles(email)') // Junta com a tabela de perfis
+          .order('due_date', { ascending: false });
+        if (invoicesError) throw invoicesError;
+        setInvoices(invoicesData as any || []);
 
         // Busca perfis de usuários para popular o dropdown
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
           .select('id, email');
-        
-        if (profilesError) {
-          throw new Error(`Falha ao carregar usuários: ${profilesError.message}. Verifique se a tabela 'profiles' e o trigger foram criados (veja a aba Desenvolvedor).`);
-        }
+        if (profilesError) throw profilesError;
         setUsers(profilesData || []);
 
       } catch (err: any) {
         console.error("Error fetching admin data:", err);
-        setError(`Falha ao carregar os dados: ${err.message}`);
+        setError(`Falha ao carregar os dados. Verifique as permissões de admin (RLS). Erro: ${err.message}`);
       } finally {
         setIsLoading(false);
       }
-    };
-    fetchData();
-  }, [fetchAllInvoices]);
+  }, []);
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -86,19 +76,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         user_id: userId,
         month,
         amount: parseFloat(amount),
-        due_date: due_date,
+        due_date,
         status: 'Em aberto',
       });
-
       if (insertError) throw insertError;
       
       setSubmitMessage({ text: 'Fatura criada com sucesso!', type: 'success' });
-      setFormState({ userId: '', month: '', amount: '', due_date: '' }); // Limpa o form
+      setFormState({ userId: '', month: '', amount: '', due_date: '' });
       setShowCreateForm(false);
-      await fetchAllInvoices(); // Atualiza a lista
+      await fetchAllData();
 
     } catch (err: any) {
-      setSubmitMessage({ text: `Erro: ${err.message}`, type: 'error' });
+      setSubmitMessage({ text: `Erro ao criar fatura: ${err.message}`, type: 'error' });
     } finally {
       setIsSubmitting(false);
       setTimeout(() => setSubmitMessage(null), 5000);
@@ -159,30 +148,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           </button>
         )}
         
-        {invoices.length === 0 ? (
+        {invoices.length === 0 && !showCreateForm ? (
           <p className="text-center text-slate-500 dark:text-slate-400 p-8">Nenhuma fatura encontrada.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
               <thead className="bg-slate-50 dark:bg-slate-800">
-                    <tr>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Status</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Valor</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">ID do Usuário</th>
-                    </tr>
-                </thead>
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Cliente</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Status</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Valor</th>
+                </tr>
+              </thead>
               <tbody className="bg-white dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700">
-                {invoices.map(invoice => (
+                {invoices.map((invoice: any) => (
                   <tr key={invoice.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{invoice.month}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white" title={invoice.user_id}>{invoice.profiles.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{invoice.month}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ invoice.status === 'Paga' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' }`}>
-                            {invoice.status}
-                        </span>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ invoice.status === 'Paga' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' }`}>
+                          {invoice.status}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400 font-mono" title={invoice.user_id}>{invoice.user_id.slice(0, 15)}...</td>
                   </tr>
                 ))}
               </tbody>

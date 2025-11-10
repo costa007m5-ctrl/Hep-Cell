@@ -16,7 +16,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         const paymentData = req.body;
 
-        // Validação mínima para garantir que os dados essenciais estão presentes
         if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
             return res.status(400).json({ message: 'Dados de pagamento incompletos.' });
         }
@@ -43,17 +42,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             },
         });
 
-        // Retorna uma resposta baseada no status do pagamento
         if (result.status === 'approved' || result.status === 'in_process') {
             res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento processado com sucesso.' });
         } else {
-            // Se o pagamento for recusado, o result.status_detail pode conter o motivo.
             res.status(400).json({ status: result.status, message: result.status_detail || 'Pagamento recusado.' });
         }
 
     } catch (error: any) {
         console.error('Erro ao processar pagamento com Mercado Pago:', error);
-        // A API do MP pode retornar detalhes do erro em `error.cause.message`
         res.status(500).json({
             error: 'Falha ao processar o pagamento.',
             message: error?.cause?.message || 'Ocorreu um erro interno.'

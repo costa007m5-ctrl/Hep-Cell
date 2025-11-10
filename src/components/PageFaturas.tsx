@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PaymentForm from './PaymentForm';
 import { Invoice } from '../types';
-import { supabase } from '../services/clients'; // Atualizado
+import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -9,7 +9,7 @@ interface PageFaturasProps {
     mpPublicKey: string;
 }
 
-// Icons (unchanged)
+// Icons
 const InvoiceIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -26,7 +26,6 @@ const ChevronDownIcon = () => (
     </svg>
 );
 
-// InvoiceItem Component (unchanged)
 const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void }> = ({ invoice, onPay }) => {
     const isPending = invoice.status === 'Em aberto';
     const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
@@ -85,15 +84,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
         } catch (err: any) {
             console.error("Falha ao buscar faturas:", err);
-            let errorMessage = 'Não foi possível carregar suas faturas.';
-
-            if (err && err.message) {
-                if (err.message.includes('permission denied')) {
-                    errorMessage = "Acesso negado ao buscar faturas. Por favor, verifique se as Políticas de Segurança (RLS) do Supabase foram aplicadas corretamente. Consulte a aba 'Desenvolvedor' no painel de admin para obter os scripts necessários.";
-                } else {
-                    errorMessage = `Erro ao carregar faturas: ${err.message}`;
-                }
-            }
+            let errorMessage = 'Não foi possível carregar suas faturas. Verifique as políticas de segurança (RLS) no Supabase.';
             setError(errorMessage);
         } finally {
             setIsLoading(false);
@@ -110,18 +101,20 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const handlePaymentSuccess = useCallback(async () => {
         if (selectedInvoice) {
-            const { error: updateError } = await supabase
-                .from('invoices')
-                .update({ status: 'Paga' })
-                .eq('id', selectedInvoice.id);
+            try {
+                const { error: updateError } = await supabase
+                    .from('invoices')
+                    .update({ status: 'Paga', payment_date: new Date().toISOString() })
+                    .eq('id', selectedInvoice.id);
 
-            if (updateError) {
-                console.error('Failed to update invoice status:', updateError);
-                setError('Houve um erro ao atualizar o status do pagamento. Por favor, verifique mais tarde.');
-            } else {
+                if (updateError) throw updateError;
+
                 setInvoices(prevInvoices => prevInvoices.map(inv =>
                     inv.id === selectedInvoice.id ? { ...inv, status: 'Paga' } : inv
                 ));
+            } catch (err: any) {
+                 console.error('Failed to update invoice status:', err);
+                setError('Houve um erro ao atualizar o status do pagamento. Por favor, verifique mais tarde.');
             }
         }
         setSelectedInvoice(null);

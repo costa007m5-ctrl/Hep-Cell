@@ -1,7 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Esta função é executada como uma Vercel Serverless Function
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -14,7 +13,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Faltam os parâmetros customerName e amount.' });
   }
 
-  // A chave da API é lida de forma segura das variáveis de ambiente no servidor
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     console.error('Gemini API Key (API_KEY) não configurada.');
@@ -22,10 +20,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const genAI = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey });
     const prompt = `Gere uma mensagem curta, amigável e profissional de confirmação de pagamento para um cliente chamado "${customerName}". O valor pago foi de R$ ${amount}. Agradeça ao cliente por sua pontualidade e por escolher a "Relp Cell". A mensagem deve ser em português do Brasil.`;
 
-    const response = await genAI.models.generateContent({
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
