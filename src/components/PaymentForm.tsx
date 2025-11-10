@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
 import LoadingSpinner from './LoadingSpinner';
@@ -25,9 +25,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const paymentBrickContainerRef = useRef<HTMLDivElement>(null);
   const brickControllerRef = useRef<any>(null);
   
-  const memoizedOnPaymentSuccess = useCallback(onPaymentSuccess, [onPaymentSuccess]);
+  // Para evitar que o efeito de inicialização seja executado em cada renderização
+  // devido à recriação da função onPaymentSuccess no pai, usamos uma ref.
+  const onPaymentSuccessRef = useRef(onPaymentSuccess);
+  useEffect(() => {
+    onPaymentSuccessRef.current = onPaymentSuccess;
+  }, [onPaymentSuccess]);
 
-  // Efeito unificado para gerenciar todo o ciclo de vida do brick
+  // Efeito principal para gerenciar o ciclo de vida do brick do Mercado Pago.
+  // Ele agora depende apenas da fatura e da chave pública, evitando loops.
   useEffect(() => {
     let isComponentMounted = true;
     
@@ -109,7 +115,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 if (isComponentMounted) {
                   setMessage(successMsg);
                   setStatus(PaymentStatus.SUCCESS);
-                  setTimeout(memoizedOnPaymentSuccess, 4000);
+                  setTimeout(() => {
+                    // Chama a versão mais recente do callback através da ref
+                    onPaymentSuccessRef.current();
+                  }, 4000);
                 }
 
               } catch (error: any) {
@@ -152,7 +161,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       isComponentMounted = false;
       unmountBrick();
     };
-  }, [invoice, mpPublicKey, memoizedOnPaymentSuccess]);
+  }, [invoice, mpPublicKey]);
 
 
   const renderContent = () => {
