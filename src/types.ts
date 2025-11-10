@@ -16,7 +16,7 @@ export interface Invoice {
   id: string;
   user_id: string; 
   month: string;
-  dueDate: string; // Mantido como 'dueDate' no frontend para consistência, mapeado de 'due_date'
+  due_date: string; // Alinhado com o nome da coluna no banco de dados
   amount: number;
   status: 'Paga' | 'Em aberto';
   paymentMethod?: string | null;

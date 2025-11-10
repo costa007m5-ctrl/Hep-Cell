@@ -24,7 +24,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     userId: '',
     month: '',
     amount: '',
-    dueDate: '',
+    due_date: '',
   });
 
   const fetchAllInvoices = useCallback(async () => {
@@ -77,8 +77,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     setIsSubmitting(true);
     setSubmitMessage(null);
     try {
-      const { userId, month, amount, dueDate } = formState;
-      if (!userId || !month || !amount || !dueDate) {
+      const { userId, month, amount, due_date } = formState;
+      if (!userId || !month || !amount || !due_date) {
         throw new Error("Todos os campos são obrigatórios.");
       }
 
@@ -86,14 +86,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         user_id: userId,
         month,
         amount: parseFloat(amount),
-        due_date: dueDate,
+        due_date: due_date,
         status: 'Em aberto',
       });
 
       if (insertError) throw insertError;
       
       setSubmitMessage({ text: 'Fatura criada com sucesso!', type: 'success' });
-      setFormState({ userId: '', month: '', amount: '', dueDate: '' }); // Limpa o form
+      setFormState({ userId: '', month: '', amount: '', due_date: '' }); // Limpa o form
       setShowCreateForm(false);
       await fetchAllInvoices(); // Atualiza a lista
 
@@ -141,8 +141,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                     <input type="number" id="amount" name="amount" step="0.01" value={formState.amount} onChange={handleInputChange} placeholder="150.00" required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
                   </div>
                   <div>
-                    <label htmlFor="dueDate" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Vencimento</label>
-                    <input type="date" id="dueDate" name="dueDate" value={formState.dueDate} onChange={handleInputChange} required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
+                    <label htmlFor="due_date" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Vencimento</label>
+                    <input type="date" id="due_date" name="due_date" value={formState.due_date} onChange={handleInputChange} required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
                   </div>
                 </div>
                 <div className="flex justify-end space-x-3 pt-2">

@@ -29,7 +29,7 @@ const ChevronDownIcon = () => (
 // InvoiceItem Component (unchanged)
 const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void }> = ({ invoice, onPay }) => {
     const isPending = invoice.status === 'Em aberto';
-    const formattedDueDate = new Date(invoice.dueDate + 'T00:00:00').toLocaleDateString('pt-BR');
+    const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
 
     return (
         <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors duration-200">
@@ -81,9 +81,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
             if (dbError) throw dbError;
             
-            // Mapeia 'due_date' para 'dueDate' para manter a consistência no frontend
-            const mappedData = data.map(inv => ({ ...inv, dueDate: inv.due_date }));
-            setInvoices(mappedData || []);
+            setInvoices(data || []);
 
         } catch (err: any) {
             console.error("Falha ao buscar faturas:", err);
