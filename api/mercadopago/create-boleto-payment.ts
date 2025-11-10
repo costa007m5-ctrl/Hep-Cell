@@ -9,22 +9,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { amount, description, payer } = req.body;
 
+    // Validação agora checa a estrutura plana recebida do frontend
     if (
         !amount || 
         !description || 
         !payer ||
         !payer.email ||
-        !payer.fullName || // Alterado para fullName
-        !payer.identification ||
-        !payer.identification.type ||
-        !payer.identification.number ||
-        !payer.address ||
-        !payer.address.zipCode ||
-        !payer.address.streetName ||
-        !payer.address.streetNumber ||
-        !payer.address.neighborhood ||
-        !payer.address.city ||
-        !payer.address.federalUnit
+        !payer.fullName ||
+        !payer.identificationType ||
+        !payer.identificationNumber ||
+        !payer.zipCode ||
+        !payer.streetName ||
+        !payer.streetNumber ||
+        !payer.neighborhood ||
+        !payer.city ||
+        !payer.federalUnit
     ) {
         return res.status(400).json({ error: 'Dados do pagador ou do pagamento estão incompletos.' });
     }
@@ -39,12 +38,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const client = new MercadoPagoConfig({ accessToken });
         const payment = new Payment(client);
         
-        // Lógica para dividir o nome completo em nome e sobrenome
         const nameParts = payer.fullName.trim().split(' ');
         const firstName = nameParts[0];
-        // Se houver mais de um nome, junta o restante como sobrenome. Senão, usa um ponto como placeholder.
         const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '.';
 
+        // CORREÇÃO: Mapeia a estrutura plana do 'payer' (frontend) para a estrutura aninhada (API MP)
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
@@ -54,16 +52,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 first_name: firstName,
                 last_name: lastName,
                 identification: {
-                    type: payer.identification.type,
-                    number: payer.identification.number.replace(/\D/g, ''),
+                    type: payer.identificationType, // De payer.identificationType
+                    number: payer.identificationNumber.replace(/\D/g, ''), // De payer.identificationNumber
                 },
                 address:  {
-                    zip_code: payer.address.zipCode.replace(/\D/g, ''),
-                    street_name: payer.address.streetName,
-                    street_number: payer.address.streetNumber,
-                    neighborhood: payer.address.neighborhood,
-                    city: payer.address.city,
-                    federal_unit: payer.address.federalUnit,
+                    zip_code: payer.zipCode.replace(/\D/g, ''), // De payer.zipCode
+                    street_name: payer.streetName,
+                    street_number: payer.streetNumber,
+                    neighborhood: payer.neighborhood,
+                    city: payer.city,
+                    federal_unit: payer.federalUnit,
                 }
             },
         };
