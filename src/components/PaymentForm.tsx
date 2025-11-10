@@ -12,7 +12,7 @@ declare global {
 
 interface PaymentFormProps {
   invoice: Invoice;
-  mpPublicKey: string; 
+  mpPublicKey: string;
   onBack: () => void;
   onPaymentSuccess: () => void;
 }
@@ -22,7 +22,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [message, setMessage] = useState('');
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  
   const paymentBrickContainerRef = useRef<HTMLDivElement>(null);
+  const brickControllerRef = useRef<any>(null);
 
   // Efeito para criar a preferência de pagamento quando a fatura muda.
   useEffect(() => {
@@ -33,7 +35,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
     const createPreference = async () => {
       try {
-        const response = await fetch('/api/create-preference', {
+        const response = await fetch('/api/mercadopago/create-preference', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -65,7 +67,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
   // Efeito para inicializar o Payment Brick do Mercado Pago.
   useEffect(() => {
-    if (!preferenceId || !mpPublicKey) {
+    if (!preferenceId || !mpPublicKey || !paymentBrickContainerRef.current) {
       return;
     }
 
@@ -76,13 +78,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       return;
     }
 
-    let brickController: any;
-
     const initializeBrick = async () => {
-      if (!paymentBrickContainerRef.current) return;
+      // Garante que qualquer instância anterior seja destruída
+      if (brickControllerRef.current) {
+        brickControllerRef.current.unmount();
+        brickControllerRef.current = null;
+      }
       
-      paymentBrickContainerRef.current.innerHTML = '';
-
       const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
       
       try {
@@ -104,7 +106,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             onSubmit: async (formData: any) => {
               setStatus(PaymentStatus.PENDING);
               try {
-                const response = await fetch('/api/process-payment', {
+                const response = await fetch('/api/mercadopago/process-payment', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(formData)
@@ -135,7 +137,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           },
         };
         
-        brickController = await bricks.create('payment', 'paymentBrick_container', settings);
+        const brickInstance = await bricks.create('payment', paymentBrickContainerRef.current!.id, settings);
+        brickControllerRef.current = brickInstance;
 
       } catch (e) {
         console.error("Falha ao inicializar o Payment Brick:", e);
@@ -146,9 +149,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     
     initializeBrick();
 
+    // Função de limpeza para desmontar o brick quando o componente for destruído
     return () => {
-      if (brickController) {
-        brickController.unmount();
+      if (brickControllerRef.current) {
+        brickControllerRef.current.unmount();
+        brickControllerRef.current = null;
       }
     };
   }, [preferenceId, mpPublicKey, invoice, onPaymentSuccess]);
@@ -182,6 +187,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         )
     }
 
+    // O ID aqui deve ser único para o contêiner
     return <div id="paymentBrick_container" ref={paymentBrickContainerRef}></div>;
   };
 

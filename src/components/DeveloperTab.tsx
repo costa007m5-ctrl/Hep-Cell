@@ -70,7 +70,7 @@ const DeveloperTab: React.FC = () => {
         setTesting(prev => ({ ...prev, [keyType]: true }));
         setTestResults(prev => ({ ...prev, [keyType]: null }));
 
-        const endpoint = keyType === 'gemini' ? '/api/test-gemini' : '/api/test-mercadopago';
+        const endpoint = keyType === 'gemini' ? '/api/test-gemini' : '/api/mercadopago/test';
         const body = keyType === 'gemini'
             ? { apiKey: keys.geminiApiKey }
             : { accessToken: keys.mercadoPagoToken };
