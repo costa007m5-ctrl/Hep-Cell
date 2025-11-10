@@ -76,7 +76,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
         const settings = {
           initialization: {
-            amount: invoice.amount,
+            // O 'amount' é obtido diretamente da preferência.
+            // Fornecê-lo aqui é redundante e pode causar conflitos no SDK,
+            // resultando em um brick em branco. A melhor prática é usar apenas o ID.
             preferenceId: preference.id,
           },
           customization: {
@@ -88,6 +90,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             },
           },
           callbacks: {
+            onReady: () => {
+              /*
+               * Callback chamado quando o Brick está pronto.
+               * Útil para, por exemplo, esconder um loader e confirmar que a renderização ocorreu.
+              */
+              console.log('Payment Brick está pronto e renderizado.');
+            },
             onSubmit: async (formData: any) => {
               if (!isComponentMounted) return;
               setStatus(PaymentStatus.PENDING);
