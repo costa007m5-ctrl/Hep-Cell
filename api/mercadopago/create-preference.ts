@@ -27,6 +27,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const client = new MercadoPagoConfig({ accessToken });
     const preference = new Preference(client);
 
+    // NOTA: Para aumentar a chance de aprovação de pagamentos com cartão,
+    // é fundamental fornecer dados completos do pagador.
     const preferenceBody: any = {
       items: [
         {
@@ -37,22 +39,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           currency_id: 'BRL',
         },
       ],
+       payer: {
+          email: payerEmail,
+          // Em uma aplicação real, estes dados viriam do perfil do usuário no Supabase.
+          first_name: "Test",
+          last_name: "User",
+          identification: {
+            type: "CPF",
+            number: "19119119100" // CPF de teste
+          }
+      },
     };
-
-    // Adiciona o e-mail do pagador ao corpo da preferência para melhorar a análise de risco
-    if (payerEmail) {
-        preferenceBody.payer = {
-            email: payerEmail,
-        };
-    }
 
     // Se o frontend solicitou um redirecionamento, configuramos as URLs de retorno
     if (redirect) {
         const origin = req.headers.origin || 'https://relpcell.com'; // Use um fallback seguro
         preferenceBody.back_urls = {
-            success: `${origin}`,
-            failure: `${origin}`,
-            pending: `${origin}`,
+            success: `${origin}?payment_status=success`,
+            failure: `${origin}?payment_status=failure`,
+            pending: `${origin}?payment_status=pending`,
         };
         preferenceBody.auto_return = 'approved';
     }
@@ -62,8 +67,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Retorna tanto o ID da preferência (para o Brick) quanto o init_point (para o redirecionamento)
     res.status(200).json({ id: result.id, init_point: result.init_point });
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro ao criar preferência do Mercado Pago:', error);
-    res.status(500).json({ error: 'Falha ao criar a preferência de pagamento.' });
+    // Tenta extrair uma mensagem mais detalhada do erro da API
+    const errorMessage = error?.cause?.error?.message || error?.message || 'Falha ao criar a preferência de pagamento.';
+    res.status(500).json({ error: errorMessage });
   }
 }

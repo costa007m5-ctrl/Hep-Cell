@@ -23,23 +23,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const client = new MercadoPagoConfig({ accessToken });
         const payment = new Payment(client);
         
-        // NOTA: Em uma aplicação real, os dados completos do pagador (nome, sobrenome, CPF, endereço)
-        // deveriam ser coletados do perfil do usuário ou em um formulário.
-        // Aqui, usamos dados de teste para fins de demonstração.
+        // NOTA IMPORTANTE: Para a geração de boletos, a API do Mercado Pago exige
+        // dados completos do pagador. Em uma aplicação real, estes dados deveriam ser
+        // buscados do perfil do usuário logado no seu banco de dados (Supabase).
+        // Para este exemplo, usamos dados de teste válidos.
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'boleto', // ID genérico para boleto
+            payment_method_id: 'bolbradesco', // Usando um ID específico de boleto
             payer: {
                 email: payerEmail,
-                first_name: "Cliente",
-                last_name: "Relp Cell",
+                first_name: "Test", // DADO DE TESTE
+                last_name: "User", // DADO DE TESTE
                 identification: {
                     type: "CPF",
-                    number: "19119119100" // CPF de teste
+                    number: "19119119100" // CPF de teste válido
                 },
-                address: {
-                    zip_code: "06233-200",
+                address:  {
+                    zip_code: "06233200",
                     street_name: "Av. das Nações Unidas",
                     street_number: "3003",
                     neighborhood: "Bonfim",
@@ -51,15 +52,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const result = await payment.create({ body: paymentData });
         
+        // Acessa os dados da transação de forma segura para evitar erros de tipo
         const transactionData = result.point_of_interaction?.transaction_data as any;
 
-        if (transactionData) {
+        if (transactionData && transactionData.ticket_url && transactionData.bar_code) {
             res.status(200).json({
                 paymentId: result.id,
                 boletoUrl: transactionData.ticket_url,
-                barCode: transactionData.bar_code?.content,
+                barCode: transactionData.bar_code.content,
             });
         } else {
+            console.error("Resposta inesperada do Mercado Pago:", result);
             throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
         }
 
