@@ -55,6 +55,10 @@ const DeveloperTab: React.FC = () => {
         mercadoPago: null,
     });
 
+    // Estado para o novo verificador de status
+    const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+    const [statusResult, setStatusResult] = useState<{ success: boolean; message: string } | null>(null);
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setKeys(prev => ({ ...prev, [name]: value }));
@@ -83,9 +87,7 @@ const DeveloperTab: React.FC = () => {
             });
             const result = await response.json();
 
-            // A resposta pode não ter uma propriedade 'success', então verificamos pelo status
             if (!response.ok) {
-                // Lançamos um erro com a mensagem da API para ser pego pelo catch
                 throw new Error(result.message || 'Falha na validação da API.');
             }
             
@@ -101,6 +103,21 @@ const DeveloperTab: React.FC = () => {
         }
     };
     
+    // Função para o novo verificador
+    const handleCheckVercelStatus = async () => {
+        setIsCheckingStatus(true);
+        setStatusResult(null);
+        try {
+            const response = await fetch('/api/mercadopago/status');
+            const result = await response.json();
+            setStatusResult(result);
+        } catch (err) {
+            setStatusResult({ success: false, message: "Erro de comunicação. Não foi possível verificar o status." });
+        } finally {
+            setIsCheckingStatus(false);
+        }
+    };
+
     const fullSetupSQL = `
 -- ====================================================================
 -- Script Completo de Configuração do Banco de Dados para Relp Cell
@@ -227,6 +244,30 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
                         )}
                     </div>
                 </div>
+            </section>
+
+             <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Verificar Status da API no Vercel</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Após configurar as variáveis de ambiente e fazer o deploy, use este botão para confirmar se o servidor Vercel está se comunicando com sucesso com a API do Mercado Pago usando a chave que você salvou.
+                </p>
+                <div>
+                    <button onClick={handleCheckVercelStatus} disabled={isCheckingStatus} className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">
+                        {isCheckingStatus ? <LoadingSpinner /> : (
+                            <>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Verificar Conexão do Mercado Pago
+                            </>
+                        )}
+                    </button>
+                </div>
+                {statusResult && (
+                    <div className="mt-4 animate-fade-in">
+                        <Alert message={statusResult.message} type={statusResult.success ? 'success' : 'error'} />
+                    </div>
+                )}
             </section>
             
             <section>
