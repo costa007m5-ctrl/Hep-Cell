@@ -57,7 +57,7 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
             </button>
           ))}
            <p className="text-xs text-center text-slate-400 dark:text-slate-500 pt-2">
-            Você será redirecionado para um ambiente seguro do Mercado Pago para concluir a transação.
+            O formulário de pagamento seguro do Mercado Pago será exibido a seguir nesta tela.
           </p>
         </div>
 

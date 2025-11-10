@@ -55,9 +55,12 @@ const DeveloperTab: React.FC = () => {
         mercadoPago: null,
     });
 
-    // Estado para o novo verificador de status
     const [isCheckingStatus, setIsCheckingStatus] = useState(false);
     const [statusResult, setStatusResult] = useState<{ success: boolean; message: string } | null>(null);
+
+    const [testPreference, setTestPreference] = useState({ amount: '1.00', description: 'Fatura de Teste' });
+    const [isTestingPreference, setIsTestingPreference] = useState(false);
+    const [preferenceResult, setPreferenceResult] = useState<{ success: boolean; message: string } | null>(null);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -103,7 +106,6 @@ const DeveloperTab: React.FC = () => {
         }
     };
     
-    // Função para o novo verificador
     const handleCheckVercelStatus = async () => {
         setIsCheckingStatus(true);
         setStatusResult(null);
@@ -115,6 +117,45 @@ const DeveloperTab: React.FC = () => {
             setStatusResult({ success: false, message: "Erro de comunicação. Não foi possível verificar o status." });
         } finally {
             setIsCheckingStatus(false);
+        }
+    };
+
+    const handlePreferenceInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setTestPreference(prev => ({ ...prev, [name]: value }));
+        setPreferenceResult(null);
+    };
+
+    const handleTestPreferenceCreation = async () => {
+        setIsTestingPreference(true);
+        setPreferenceResult(null);
+        try {
+            if (!testPreference.amount || !testPreference.description || parseFloat(testPreference.amount) <= 0) {
+                throw new Error("Por favor, insira um valor e descrição válidos.");
+            }
+
+            const response = await fetch('/api/mercadopago/create-preference', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: `test_${Date.now()}`,
+                    amount: parseFloat(testPreference.amount),
+                    description: testPreference.description,
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Falha ao criar preferência. Verifique o console da Vercel para logs.');
+            }
+
+            setPreferenceResult({ success: true, message: `Preferência criada com sucesso! ID: ${result.id}` });
+
+        } catch (err: any) {
+            setPreferenceResult({ success: false, message: err.message });
+        } finally {
+            setIsTestingPreference(false);
         }
     };
 
@@ -268,6 +309,54 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
                         <Alert message={statusResult.message} type={statusResult.success ? 'success' : 'error'} />
                     </div>
                 )}
+            </section>
+
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Teste da API de Criação de Pagamento</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Este teste simula a primeira etapa do fluxo de pagamento, onde o aplicativo solicita ao Mercado Pago para preparar uma transação. Isso valida se o seu <strong>Access Token</strong> (configurado na Vercel) está correto e tem as permissões necessárias para criar pagamentos.
+                </p>
+                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 max-w-xl space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Descrição do Item
+                            </label>
+                            <input
+                                id="description"
+                                name="description"
+                                type="text"
+                                value={testPreference.description}
+                                onChange={handlePreferenceInputChange}
+                                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="amount" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Valor (R$)
+                            </label>
+                            <input
+                                id="amount"
+                                name="amount"
+                                type="number"
+                                step="0.01"
+                                value={testPreference.amount}
+                                onChange={handlePreferenceInputChange}
+                                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <button onClick={handleTestPreferenceCreation} disabled={isTestingPreference} className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                            {isTestingPreference ? <LoadingSpinner /> : 'Testar Criação de Preferência'}
+                        </button>
+                    </div>
+                    {preferenceResult && (
+                        <div className="mt-2 animate-fade-in">
+                            <Alert message={preferenceResult.message} type={preferenceResult.success ? 'success' : 'error'} />
+                        </div>
+                    )}
+                </div>
             </section>
             
             <section>
