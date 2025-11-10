@@ -1,6 +1,30 @@
 import { MercadoPagoConfig, Payment } from 'mercadopago';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+/**
+ * Formata um objeto Date para o formato ISO 8601 exigido pelo Mercado Pago,
+ * incluindo o fuso horário local. Ex: '2024-07-29T15:30:00.000-03:00'
+ * @param date O objeto Date a ser formatado.
+ * @returns A string de data formatada.
+ */
+function formatDateForMP(date: Date): string {
+    const offset = -date.getTimezoneOffset();
+    const offsetSign = offset >= 0 ? '+' : '-';
+    const offsetHours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
+    const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
+
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${offsetSign}${offsetHours}:${offsetMinutes}`;
+}
+
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
@@ -34,7 +58,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             payer: {
                 email: payerEmail,
             },
-            date_of_expiration: expirationDate.toISOString().replace(/\.\d{3}Z$/, 'Z') // Formato ISO 8601
+            // Utiliza a nova função para formatar a data corretamente
+            date_of_expiration: formatDateForMP(expirationDate)
         };
 
         const result = await payment.create({ body: paymentData });
