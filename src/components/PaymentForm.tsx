@@ -66,6 +66,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       setIsLoading(true);
 
       try {
+        // Adiciona uma verificação para garantir que o SDK do Mercado Pago foi carregado
+        if (typeof window.MercadoPago !== 'function') {
+            throw new Error('O SDK de pagamento não carregou corretamente. Por favor, recarregue a página e tente novamente.');
+        }
+
         const { data: { user } } = await supabase.auth.getUser();
         if (!user || !user.email) {
             if (isComponentMounted) {
