@@ -30,7 +30,7 @@ const PixIcon = () => (
 const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, onSelectMethod, onBack }) => {
 
     const paymentOptions = [
-      { id: 'brick', name: 'Cartão, PIX e outros', icon: <CreditCardIcon />, description: "Pague com segurança nesta tela." },
+      { id: 'brick', name: 'Cartão de Crédito ou Débito', icon: <CreditCardIcon />, description: "Pague com seu cartão nesta tela." },
       { id: 'pix', name: 'Pagar com PIX', icon: <PixIcon />, description: "Gere um QR Code e chave copia e cola." },
       { id: 'redirect', name: 'Pagar no site do Mercado Pago', icon: <ExternalLinkIcon />, description: "Você será redirecionado." },
     ];
