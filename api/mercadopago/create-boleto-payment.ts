@@ -7,10 +7,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    const { amount, description, payerEmail } = req.body;
+    // Espera-se que o corpo da requisição contenha os detalhes do pagamento e do pagador
+    const { amount, description, payer } = req.body;
 
-    if (!amount || !description || !payerEmail) {
-        return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o boleto.' });
+    // Validação robusta para todos os campos obrigatórios
+    if (
+        !amount || 
+        !description || 
+        !payer ||
+        !payer.email ||
+        !payer.firstName ||
+        !payer.lastName ||
+        !payer.identification ||
+        !payer.identification.type ||
+        !payer.identification.number ||
+        !payer.address ||
+        !payer.address.zipCode ||
+        !payer.address.streetName ||
+        !payer.address.streetNumber ||
+        !payer.address.neighborhood ||
+        !payer.address.city ||
+        !payer.address.federalUnit
+    ) {
+        return res.status(400).json({ error: 'Dados do pagador ou do pagamento estão incompletos.' });
     }
 
     const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -23,36 +42,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const client = new MercadoPagoConfig({ accessToken });
         const payment = new Payment(client);
         
-        // NOTA IMPORTANTE: Para a geração de boletos, a API do Mercado Pago exige
-        // dados completos do pagador. Em uma aplicação real, estes dados deveriam ser
-        // buscados do perfil do usuário logado no seu banco de dados (Supabase).
-        // Para este exemplo, usamos dados de teste válidos.
+        // Constrói o corpo da requisição para a API do Mercado Pago
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'boleto', // CORREÇÃO: Usando o ID genérico para boleto.
+            payment_method_id: 'boleto',
             payer: {
-                email: payerEmail,
-                first_name: "Test", // DADO DE TESTE
-                last_name: "User", // DADO DE TESTE
+                email: payer.email,
+                first_name: payer.firstName,
+                last_name: payer.lastName,
                 identification: {
-                    type: "CPF",
-                    number: "19119119100" // CPF de teste válido
+                    type: payer.identification.type,
+                    number: payer.identification.number.replace(/\D/g, ''), // Remove caracteres não numéricos
                 },
                 address:  {
-                    zip_code: "06233200",
-                    street_name: "Av. das Nações Unidas",
-                    street_number: "3003",
-                    neighborhood: "Bonfim",
-                    city: "Osasco",
-                    federal_unit: "SP"
+                    zip_code: payer.address.zipCode.replace(/\D/g, ''), // Remove caracteres não numéricos
+                    street_name: payer.address.streetName,
+                    street_number: payer.address.streetNumber,
+                    neighborhood: payer.address.neighborhood,
+                    city: payer.address.city,
+                    federal_unit: payer.address.federalUnit,
                 }
             },
         };
 
         const result = await payment.create({ body: paymentData });
         
-        // Acessa os dados da transação de forma segura para evitar erros de tipo
+        // Acessa os dados da transação de forma segura
         const transactionData = result.point_of_interaction?.transaction_data as any;
 
         if (transactionData && transactionData.ticket_url && transactionData.bar_code) {
