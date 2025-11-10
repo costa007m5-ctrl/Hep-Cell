@@ -25,11 +25,12 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
             password,
         });
 
-        if (signInError) throw signInError;
+        if (signInError) {
+            throw signInError;
+        }
 
         // IMPORTANTE: Este ID deve ser o mesmo usado nas políticas RLS do Supabase.
         // Substitua pelo ID do seu usuário administrador no Supabase Auth.
-        // Você pode encontrar o ID em Authentication > Users na sua dashboard do Supabase.
         const ADMIN_USER_ID = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
         
         if (user?.id !== ADMIN_USER_ID) {
@@ -37,6 +38,7 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
             throw new Error("Acesso negado. Esta conta não tem permissões de administrador.");
         }
         
+        // Se o login for bem-sucedido E for o admin, chama o callback
         onLoginSuccess();
 
     } catch (err: any) {

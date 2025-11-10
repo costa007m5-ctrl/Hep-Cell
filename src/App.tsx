@@ -14,7 +14,6 @@ import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 
 // A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
-// ATENÇÃO: Use sua chave PÚBLICA de produção aqui quando for para o ar.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
@@ -24,11 +23,13 @@ const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
+  const [isAdmin, setIsAdmin] = useState(false);
 
+  // Efeito para verificar sessão de admin ou buscar a do cliente
   useEffect(() => {
-    // Verifica se o admin já está logado na sessão do navegador
     if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
       setView('adminDashboard');
+      setIsAdmin(true); // Garante que o estado é consistente
       setAuthLoading(false);
       return;
     }
@@ -43,6 +44,7 @@ const App: React.FC = () => {
     fetchSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Se já somos admin, não mude a sessão
       if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
         setSession(session);
       }
@@ -54,13 +56,15 @@ const App: React.FC = () => {
   const handleAdminLoginSuccess = () => {
     sessionStorage.setItem('isAdminLoggedIn', 'true');
     setView('adminDashboard');
+    setIsAdmin(true);
   };
 
   const handleAdminLogout = async () => {
     sessionStorage.removeItem('isAdminLoggedIn');
-    await supabase.auth.signOut();
+    setIsAdmin(false);
+    await supabase.auth.signOut(); // Também desloga do Supabase
     setView('customer');
-    window.location.reload(); // Recarrega para limpar o estado
+    window.location.reload();
   };
   
   const handleBackToCustomer = () => {
@@ -80,6 +84,7 @@ const App: React.FC = () => {
   }
 
   // --- Renderização da área do cliente ---
+
   if (authLoading) {
     return (
       <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
