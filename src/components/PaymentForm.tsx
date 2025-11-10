@@ -59,6 +59,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
   useEffect(() => {
     if (preferenceId && mpPublicKey && brickContainerRef.current) {
+      // Previne re-renderização do brick
       if (brickContainerRef.current.innerHTML.trim() !== '') {
         return;
       }
@@ -69,27 +70,33 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
       const bricks = mp.bricks();
 
-      const renderCardPaymentBrick = async () => {
-          await bricks.create('cardPayment', brickContainerRef.current!.id, {
+      const renderPaymentBrick = async () => {
+          await bricks.create('payment', brickContainerRef.current!.id, {
               initialization: {
                   amount: invoice.amount,
                   preferenceId: preferenceId,
               },
               customization: {
                 paymentMethods: {
-                    maxInstallments: 3,
-                }
+                    ticket: 'all', // Habilita Boleto
+                    pix: 'all', // Habilita Pix
+                    creditCard: 'all', // Habilita Cartão de Crédito
+                    debitCard: [], // Desabilita Cartão de Débito para focar nas 3 opções principais
+                },
               },
               callbacks: {
-                  onSubmit: async (cardFormData: any) => {
+                  onSubmit: async (formData: any) => {
+                      // O onSubmit é chamado para todos os tipos de pagamento
                       setStatus(PaymentStatus.PENDING);
                       try {
+                          // Simula o processamento do backend
                           await new Promise(resolve => setTimeout(resolve, 2500));
 
-                          // A chamada agora é mais simples e segura
-                          const successMsg = await generateSuccessMessage(cardFormData.payer.firstName || 'Cliente', String(invoice.amount));
+                          const customerName = formData?.payer?.firstName || 'Cliente';
+                          const successMsg = await generateSuccessMessage(customerName, String(invoice.amount));
                           setMessage(successMsg);
                           setStatus(PaymentStatus.SUCCESS);
+                          
                           setTimeout(() => {
                               onPaymentSuccess();
                           }, 4000);
@@ -101,15 +108,20 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   },
                   onError: (error: any) => {
                       setStatus(PaymentStatus.ERROR);
-                      setMessage('Dados do cartão inválidos. Verifique e tente novamente.');
+                      setMessage('Ocorreu um erro. Verifique os dados e tente novamente.');
+                      console.error("Mercado Pago Error:", error);
                   },
+                  onReady: () => {
+                    /* Brick pronto */
+                  }
               },
           });
       };
       
-      renderCardPaymentBrick();
+      renderPaymentBrick();
     }
     
+    // Cleanup: desmonta o brick ao sair do componente para evitar erros
     return () => {
         if (brickContainerRef.current) {
             brickContainerRef.current.innerHTML = '';
@@ -148,7 +160,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
     return (
         <>
-            <div id="cardPaymentBrick_container" ref={brickContainerRef}></div>
+            <div id="paymentBrick_container" ref={brickContainerRef}></div>
         </>
     );
   };
