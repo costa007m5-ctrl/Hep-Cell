@@ -62,6 +62,11 @@ const DeveloperTab: React.FC = () => {
     const [isTestingPreference, setIsTestingPreference] = useState(false);
     const [preferenceResult, setPreferenceResult] = useState<{ success: boolean; message: string } | null>(null);
 
+    const [testBoleto, setTestBoleto] = useState({ amount: '5.00', description: 'Boleto de Teste' });
+    const [isTestingBoleto, setIsTestingBoleto] = useState(false);
+    const [boletoResult, setBoletoResult] = useState<{ success: boolean; message: string } | null>(null);
+
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setKeys(prev => ({ ...prev, [name]: value }));
@@ -156,6 +161,46 @@ const DeveloperTab: React.FC = () => {
             setPreferenceResult({ success: false, message: err.message });
         } finally {
             setIsTestingPreference(false);
+        }
+    };
+
+    const handleBoletoInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setTestBoleto(prev => ({ ...prev, [name]: value }));
+        setBoletoResult(null);
+    };
+
+    const handleTestBoletoCreation = async () => {
+        setIsTestingBoleto(true);
+        setBoletoResult(null);
+        try {
+            if (!testBoleto.amount || !testBoleto.description || parseFloat(testBoleto.amount) <= 0) {
+                throw new Error("Por favor, insira um valor e descrição válidos.");
+            }
+
+            const response = await fetch('/api/mercadopago/create-boleto-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    amount: parseFloat(testBoleto.amount),
+                    description: testBoleto.description,
+                    payerEmail: 'test@example.com' // Using a static test email
+                }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || result.message || 'Falha ao gerar boleto. Verifique o console da Vercel para logs.');
+            }
+
+            const successMessage = `Boleto gerado! Link: ${result.boletoUrl.substring(0, 50)}...`;
+            setBoletoResult({ success: true, message: successMessage });
+
+        } catch (err: any) {
+            setBoletoResult({ success: false, message: err.message });
+        } finally {
+            setIsTestingBoleto(false);
         }
     };
 
@@ -312,9 +357,9 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
             </section>
 
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Teste da API de Criação de Pagamento</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Teste de Preparação de Pagamento (Cartão/Checkout)</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    Este teste simula a primeira etapa do fluxo de pagamento, onde o aplicativo solicita ao Mercado Pago para preparar uma transação. Isso valida se o seu <strong>Access Token</strong> (configurado na Vercel) está correto e tem as permissões necessárias para criar pagamentos.
+                    Este teste simula a primeira etapa do fluxo de pagamento com <strong>Cartão (Payment Brick)</strong> ou checkout transparente. Ele solicita ao Mercado Pago para preparar uma transação (criar uma "preferência"). Isso valida se o seu <strong>Access Token</strong> (configurado na Vercel) está correto e tem as permissões necessárias.
                 </p>
                 <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 max-w-xl space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -348,7 +393,7 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
                     </div>
                     <div>
                         <button onClick={handleTestPreferenceCreation} disabled={isTestingPreference} className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                            {isTestingPreference ? <LoadingSpinner /> : 'Testar Criação de Preferência'}
+                            {isTestingPreference ? <LoadingSpinner /> : 'Testar Preparação de Cartão'}
                         </button>
                     </div>
                     {preferenceResult && (
@@ -359,6 +404,54 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
                 </div>
             </section>
             
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Teste de Geração de Boleto</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Este teste chama diretamente o endpoint de criação de boleto. Ele valida se a sua conta Mercado Pago está habilitada para gerar boletos e se o <strong>Access Token</strong> está funcionando corretamente para esta operação específica.
+                </p>
+                <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 max-w-xl space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="boletoDescription" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Descrição do Item
+                            </label>
+                            <input
+                                id="boletoDescription"
+                                name="description"
+                                type="text"
+                                value={testBoleto.description}
+                                onChange={handleBoletoInputChange}
+                                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700"
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="boletoAmount" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Valor (R$)
+                            </label>
+                            <input
+                                id="boletoAmount"
+                                name="amount"
+                                type="number"
+                                step="0.01"
+                                value={testBoleto.amount}
+                                onChange={handleBoletoInputChange}
+                                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <button onClick={handleTestBoletoCreation} disabled={isTestingBoleto} className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                            {isTestingBoleto ? <LoadingSpinner /> : 'Testar Geração de Boleto'}
+                        </button>
+                    </div>
+                    {boletoResult && (
+                        <div className="mt-2 animate-fade-in">
+                            <Alert message={boletoResult.message} type={boletoResult.success ? 'success' : 'error'} />
+                        </div>
+                    )}
+                </div>
+            </section>
+
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados</h2>
                  <CodeBlock
