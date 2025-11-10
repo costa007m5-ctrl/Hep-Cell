@@ -39,8 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             currency_id: 'BRL',
           },
         ],
-        // O `payment brick` lida com o fluxo de pagamento, então `back_urls`
-        // e `auto_return` não são estritamente necessários para este fluxo.
+        // O `payment brick` lida com o fluxo de pagamento no frontend,
+        // então `back_urls` e `auto_return` não são mais necessários para este fluxo.
         // back_urls: {
         //     success: `${req.headers.origin}/`,
         //     failure: `${req.headers.origin}/`,
