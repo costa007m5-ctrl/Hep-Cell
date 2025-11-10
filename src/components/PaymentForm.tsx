@@ -71,6 +71,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       const bricks = mp.bricks();
 
       const renderPaymentBrick = async () => {
+          // ATUALIZAÇÃO: Trocamos o 'cardPayment' pelo 'payment' brick.
+          // Este componente renderiza de forma inteligente as opções de pagamento
+          // disponíveis, incluindo Pix, Boleto e Cartão de Crédito.
           await bricks.create('payment', brickContainerRef.current!.id, {
               initialization: {
                   amount: invoice.amount,
@@ -112,7 +115,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                       console.error("Mercado Pago Error:", error);
                   },
                   onReady: () => {
-                    /* Brick pronto */
+                    /* O brick está pronto para ser usado */
                   }
               },
           });
@@ -124,6 +127,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     // Cleanup: desmonta o brick ao sair do componente para evitar erros
     return () => {
         if (brickContainerRef.current) {
+            const brickInstance = window.MercadoPago.getBrick("payment");
+            if (brickInstance) {
+              brickInstance.unmount();
+            }
             brickContainerRef.current.innerHTML = '';
         }
     };
