@@ -43,6 +43,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     const initializePayment = async () => {
       if (!mpPublicKey || !paymentBrickContainerRef.current) {
         console.warn("O formulário de pagamento não pode ser inicializado, o contêiner não está pronto.");
+        if (isComponentMounted) {
+            setStatus(PaymentStatus.ERROR);
+            setMessage("Erro de configuração: A chave de pagamento não foi carregada.");
+            setIsLoading(false);
+        }
         return;
       }
       
@@ -63,7 +68,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         });
 
         if (!prefResponse.ok) {
-          throw new Error('Falha ao criar a preferência de pagamento.');
+          const errorData = await prefResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Falha ao preparar o pagamento no servidor.');
         }
 
         const preference = await prefResponse.json();
@@ -73,10 +79,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         const bricks = mp.bricks();
 
-        // Configuração simplificada para o Payment Brick.
-        // Removendo 'customization' e usando apenas 'preferenceId'.
-        // Isso torna a integração mais robusta, delegando as opções de pagamento
-        // para a configuração da sua conta Mercado Pago e da preferência criada.
         const settings = {
           initialization: {
             preferenceId: preference.id,
@@ -84,7 +86,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           callbacks: {
             onReady: () => {
               if (isComponentMounted) {
-                console.log('Payment Brick está pronto e renderizado.');
                 setIsLoading(false);
               }
             },
@@ -100,7 +101,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 
                 const result = await response.json();
                 if (!response.ok) {
-                  throw new Error(result.message || 'Falha no processamento do pagamento.');
+                  throw new Error(result.message || 'O pagamento foi recusado pela operadora.');
                 }
                 
                 const customerName = formData?.payer?.firstName || 'Cliente';
@@ -125,7 +126,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               console.error("Mercado Pago Brick Error:", error);
               if (isComponentMounted) {
                 setStatus(PaymentStatus.ERROR);
-                setMessage('Ocorreu um erro. Verifique os dados e tente novamente.');
+                setMessage('Ocorreu um erro com o serviço de pagamento. Verifique os dados e tente novamente.');
               }
             },
           },
@@ -134,11 +135,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         const brickInstance = await bricks.create('payment', paymentBrickContainerRef.current!.id, settings);
         brickControllerRef.current = brickInstance;
 
-      } catch (error) {
+      } catch (error: any) {
         console.error("Falha ao inicializar pagamento:", error);
         if (isComponentMounted) {
           setStatus(PaymentStatus.ERROR);
-          setMessage('Não foi possível iniciar o pagamento. Tente novamente mais tarde.');
+          setMessage(error.message || 'Não foi possível iniciar o pagamento. Verifique sua conexão e tente novamente.');
           setIsLoading(false);
         }
       }
@@ -161,10 +162,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       </div>
 
       <div className="p-6 sm:p-8 min-h-[200px] flex items-center justify-center">
-        {/* Container para o brick, sempre no DOM para o SDK do MP */}
         <div id="paymentBrick_container" ref={paymentBrickContainerRef} className={isLoading || status !== PaymentStatus.IDLE ? 'hidden' : 'w-full'}></div>
 
-        {/* Indicadores de Status */}
         {isLoading && (
             <div className="flex flex-col items-center justify-center space-y-4">
                 <LoadingSpinner />

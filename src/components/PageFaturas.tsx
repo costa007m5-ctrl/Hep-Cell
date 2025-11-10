@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PaymentForm from './PaymentForm';
 import { Invoice } from '../types';
-import { supabase } from '../services/clients'; // Atualizado
+import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import PaymentMethodSelector from './PaymentMethodSelector';
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
+
+type PaymentStep = 'list' | 'select_method' | 'form';
 
 // Icons (unchanged)
 const InvoiceIcon = () => (
@@ -26,7 +29,7 @@ const ChevronDownIcon = () => (
     </svg>
 );
 
-// InvoiceItem Component (unchanged)
+// InvoiceItem Component
 const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void }> = ({ invoice, onPay }) => {
     const isPending = invoice.status === 'Em aberto';
     const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
@@ -64,12 +67,12 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+    const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
 
     const fetchInvoices = async () => {
         try {
             setIsLoading(true);
             setError(null);
-
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
 
@@ -78,35 +81,43 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 .select('*')
                 .eq('user_id', user.id)
                 .order('due_date', { ascending: false });
-
             if (dbError) throw dbError;
-            
             setInvoices(data || []);
-
         } catch (err: any) {
-            console.error("Falha ao buscar faturas:", err);
-            let errorMessage = 'Não foi possível carregar suas faturas.';
-
-            if (err && err.message) {
-                if (err.message.includes('permission denied')) {
-                    errorMessage = "Acesso negado ao buscar faturas. Por favor, verifique se as Políticas de Segurança (RLS) do Supabase foram aplicadas corretamente. Consulte a aba 'Desenvolvedor' no painel de admin para obter os scripts necessários.";
-                } else {
-                    errorMessage = `Erro ao carregar faturas: ${err.message}`;
-                }
-            }
-            setError(errorMessage);
+            setError('Falha ao carregar as faturas. Tente novamente mais tarde.');
+            console.error('Error fetching invoices:', err);
         } finally {
             setIsLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchInvoices();
-    }, []);
+        if (paymentStep === 'list') {
+            fetchInvoices();
+        }
+    }, [paymentStep]);
 
     const openInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto'), [invoices]);
     const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga'), [invoices]);
     const totalDue = useMemo(() => openInvoices.reduce((sum, inv) => sum + inv.amount, 0), [openInvoices]);
+
+    const handlePayClick = (invoice: Invoice) => {
+        setSelectedInvoice(invoice);
+        setPaymentStep('select_method');
+    };
+
+    const handleMethodSelect = () => {
+        setPaymentStep('form');
+    };
+
+    const handleBackToMethodSelection = () => {
+        setPaymentStep('select_method');
+    };
+    
+    const handleBackToList = () => {
+        setSelectedInvoice(null);
+        setPaymentStep('list');
+    };
 
     const handlePaymentSuccess = useCallback(async () => {
         if (selectedInvoice) {
@@ -118,21 +129,28 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             if (updateError) {
                 console.error('Failed to update invoice status:', updateError);
                 setError('Houve um erro ao atualizar o status do pagamento. Por favor, verifique mais tarde.');
-            } else {
-                setInvoices(prevInvoices => prevInvoices.map(inv =>
-                    inv.id === selectedInvoice.id ? { ...inv, status: 'Paga' } : inv
-                ));
             }
         }
         setSelectedInvoice(null);
+        setPaymentStep('list');
     }, [selectedInvoice]);
 
-    if (selectedInvoice) {
+    if (paymentStep === 'select_method' && selectedInvoice) {
+        return (
+            <PaymentMethodSelector
+                invoice={selectedInvoice}
+                onSelectMethod={handleMethodSelect}
+                onBack={handleBackToList}
+            />
+        );
+    }
+    
+    if (paymentStep === 'form' && selectedInvoice) {
         return (
           <PaymentForm
             invoice={selectedInvoice}
             mpPublicKey={mpPublicKey}
-            onBack={() => setSelectedInvoice(null)}
+            onBack={handleBackToMethodSelection}
             onPaymentSuccess={handlePaymentSuccess}
           />
         );
@@ -190,7 +208,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                         Pagar Faturas
                     </h2>
                     {openInvoices.map(invoice => (
-                        <InvoiceItem key={invoice.id} invoice={invoice} onPay={setSelectedInvoice} />
+                        <InvoiceItem key={invoice.id} invoice={invoice} onPay={handlePayClick} />
                     ))}
                 </section>
             )}
