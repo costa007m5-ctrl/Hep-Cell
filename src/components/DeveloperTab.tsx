@@ -37,7 +37,11 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
 
 
 const DeveloperTab: React.FC = () => {
-  const createTableSQL = `
+  const fullSetupSQL = `
+-- Script Completo de Configuração do Banco de Dados para Relp Cell
+
+-- Passo 1: Criar a tabela 'invoices'
+-- Esta tabela armazena os detalhes das faturas dos clientes.
 CREATE TABLE invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) NOT NULL,
@@ -47,50 +51,63 @@ CREATE TABLE invoices (
   status VARCHAR(50) NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
-  `;
 
-  const enableRLS_SQL = `
+-- Passo 2: Habilitar a Segurança a Nível de Linha (RLS)
+-- É crucial para garantir que os clientes só possam acessar seus próprios dados.
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
-  `;
 
-  const clientSelectPolicySQL = `
+-- Passo 3: Políticas de Acesso para Clientes
+-- Garante que os clientes só possam ver e atualizar suas próprias faturas.
 CREATE POLICY "Clientes podem ver suas próprias faturas."
 ON public.invoices
 FOR SELECT
 USING (auth.uid() = user_id);
-  `;
 
-  const clientUpdatePolicySQL = `
 CREATE POLICY "Clientes podem atualizar o status de suas faturas."
 ON public.invoices
 FOR UPDATE
 USING (auth.uid() = user_id)
 WITH CHECK (auth.uid() = user_id);
-  `;
-  
-  const adminSelectPolicySQL = `
--- SUBSTITUA 'SEU_ADMIN_USER_ID' PELO ID DO SEU USUÁRIO ADMIN
--- Você encontra o ID na seção Authentication -> Users do seu painel Supabase.
+
+-- Passo 4: Políticas de Acesso para Administrador
+-- Concede ao administrador controle total sobre a tabela de faturas.
+-- IMPORTANTE: Substitua 'SEU_ADMIN_USER_ID' pelo ID do seu usuário admin no Supabase.
 CREATE POLICY "Administrador pode ver todas as faturas."
 ON public.invoices
 FOR SELECT
 USING (auth.uid() = 'SEU_ADMIN_USER_ID');
-  `;
 
-  const adminInsertPolicySQL = `
 CREATE POLICY "Administrador pode criar novas faturas."
 ON public.invoices
 FOR INSERT
 WITH CHECK (auth.uid() = 'SEU_ADMIN_USER_ID');
-  `;
 
-  const adminManagePolicySQL = `
-CREATE POLICY "Administrador pode atualizar e deletar faturas."
+CREATE POLICY "Administrador pode gerenciar todas as faturas (atualizar/deletar)."
 ON public.invoices
 FOR UPDATE, DELETE
 USING (auth.uid() = 'SEU_ADMIN_USER_ID');
   `;
 
+  const updateSQL = `
+-- Script de Atualização da Tabela 'invoices'
+-- Execute este script se você já configurou a tabela inicial e precisa adicionar novos campos.
+
+-- Adiciona a coluna para o método de pagamento (ex: 'Cartão de Crédito', 'Pix')
+ALTER TABLE public.invoices
+ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50);
+
+-- Adiciona a coluna para a data exata do pagamento
+ALTER TABLE public.invoices
+ADD COLUMN IF NOT EXISTS payment_date TIMESTAMPTZ;
+
+-- Adiciona a coluna para o ID da transação do gateway de pagamento
+ALTER TABLE public.invoices
+ADD COLUMN IF NOT EXISTS transaction_id VARCHAR(255);
+
+-- Adiciona um campo de anotações para uso administrativo
+ALTER TABLE public.invoices
+ADD COLUMN IF NOT EXISTS notes TEXT;
+  `;
 
   return (
     <div className="w-full max-w-2xl text-center p-4 sm:p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg animate-fade-in-up">
@@ -105,62 +122,39 @@ USING (auth.uid() = 'SEU_ADMIN_USER_ID');
             Configuração do Banco de Dados
         </h2>
         <p className="text-slate-500 dark:text-slate-400 mb-8">
-            Copie e execute estes scripts no seu Editor SQL do Supabase para configurar o app.
+            Copie e execute os scripts no seu Editor SQL do Supabase para configurar e atualizar o app.
         </p>
 
-        <div className="space-y-6 text-left">
-            <CodeBlock 
-                title="1. Criar Tabela de Faturas (invoices)" 
-                code={createTableSQL}
-                explanation="Este comando cria a tabela necessária para armazenar as faturas dos clientes."
-            />
+        <div className="space-y-8 text-left">
+            <div>
+                <CodeBlock 
+                    title="1. Script de Configuração Inicial" 
+                    code={fullSetupSQL}
+                    explanation="Se esta é a primeira vez configurando o app, copie e cole este script inteiro no Editor SQL do seu projeto Supabase e clique em 'RUN' para configurar a tabela e as políticas de segurança."
+                />
 
-            <CodeBlock 
-                title="2. Habilitar Row Level Security (RLS)" 
-                code={enableRLS_SQL}
-                explanation="É crucial habilitar o RLS para garantir que os dados dos clientes fiquem seguros e privados."
-            />
+                <Alert 
+                    type="error"
+                    message="Importante: No script acima, substitua 'SEU_ADMIN_USER_ID' pelo ID real do seu usuário administrador antes de executá-lo. Você pode encontrar o ID na seção 'Authentication > Users' do seu painel Supabase."
+                />
+            </div>
             
-            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 pt-4 border-t border-slate-200 dark:border-slate-700">Políticas para Clientes</h3>
+            <hr className="border-slate-200 dark:border-slate-700" />
 
-            <CodeBlock 
-                title="3. Política para Clientes (Leitura)" 
-                code={clientSelectPolicySQL}
-                explanation="Esta política garante que cada cliente só possa visualizar as suas próprias faturas."
-            />
-            
-            <CodeBlock 
-                title="4. Política para Clientes (Atualização)" 
-                code={clientUpdatePolicySQL}
-                explanation="Permite que o aplicativo atualize o status de uma fatura para 'Paga' após um pagamento bem-sucedido."
-            />
-            
-            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200 pt-4 border-t border-slate-200 dark:border-slate-700">Políticas para Administrador</h3>
-
-             <CodeBlock 
-                title="5. Política para Administrador (Leitura Total)" 
-                code={adminSelectPolicySQL}
-                explanation="Permite que o seu usuário de administrador acesse os dados de todas as faturas no painel."
-            />
-
-            <CodeBlock 
-                title="6. Política para Administrador (Criação)" 
-                code={adminInsertPolicySQL}
-                explanation="ESSENCIAL: Esta política permite que o administrador crie (insira) novas faturas para os clientes. A falta dela impede a adição de novos dados."
-            />
-            
-            <CodeBlock 
-                title="7. Política para Administrador (Gerenciamento)" 
-                code={adminManagePolicySQL}
-                explanation="Concede ao administrador permissão para atualizar ou deletar faturas existentes."
-            />
-
-
-            <Alert 
-                type="error"
-                message="Importante: Para as políticas de administrador funcionarem, crie um usuário para ser o admin na seção 'Authentication' do Supabase e substitua 'SEU_ADMIN_USER_ID' pelo ID real desse usuário em TODOS os scripts de administrador."
-            />
-
+            <div>
+                 <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4 text-center">
+                    Atualização
+                </h2>
+                <CodeBlock 
+                    title="2. Script de Atualização da Tabela" 
+                    code={updateSQL}
+                    explanation="Se você já executou o script de configuração inicial, use este comando para adicionar novos campos à tabela de faturas sem perder dados existentes. Estes campos permitem armazenar mais detalhes sobre cada pagamento."
+                />
+                 <Alert 
+                    type="success"
+                    message="As políticas de segurança (RLS) existentes já permitem que administradores e clientes acessem estes novos campos. Nenhuma atualização nas políticas é necessária."
+                />
+            </div>
         </div>
     </div>
   );

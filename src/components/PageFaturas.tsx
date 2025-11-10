@@ -77,7 +77,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 .from('invoices')
                 .select('*')
                 .eq('user_id', user.id)
-                .order('dueDate', { ascending: false });
+                .order('due_date', { ascending: false });
 
             if (dbError) throw dbError;
             setInvoices(data || []);

@@ -20,4 +20,8 @@ export interface Invoice {
   dueDate: string;
   amount: number;
   status: 'Paga' | 'Em aberto';
+  paymentMethod?: string | null;
+  paymentDate?: string | null;
+  transactionId?: string | null;
+  notes?: string | null;
 }

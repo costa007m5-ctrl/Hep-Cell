@@ -22,7 +22,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         const { data, error: invoicesError } = await supabase
           .from('invoices')
           .select('*')
-          .order('dueDate', { ascending: false });
+          .order('due_date', { ascending: false });
 
         if (invoicesError) throw invoicesError;
         
