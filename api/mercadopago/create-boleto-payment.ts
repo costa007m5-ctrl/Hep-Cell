@@ -51,11 +51,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const result = await payment.create({ body: paymentData });
         
-        if (result.point_of_interaction?.transaction_data) {
+        const transactionData = result.point_of_interaction?.transaction_data as any;
+
+        if (transactionData) {
             res.status(200).json({
                 paymentId: result.id,
-                boletoUrl: result.point_of_interaction.transaction_data.ticket_url,
-                barCode: result.point_of_interaction.transaction_data.bar_code?.content, // Acessar com ?. por segurança
+                boletoUrl: transactionData.ticket_url,
+                barCode: transactionData.bar_code?.content,
             });
         } else {
             throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
