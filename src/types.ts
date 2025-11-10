@@ -16,12 +16,14 @@ export interface Invoice {
   id: string;
   user_id: string; 
   month: string;
-  due_date: string; // Alinhado com o nome da coluna no banco de dados
+  due_date: string;
   amount: number;
-  status: 'Paga' | 'Em aberto';
-  paymentMethod?: string | null;
-  paymentDate?: string | null;
-  transactionId?: string | null;
+  status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado';
+  payment_method?: string | null;
+  payment_date?: string | null;
+  payment_id?: string | null; // ID do pagamento no Mercado Pago
+  boleto_url?: string | null; // URL para visualizar o boleto
+  boleto_barcode?: string | null; // Código de barras do boleto
   notes?: string | null;
 }
 

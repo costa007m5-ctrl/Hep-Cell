@@ -126,10 +126,8 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
 
 
 const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymentConfirmed }) => {
-  const [step, setStep] = useState<'form' | 'loading' | 'display' | 'error'>('form');
+  const [step, setStep] = useState<'form' | 'loading' | 'success' | 'error'>('form');
   const [error, setError] = useState<string | null>(null);
-  const [boletoData, setBoletoData] = useState<{ boletoUrl: string; barCode: string } | null>(null);
-  const [copyButtonText, setCopyButtonText] = useState('Copiar Código');
   
   const handleFormSubmit = async (formData: any) => {
     setStep('loading');
@@ -141,6 +139,7 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
         }
 
         const payload = {
+            invoiceId: invoice.id,
             amount: invoice.amount,
             description: `Fatura Relp Cell - ${invoice.month}`,
             payer: {
@@ -159,19 +158,10 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
         if (!response.ok) {
             throw new Error(data.error || data.message || 'Falha ao gerar o boleto.');
         }
-        setBoletoData(data);
-        setStep('display');
+        setStep('success');
     } catch (err: any) {
         setError(err.message);
         setStep('error');
-    }
-  };
-
-  const handleCopy = () => {
-    if (boletoData?.barCode) {
-      navigator.clipboard.writeText(boletoData.barCode);
-      setCopyButtonText('Copiado!');
-      setTimeout(() => setCopyButtonText('Copiar Código'), 2000);
     }
   };
 
@@ -183,7 +173,7 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
             return (
                 <div className="flex flex-col items-center justify-center p-8 space-y-4">
                     <LoadingSpinner />
-                    <p className="text-slate-500 dark:text-slate-400">Gerando seu boleto...</p>
+                    <p className="text-slate-500 dark:text-slate-400">Gerando e salvando seu boleto...</p>
                 </div>
             );
         case 'error':
@@ -195,43 +185,23 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
                     </button>
                 </div>
             );
-        case 'display':
-            if (boletoData) {
-                return (
-                    <div className="flex flex-col items-center text-center p-6 space-y-6 animate-fade-in">
-                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Boleto Gerado com Sucesso!</h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            Clique no botão abaixo para visualizar e imprimir. O pagamento pode levar até 2 dias úteis para ser confirmado.
-                        </p>
-                        <a
-                            href={boletoData.boletoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                            </svg>
-                            Visualizar Boleto
-                        </a>
-                        <div className="w-full">
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Ou copie o código de barras:</p>
-                            <div className="relative p-3 bg-slate-100 dark:bg-slate-700 rounded-md">
-                                <p className="text-xs text-left break-all text-slate-600 dark:text-slate-300 font-mono">
-                                    {boletoData.barCode}
-                                </p>
-                            </div>
-                            <button onClick={handleCopy} className="mt-2 w-full flex justify-center py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700">
-                                {copyButtonText}
-                            </button>
-                        </div>
-                        <button onClick={onPaymentConfirmed} className="mt-4 text-sm font-bold text-green-600 dark:text-green-400 hover:underline">
-                            Entendido, voltar ao início
-                        </button>
+        case 'success':
+            return (
+                 <div className="flex flex-col items-center text-center p-8 space-y-4 animate-fade-in">
+                     <div className="w-16 h-16 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
                     </div>
-                );
-            }
-            return null;
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200">Boleto Gerado!</h3>
+                    <p className="text-slate-500 dark:text-slate-400">
+                        Seu boleto foi criado com sucesso. Você pode visualizá-lo agora na sua lista de faturas.
+                    </p>
+                    <button onClick={onPaymentConfirmed} className="w-full mt-4 py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                        Ver minhas Faturas
+                    </button>
+                </div>
+            )
         default:
             return null;
     }
@@ -249,8 +219,8 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
       </div>
 
       <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
-        <button type="button" onClick={step === 'display' ? onPaymentConfirmed : onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
-          {step === 'display' ? 'Voltar para Faturas' : 'Voltar'}
+        <button type="button" onClick={step === 'success' ? onPaymentConfirmed : onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
+          {step === 'success' ? 'Voltar para Faturas' : 'Voltar'}
         </button>
       </div>
     </div>
