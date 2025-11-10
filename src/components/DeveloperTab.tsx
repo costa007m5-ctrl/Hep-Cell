@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Alert from './Alert';
+import LoadingSpinner from './LoadingSpinner';
 
 interface CodeBlockProps {
     title: string;
@@ -37,6 +38,37 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
 
 
 const DeveloperTab: React.FC = () => {
+  const [mercadoPagoToken, setMercadoPagoToken] = useState('');
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleTestKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsTesting(true);
+    setTestResult(null);
+
+    try {
+        const response = await fetch('/api/test-mercadopago', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accessToken: mercadoPagoToken }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Erro desconhecido ao testar a chave.');
+        }
+
+        setTestResult({ text: data.message, type: 'success' });
+
+    } catch (err: any) {
+        setTestResult({ text: err.message, type: 'error' });
+    } finally {
+        setIsTesting(false);
+    }
+  };
+
   const fullSetupSQL = `
 -- ====================================================================
 -- Script Completo de Configuração do Banco de Dados para Relp Cell
@@ -152,14 +184,55 @@ CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR 
             </div>
         </div>
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-            Configuração do Banco de Dados
+            Área do Desenvolvedor
         </h2>
         <p className="text-slate-500 dark:text-slate-400 mb-8">
-            Copie e execute os scripts no seu Editor SQL do Supabase para configurar e atualizar o app.
+            Use esta área para testar configurações e obter scripts de inicialização.
         </p>
+
+        <div className="text-left mb-8">
+            <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-3 text-center">Teste de Chave de API</h3>
+            <div className="bg-slate-100 dark:bg-slate-900/50 rounded-xl p-6 shadow-sm">
+                <form onSubmit={handleTestKey} className="space-y-4">
+                    <div>
+                        <label htmlFor="mp-token" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Access Token do Mercado Pago
+                        </label>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                           Esta chave será usada apenas para o teste e não será salva. A chave de produção deve ser configurada nas variáveis de ambiente do Vercel.
+                        </p>
+                        <input
+                            id="mp-token"
+                            type="password"
+                            value={mercadoPagoToken}
+                            onChange={(e) => setMercadoPagoToken(e.target.value)}
+                            placeholder="Cole seu Access Token (ex: APP_USR-...)"
+                            className="appearance-none block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                         <button
+                            type="submit"
+                            disabled={isTesting || !mercadoPagoToken}
+                            className="flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed dark:focus:ring-offset-slate-800 transition-colors duration-200"
+                        >
+                            {isTesting ? <LoadingSpinner /> : 'Testar Chave'}
+                        </button>
+                    </div>
+                </form>
+                {testResult && (
+                    <div className="mt-4 animate-fade-in">
+                        <Alert message={testResult.text} type={testResult.type} />
+                    </div>
+                )}
+            </div>
+        </div>
+
+        <hr className="border-slate-200 dark:border-slate-700 my-10" />
 
         <div className="space-y-8 text-left">
             <div>
+                 <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-3 text-center">Configuração do Banco de Dados</h3>
                  <Alert 
                     type="error"
                     message="IMPORTANTE: Antes de executar os scripts, você precisa encontrar o ID do seu usuário administrador na seção 'Authentication > Users' do seu painel Supabase e substituir o valor '1da77e27-f1df-4e35-bcec-51dc2c5a9062' nos scripts abaixo."
