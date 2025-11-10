@@ -10,18 +10,22 @@ export enum Tab {
   FATURAS,
   LOJA,
   PERFIL,
-  DEV, // Adicionado
 }
 
 export interface Invoice {
   id: string;
-  user_id: string; // Adicionado para rastreamento no painel de admin
+  user_id: string; 
   month: string;
-  dueDate: string;
+  dueDate: string; // Mantido como 'dueDate' para consistência no frontend, mapeado de 'due_date'
   amount: number;
   status: 'Paga' | 'Em aberto';
   paymentMethod?: string | null;
   paymentDate?: string | null;
   transactionId?: string | null;
   notes?: string | null;
+}
+
+export interface Profile {
+  id: string;
+  email?: string;
 }

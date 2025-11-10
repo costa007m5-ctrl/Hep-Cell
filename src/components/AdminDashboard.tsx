@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/clients';
-import { Invoice } from '../types';
+import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import DeveloperTab from './DeveloperTab';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -12,56 +13,159 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adminView, setAdminView] = useState<'invoices' | 'dev'>('invoices');
+  
+  // States para o formulário de criação
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [formState, setFormState] = useState({
+    userId: '',
+    month: '',
+    amount: '',
+    dueDate: '',
+  });
+
+  const fetchAllInvoices = useCallback(async () => {
+    try {
+      const { data, error: invoicesError } = await supabase
+        .from('invoices')
+        .select('*')
+        .order('due_date', { ascending: false });
+      if (invoicesError) throw invoicesError;
+      setInvoices(data || []);
+    } catch (err: any) {
+      throw err;
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchAllInvoices = async () => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        setIsLoading(true);
-        setError(null);
-        
-        const { data, error: invoicesError } = await supabase
-          .from('invoices')
-          .select('*')
-          .order('due_date', { ascending: false });
+        await fetchAllInvoices();
 
-        if (invoicesError) throw invoicesError;
+        // Busca perfis de usuários para popular o dropdown
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, email');
         
-        setInvoices(data || []);
+        if (profilesError) {
+          throw new Error(`Falha ao carregar usuários: ${profilesError.message}. Verifique se a tabela 'profiles' e o trigger foram criados (veja a aba Desenvolvedor).`);
+        }
+        setUsers(profilesData || []);
 
       } catch (err: any) {
-        console.error("Error fetching admin data. Full error object:", err);
-        const message = (err && err.message) ? err.message : 'Ocorreu um erro, verifique o console para detalhes.';
-        setError(`Falha ao carregar os dados do painel: ${message}. Verifique se as Políticas de Segurança (RLS) estão configuradas corretamente para o administrador.`);
+        console.error("Error fetching admin data:", err);
+        setError(`Falha ao carregar os dados: ${err.message}`);
       } finally {
         setIsLoading(false);
       }
     };
+    fetchData();
+  }, [fetchAllInvoices]);
+  
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormState(prevState => ({ ...prevState, [name]: value }));
+  };
 
-    fetchAllInvoices();
-  }, []);
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setSubmitMessage(null);
+    try {
+      const { userId, month, amount, dueDate } = formState;
+      if (!userId || !month || !amount || !dueDate) {
+        throw new Error("Todos os campos são obrigatórios.");
+      }
 
-  const renderContent = () => {
+      const { error: insertError } = await supabase.from('invoices').insert({
+        user_id: userId,
+        month,
+        amount: parseFloat(amount),
+        due_date: dueDate,
+        status: 'Em aberto',
+      });
+
+      if (insertError) throw insertError;
+      
+      setSubmitMessage({ text: 'Fatura criada com sucesso!', type: 'success' });
+      setFormState({ userId: '', month: '', amount: '', dueDate: '' }); // Limpa o form
+      setShowCreateForm(false);
+      await fetchAllInvoices(); // Atualiza a lista
+
+    } catch (err: any) {
+      setSubmitMessage({ text: `Erro: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSubmitting(false);
+      setTimeout(() => setSubmitMessage(null), 5000);
+    }
+  };
+  
+  const renderInvoicesView = () => {
     if (isLoading) {
       return (
         <div className="flex flex-col items-center justify-center space-y-4 p-8">
           <LoadingSpinner />
-          <p className="text-slate-500 dark:text-slate-400">Carregando dados do painel...</p>
+          <p className="text-slate-500 dark:text-slate-400">Carregando dados...</p>
         </div>
       );
     }
 
-    if (error) {
-      return <div className="p-4"><Alert message={error} type="error" /></div>;
-    }
-
-    if (invoices.length === 0) {
-        return <p className="text-center text-slate-500 dark:text-slate-400 p-8">Nenhuma fatura encontrada no sistema.</p>
-    }
+    if (error) return <div className="p-4"><Alert message={error} type="error" /></div>;
 
     return (
-        <div className="overflow-x-auto">
+      <>
+        {showCreateForm ? (
+          <div className="p-6 my-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in">
+             <h3 className="text-lg font-bold mb-4">Nova Fatura</h3>
+             <form onSubmit={handleCreateInvoice} className="space-y-4">
+                {submitMessage && <Alert message={submitMessage.text} type={submitMessage.type} />}
+                <div>
+                  <label htmlFor="userId" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
+                  <select id="userId" name="userId" value={formState.userId} onChange={handleInputChange} required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="" disabled>Selecione um cliente</option>
+                    {users.map(user => <option key={user.id} value={user.id}>{user.email}</option>)}
+                  </select>
+                </div>
+                <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
+                  <div>
+                    <label htmlFor="month" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Mês de Referência</label>
+                    <input type="text" id="month" name="month" value={formState.month} onChange={handleInputChange} placeholder="Ex: Julho/2024" required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
+                  </div>
+                  <div>
+                    <label htmlFor="amount" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Valor (R$)</label>
+                    <input type="number" id="amount" name="amount" step="0.01" value={formState.amount} onChange={handleInputChange} placeholder="150.00" required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
+                  </div>
+                  <div>
+                    <label htmlFor="dueDate" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Vencimento</label>
+                    <input type="date" id="dueDate" name="dueDate" value={formState.dueDate} onChange={handleInputChange} required className="mt-1 block w-full p-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-white dark:bg-slate-700 focus:ring-indigo-500 focus:border-indigo-500"/>
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 pt-2">
+                    <button type="button" onClick={() => setShowCreateForm(false)} className="py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Cancelar</button>
+                    <button type="submit" disabled={isSubmitting} className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                        {isSubmitting ? <LoadingSpinner /> : 'Salvar Fatura'}
+                    </button>
+                </div>
+             </form>
+          </div>
+        ) : (
+          <button onClick={() => setShowCreateForm(true)} className="my-4 py-2 px-4 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm">
+            + Adicionar Fatura
+          </button>
+        )}
+        
+        {invoices.length === 0 ? (
+          <p className="text-center text-slate-500 dark:text-slate-400 p-8">Nenhuma fatura encontrada.</p>
+        ) : (
+          <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                <thead className="bg-slate-50 dark:bg-slate-800">
+              {/* ... table head ... */}
+              <thead className="bg-slate-50 dark:bg-slate-800">
                     <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês</th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Status</th>
@@ -69,38 +173,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">ID do Usuário</th>
                     </tr>
                 </thead>
-                <tbody className="bg-white dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700">
-                    {invoices.map(invoice => (
-                        <tr key={invoice.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{invoice.month}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    invoice.status === 'Paga' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400'
-                                }`}>
-                                    {invoice.status}
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400 font-mono" title={invoice.user_id}>{invoice.user_id.slice(0, 15)}...</td>
-                        </tr>
-                    ))}
-                </tbody>
+              <tbody className="bg-white dark:bg-slate-900/50 divide-y divide-slate-200 dark:divide-slate-700">
+                {invoices.map(invoice => (
+                  <tr key={invoice.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{invoice.month}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ invoice.status === 'Paga' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-400' }`}>
+                            {invoice.status}
+                        </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400 font-mono" title={invoice.user_id}>{invoice.user_id.slice(0, 15)}...</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
-        </div>
-    )
+          </div>
+        )}
+      </>
+    );
   };
-
+  
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto">
-        <header className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-            Painel do Administrador
-          </h1>
-          <button
-            onClick={onLogout}
-            className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-slate-900"
-          >
+        <header className="flex justify-between items-center mb-6 border-b border-slate-200 dark:border-slate-700 pb-6">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Painel do Administrador</h1>
+          <button onClick={onLogout} className="flex items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-slate-900">
              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
@@ -108,11 +207,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           </button>
         </header>
 
-        <main className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200 mb-4">
-              Visão Geral das Faturas
-            </h2>
-            {renderContent()}
+        <div className="flex space-x-4 mb-6">
+            <button onClick={() => setAdminView('invoices')} className={`py-2 px-4 rounded-md text-sm font-medium ${adminView === 'invoices' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>
+                Visão Geral
+            </button>
+            <button onClick={() => setAdminView('dev')} className={`py-2 px-4 rounded-md text-sm font-medium ${adminView === 'dev' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>
+                Desenvolvedor
+            </button>
+        </div>
+
+        <main className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-1 sm:p-6">
+            {adminView === 'invoices' ? renderInvoicesView() : <DeveloperTab />}
         </main>
       </div>
     </div>

@@ -8,7 +8,6 @@ import PagePerfil from './components/PagePerfil';
 import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
-import DeveloperTab from './components/DeveloperTab'; // Importado
 import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
@@ -110,8 +109,6 @@ const App: React.FC = () => {
         return <PageLoja />;
       case Tab.PERFIL:
         return <PagePerfil session={session} />;
-      case Tab.DEV:
-        return <DeveloperTab />; // Rota para a nova aba
       default:
         return <PageInicio />;
     }
