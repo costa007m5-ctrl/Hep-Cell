@@ -6,12 +6,13 @@ import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import PaymentMethodSelector from './PaymentMethodSelector';
 import PixPayment from './PixPayment';
+import BoletoPayment from './BoletoPayment';
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
 
-type PaymentStep = 'list' | 'select_method' | 'form' | 'pix';
+type PaymentStep = 'list' | 'select_method' | 'form' | 'pix' | 'boleto';
 
 // Icons (unchanged)
 const InvoiceIcon = () => (
@@ -113,6 +114,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             setPaymentStep('form');
         } else if (method === 'pix') {
             setPaymentStep('pix');
+        } else if (method === 'boleto') {
+            setPaymentStep('boleto');
         } else if (method === 'redirect') {
             setIsRedirecting(true);
             setError(null);
@@ -151,10 +154,10 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const handlePaymentSuccess = useCallback(async () => {
         if (selectedInvoice) {
-            // No caso do PIX, o pagamento pode levar um tempo para ser confirmado via webhook.
+            // Para pagamentos assíncronos (PIX, Boleto), a confirmação real vem via webhook.
             // Aqui, simplesmente voltamos para a lista. A atualização do status
             // será refletida na próxima vez que a lista for carregada.
-            // Para o 'brick', a confirmação é mais imediata.
+            // Para o 'brick', a confirmação é mais imediata, mas unificamos o comportamento.
             const { error: updateError } = await supabase
                 .from('invoices')
                 .update({ status: 'Paga' })
@@ -194,7 +197,17 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
           <PixPayment
             invoice={selectedInvoice}
             onBack={handleBackToMethodSelection}
-            onPaymentConfirmed={handleBackToList} // Após o PIX, apenas volta para a lista. A confirmação é via webhook.
+            onPaymentConfirmed={handleBackToList}
+          />
+        );
+    }
+
+    if (paymentStep === 'boleto' && selectedInvoice) {
+        return (
+          <BoletoPayment
+            invoice={selectedInvoice}
+            onBack={handleBackToMethodSelection}
+            onPaymentConfirmed={handleBackToList}
           />
         );
     }

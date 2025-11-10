@@ -26,12 +26,20 @@ const PixIcon = () => (
     </svg>
 );
 
+const BoletoIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-700 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 6.375c0-1.036.84-1.875 1.875-1.875h17.25c1.035 0 1.875.84 1.875 1.875v3.026a2.25 2.25 0 01-2.25 2.25H3.75a2.25 2.25 0 01-2.25-2.25V6.375z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.375h21M9 16.125h6M9 19.125h6" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v15M19.5 4.5v15" />
+    </svg>
+);
 
 const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, onSelectMethod, onBack }) => {
 
     const paymentOptions = [
       { id: 'brick', name: 'Cartão de Crédito ou Débito', icon: <CreditCardIcon />, description: "Pague com seu cartão nesta tela." },
       { id: 'pix', name: 'Pagar com PIX', icon: <PixIcon />, description: "Gere um QR Code e chave copia e cola." },
+      { id: 'boleto', name: 'Boleto Bancário', icon: <BoletoIcon />, description: "Gere um boleto para pagar." },
       { id: 'redirect', name: 'Pagar no site do Mercado Pago', icon: <ExternalLinkIcon />, description: "Você será redirecionado." },
     ];
 
