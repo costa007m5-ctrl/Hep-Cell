@@ -12,6 +12,7 @@ import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
+import Alert from './components/Alert';
 
 // A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
@@ -24,6 +25,26 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [paymentNotification, setPaymentNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  // Efeito para verificar o status do pagamento no retorno de um redirecionamento
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('payment_status');
+    
+    if (status) {
+        if (status === 'approved' || status === 'success') {
+            setPaymentNotification({ message: 'Pagamento concluído com sucesso!', type: 'success' });
+        } else if (status === 'failure' || status === 'rejected') {
+            setPaymentNotification({ message: 'O pagamento falhou. Por favor, tente novamente.', type: 'error' });
+        }
+        
+        setActiveTab(Tab.FATURAS);
+        window.history.replaceState(null, '', window.location.pathname); // Limpa a URL
+
+        setTimeout(() => setPaymentNotification(null), 6000);
+    }
+  }, []);
 
   // Efeito para verificar sessão de admin ou buscar a do cliente
   useEffect(() => {
@@ -118,6 +139,11 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200">
       <Header />
+       {paymentNotification && (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-md p-4 z-50 animate-fade-in-up">
+              <Alert message={paymentNotification.message} type={paymentNotification.type} />
+          </div>
+      )}
       <main className="flex-grow flex items-center justify-center p-4 pb-24">
         {renderContent()}
       </main>

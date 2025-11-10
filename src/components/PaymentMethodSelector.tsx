@@ -13,10 +13,9 @@ const CreditCardIcon = () => (
     </svg>
 );
 
-const PixIcon = () => (
+const ExternalLinkIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-700 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.862A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V4.862zM12 9.75v4.5m-4.5-2.25h9" />
-        <path d="M11.25 3.75v-.862a2.25 2.25 0 012.25-2.25h.018a2.25 2.25 0 012.25 2.25v.862" transform="rotate(45 13.5 3.375)" strokeLinecap="round" strokeLinejoin="round"/>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-4.5 0V6.375c0-.621.504-1.125 1.125-1.125h4.125c.621 0 1.125.504 1.125 1.125V10.5m-7.5-4.5h4.5m-4.5 4.5l7.5-7.5" />
     </svg>
 );
 
@@ -24,7 +23,8 @@ const PixIcon = () => (
 const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, onSelectMethod, onBack }) => {
 
     const paymentOptions = [
-      { id: 'all', name: 'Cartão, PIX e outros', icon: <CreditCardIcon />, description: "Pague com segurança." },
+      { id: 'brick', name: 'Cartão, PIX e outros', icon: <CreditCardIcon />, description: "Pague com segurança nesta tela." },
+      { id: 'redirect', name: 'Pagar no site do Mercado Pago', icon: <ExternalLinkIcon />, description: "Você será redirecionado." },
     ];
 
     return (
@@ -57,7 +57,7 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
             </button>
           ))}
            <p className="text-xs text-center text-slate-400 dark:text-slate-500 pt-2">
-            O formulário de pagamento seguro do Mercado Pago será exibido a seguir nesta tela.
+            Todas as transações são processadas com a segurança do Mercado Pago.
           </p>
         </div>
 

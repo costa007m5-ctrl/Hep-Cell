@@ -15,7 +15,7 @@ type PaymentStep = 'list' | 'select_method' | 'form';
 // Icons (unchanged)
 const InvoiceIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2-0-01-2-2V5a2 2 0-01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0-01-2 2z" />
     </svg>
 );
 const CheckIcon = () => (
@@ -68,6 +68,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [error, setError] = useState<string | null>(null);
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
     const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
+    const [isRedirecting, setIsRedirecting] = useState(false);
 
     const fetchInvoices = async () => {
         try {
@@ -106,8 +107,34 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         setPaymentStep('select_method');
     };
 
-    const handleMethodSelect = () => {
-        setPaymentStep('form');
+    const handleMethodSelect = async (method: string) => {
+        if (method === 'brick') {
+            setPaymentStep('form');
+        } else if (method === 'redirect') {
+            setIsRedirecting(true);
+            setError(null);
+            try {
+                if (!selectedInvoice) throw new Error("Nenhuma fatura selecionada.");
+                const response = await fetch('/api/mercadopago/create-preference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: selectedInvoice.id,
+                        description: `Fatura Relp Cell - ${selectedInvoice.month}`,
+                        amount: selectedInvoice.amount,
+                        redirect: true
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.init_point) {
+                    throw new Error(data.error || 'Não foi possível gerar o link de pagamento.');
+                }
+                window.location.href = data.init_point;
+            } catch (err: any) {
+                setError(err.message);
+                setIsRedirecting(false);
+            }
+        }
     };
 
     const handleBackToMethodSelection = () => {
@@ -134,6 +161,16 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         setSelectedInvoice(null);
         setPaymentStep('list');
     }, [selectedInvoice]);
+
+    if (isRedirecting) {
+        return (
+            <div className="w-full max-w-md flex flex-col items-center justify-center space-y-4 p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Redirecionando para o Mercado Pago...</p>
+                <p className="text-sm text-center text-slate-400">Você será levado para um ambiente seguro para finalizar a transação.</p>
+            </div>
+        );
+    }
 
     if (paymentStep === 'select_method' && selectedInvoice) {
         return (
@@ -169,6 +206,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         return (
             <div className="w-full max-w-md p-4">
                 <Alert message={error} type="error" />
+                <button onClick={handleBackToList} className="mt-4 w-full text-center text-sm font-medium text-indigo-600 dark:text-indigo-400">Voltar para Faturas</button>
             </div>
         );
     }
