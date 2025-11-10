@@ -41,7 +41,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     };
 
     const initializePayment = async () => {
-      // O contêiner de ref deve existir para a inicialização.
       if (!mpPublicKey || !paymentBrickContainerRef.current) {
         console.warn("O formulário de pagamento não pode ser inicializado, o contêiner não está pronto.");
         return;
@@ -74,28 +73,20 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         const bricks = mp.bricks();
 
+        // Configuração simplificada para o Payment Brick.
+        // Removendo 'customization' e usando apenas 'preferenceId'.
+        // Isso torna a integração mais robusta, delegando as opções de pagamento
+        // para a configuração da sua conta Mercado Pago e da preferência criada.
         const settings = {
           initialization: {
-            // O 'amount' é obtido diretamente da preferência.
-            // Fornecê-lo aqui é redundante e pode causar conflitos no SDK,
-            // resultando em um brick em branco. A melhor prática é usar apenas o ID.
             preferenceId: preference.id,
-          },
-          customization: {
-            paymentMethods: {
-              ticket: 'all',
-              creditCard: 'all',
-              debitCard: 'all',
-              mercadoPago: 'all',
-            },
           },
           callbacks: {
             onReady: () => {
-              /*
-               * Callback chamado quando o Brick está pronto.
-               * Útil para, por exemplo, esconder um loader e confirmar que a renderização ocorreu.
-              */
-              console.log('Payment Brick está pronto e renderizado.');
+              if (isComponentMounted) {
+                console.log('Payment Brick está pronto e renderizado.');
+                setIsLoading(false);
+              }
             },
             onSubmit: async (formData: any) => {
               if (!isComponentMounted) return;
@@ -148,9 +139,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         if (isComponentMounted) {
           setStatus(PaymentStatus.ERROR);
           setMessage('Não foi possível iniciar o pagamento. Tente novamente mais tarde.');
-        }
-      } finally {
-        if (isComponentMounted) {
           setIsLoading(false);
         }
       }
@@ -173,9 +161,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       </div>
 
       <div className="p-6 sm:p-8 min-h-[200px] flex items-center justify-center">
-        {/* O container do brick agora está sempre no DOM, mas sua visibilidade é controlada. */}
-        {/* Ele fica escondido durante o carregamento ou estados de feedback, e visível quando o pagamento está pronto. */}
-        <div id="paymentBrick_container" ref={paymentBrickContainerRef} className={!isLoading && status === PaymentStatus.IDLE ? 'w-full' : 'hidden'}></div>
+        {/* Container para o brick, sempre no DOM para o SDK do MP */}
+        <div id="paymentBrick_container" ref={paymentBrickContainerRef} className={isLoading || status !== PaymentStatus.IDLE ? 'hidden' : 'w-full'}></div>
 
         {/* Indicadores de Status */}
         {isLoading && (
@@ -185,15 +172,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             </div>
         )}
 
-        {status === PaymentStatus.ERROR && (
+        {!isLoading && status === PaymentStatus.ERROR && (
             <div className="w-full"><Alert message={message} type="error" /></div>
         )}
 
-        {status === PaymentStatus.SUCCESS && (
+        {!isLoading && status === PaymentStatus.SUCCESS && (
             <div className="w-full"><Alert message={message} type="success" /></div>
         )}
         
-        {status === PaymentStatus.PENDING && (
+        {!isLoading && status === PaymentStatus.PENDING && (
             <div className="flex flex-col items-center justify-center space-y-4">
                 <LoadingSpinner />
                 <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
