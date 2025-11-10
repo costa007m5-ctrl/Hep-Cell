@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../services/clients';
+import React, { useState } from 'react';
 import Alert from './Alert';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -38,84 +37,70 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
 };
 
 const DeveloperTab: React.FC = () => {
-    const [isLoading, setIsLoading] = useState(true);
-    const [settings, setSettings] = useState({
+    const [keys, setKeys] = useState({
         mercadoPagoToken: '',
         geminiApiKey: '',
     });
-    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
 
-    const fetchSettings = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const { data, error } = await supabase.auth.getSession();
-            if (error || !data.session) throw new Error('Autenticação necessária.');
+    const [testing, setTesting] = useState({
+        gemini: false,
+        mercadoPago: false,
+    });
 
-            const response = await fetch('/api/get-settings', {
-                headers: {
-                    'Authorization': `Bearer ${data.session.access_token}`
-                }
-            });
-            if (!response.ok) {
-                 const errorData = await response.json();
-                 throw new Error(errorData.error || 'Falha ao buscar configurações.');
-            }
-            const currentSettings = await response.json();
-            setSettings({
-                mercadoPagoToken: currentSettings.MERCADO_PAGO_ACCESS_TOKEN || '',
-                geminiApiKey: currentSettings.API_KEY || ''
-            });
-        } catch (err: any) {
-            setMessage({ text: err.message, type: 'error' });
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchSettings();
-    }, [fetchSettings]);
+    const [testResults, setTestResults] = useState<{
+        gemini: { success: boolean; message: string } | null;
+        mercadoPago: { success: boolean; message: string } | null;
+    }>({
+        gemini: null,
+        mercadoPago: null,
+    });
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
-        setSettings(prev => ({...prev, [name]: value }));
-    };
-
-    const handleSaveSettings = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSaving(true);
-        setMessage(null);
-        try {
-            const { data, error } = await supabase.auth.getSession();
-            if (error || !data.session) throw new Error('Autenticação necessária.');
-
-            const response = await fetch('/api/save-settings', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${data.session.access_token}`
-                },
-                body: JSON.stringify({
-                    MERCADO_PAGO_ACCESS_TOKEN: settings.mercadoPagoToken,
-                    API_KEY: settings.geminiApiKey
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Falha ao salvar configurações.');
-            }
-
-            setMessage({ text: 'Configurações salvas com sucesso!', type: 'success' });
-
-        } catch (err: any) {
-            setMessage({ text: err.message, type: 'error' });
-        } finally {
-            setIsSaving(false);
+        setKeys(prev => ({ ...prev, [name]: value }));
+        if (name === 'geminiApiKey') {
+            setTestResults(prev => ({ ...prev, gemini: null }));
+        }
+        if (name === 'mercadoPagoToken') {
+            setTestResults(prev => ({ ...prev, mercadoPago: null }));
         }
     };
 
+    const handleTestKey = async (keyType: 'gemini' | 'mercadoPago') => {
+        setTesting(prev => ({ ...prev, [keyType]: true }));
+        setTestResults(prev => ({ ...prev, [keyType]: null }));
+
+        const endpoint = keyType === 'gemini' ? '/api/test-gemini' : '/api/test-mercadopago';
+        const body = keyType === 'gemini'
+            ? { apiKey: keys.geminiApiKey }
+            : { accessToken: keys.mercadoPagoToken };
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const result = await response.json();
+
+            // A resposta pode não ter uma propriedade 'success', então verificamos pelo status
+            if (!response.ok) {
+                // Lançamos um erro com a mensagem da API para ser pego pelo catch
+                throw new Error(result.message || 'Falha na validação da API.');
+            }
+            
+            setTestResults(prev => ({ ...prev, [keyType]: result }));
+
+        } catch (err: any) {
+            setTestResults(prev => ({
+                ...prev,
+                [keyType]: { success: false, message: err.message || 'Erro de comunicação com a API.' },
+            }));
+        } finally {
+            setTesting(prev => ({ ...prev, [keyType]: false }));
+        }
+    };
+    
     const fullSetupSQL = `
 -- ====================================================================
 -- Script Completo de Configuração do Banco de Dados para Relp Cell
@@ -166,68 +151,82 @@ CREATE TABLE public.invoices (
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Clientes podem gerenciar suas próprias faturas." ON public.invoices FOR ALL USING (auth.uid() = user_id);
 `;
-// Fix: Complete the component by adding the missing JSX and export.
     const adminPolicySQL = `
 -- Política de Acesso para Admin na Tabela 'invoices'
 -- Permite que o admin (com o ID de usuário especificado) realize todas as operações.
 -- ATENÇÃO: Substitua 'SEU_ADMIN_USER_ID' pelo ID do seu usuário Admin.
 CREATE POLICY "Admins podem gerenciar todas as faturas." ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'); -- SUBSTITUA O ID AQUI
 `;
-
-    if (isLoading) {
-        return (
-            <div className="flex justify-center items-center p-8">
-                <LoadingSpinner />
-            </div>
-        );
-    }
     
     return (
         <div className="p-4 space-y-8">
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configurações de API</h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-                    Estas chaves são armazenadas de forma segura no seu ambiente Vercel e nunca são expostas ao cliente.
-                    O painel de admin se comunica com endpoints de API seguros para utilizá-las.
-                </p>
-                <form onSubmit={handleSaveSettings} className="max-w-xl space-y-4">
-                    {message && <Alert message={message.text} type={message.type} />}
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração das Variáveis de Ambiente</h2>
+                <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 mb-6">
+                    <h3 className="font-bold text-indigo-800 dark:text-indigo-200">Como funciona:</h3>
+                    <p className="text-sm text-indigo-700 dark:text-indigo-300 mt-2">
+                        Para a segurança da sua aplicação, as chaves de API não são salvas aqui. Em vez disso, você deve adicioná-las como <strong>Variáveis de Ambiente</strong> no painel do seu projeto na Vercel.
+                    </p>
+                     <ol className="list-decimal list-inside text-sm text-indigo-700 dark:text-indigo-300 mt-2 space-y-1">
+                        <li>Cole uma chave no campo correspondente abaixo.</li>
+                        <li>Clique em <strong>Testar</strong> para validar se a chave está funcionando.</li>
+                        <li>Após o sucesso, vá até <strong>Vercel &gt; Seu Projeto &gt; Settings &gt; Environment Variables</strong>.</li>
+                        <li>Adicione as chaves com os nomes exatos: <code>API_KEY</code> para o Gemini e <code>MERCADO_PAGO_ACCESS_TOKEN</code> para o Mercado Pago.</li>
+                        <li>Faça um novo deploy do seu projeto para que as alterações tenham efeito.</li>
+                    </ol>
+                </div>
+
+                <div className="max-w-xl space-y-6">
                     <div>
                         <label htmlFor="geminiApiKey" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                            Chave da API do Gemini (API_KEY)
+                           1. Chave da API do Gemini (API_KEY)
                         </label>
-                        <input
-                            id="geminiApiKey"
-                            name="geminiApiKey"
-                            type="password"
-                            value={settings.geminiApiKey}
-                            onChange={handleInputChange}
-                            className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-slate-50 dark:bg-slate-700"
-                            placeholder="Cole sua chave aqui"
-                        />
-                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Usada para gerar mensagens de confirmação de pagamento personalizadas.</p>
+                        <div className="mt-1 flex items-stretch space-x-2">
+                             <input
+                                id="geminiApiKey"
+                                name="geminiApiKey"
+                                type="password"
+                                value={keys.geminiApiKey}
+                                onChange={handleInputChange}
+                                className="flex-grow block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-slate-50 dark:bg-slate-700"
+                                placeholder="Cole sua chave aqui"
+                            />
+                            <button onClick={() => handleTestKey('gemini')} disabled={testing.gemini || !keys.geminiApiKey} className="flex-shrink-0 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                                {testing.gemini ? <LoadingSpinner /> : 'Testar'}
+                            </button>
+                        </div>
+                         {testResults.gemini && (
+                            <div className="mt-2 animate-fade-in">
+                                <Alert message={testResults.gemini.message} type={testResults.gemini.success ? 'success' : 'error'} />
+                            </div>
+                        )}
                     </div>
-                     <div>
+                    
+                    <div>
                         <label htmlFor="mercadoPagoToken" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                           Access Token do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN)
+                           2. Access Token do Mercado Pago (MERCADO_PAGO_ACCESS_TOKEN)
                         </label>
-                        <input
-                            id="mercadoPagoToken"
-                            name="mercadoPagoToken"
-                            type="password"
-                            value={settings.mercadoPagoToken}
-                            onChange={handleInputChange}
-                            className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-slate-50 dark:bg-slate-700"
-                             placeholder="Cole seu token aqui"
-                        />
-                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Usado para processar pagamentos de forma segura no backend.</p>
+                        <div className="mt-1 flex items-stretch space-x-2">
+                            <input
+                                id="mercadoPagoToken"
+                                name="mercadoPagoToken"
+                                type="password"
+                                value={keys.mercadoPagoToken}
+                                onChange={handleInputChange}
+                                className="flex-grow block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm bg-slate-50 dark:bg-slate-700"
+                                placeholder="Cole seu token aqui"
+                            />
+                            <button onClick={() => handleTestKey('mercadoPago')} disabled={testing.mercadoPago || !keys.mercadoPagoToken} className="flex-shrink-0 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                                {testing.mercadoPago ? <LoadingSpinner /> : 'Testar'}
+                            </button>
+                        </div>
+                        {testResults.mercadoPago && (
+                            <div className="mt-2 animate-fade-in">
+                                <Alert message={testResults.mercadoPago.message} type={testResults.mercadoPago.success ? 'success' : 'error'} />
+                            </div>
+                        )}
                     </div>
-                    <div className="flex justify-end">
-                        <button type="submit" disabled={isSaving} className="py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                            {isSaving ? <LoadingSpinner /> : 'Salvar Configurações'}
-                        </button>
-                    </div>
-                </form>
+                </div>
             </section>
             
             <section>
