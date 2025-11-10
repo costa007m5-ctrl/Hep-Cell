@@ -22,11 +22,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [message, setMessage] = useState('');
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
-  const brickContainerRef = useRef<HTMLDivElement>(null);
+  const paymentBrickContainerRef = useRef<HTMLDivElement>(null);
 
   // Efeito para criar a preferência de pagamento quando a fatura muda.
   useEffect(() => {
-    // Reseta o estado para uma nova fatura
     setStatus(PaymentStatus.IDLE);
     setMessage('');
     setPreferenceId(null);
@@ -62,12 +61,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     };
 
     createPreference();
-  }, [invoice]); // Roda apenas quando a `invoice` (prop) muda.
+  }, [invoice]);
 
   // Efeito para inicializar o Payment Brick do Mercado Pago.
   useEffect(() => {
     if (!preferenceId || !mpPublicKey) {
-      return; // Aguarda a preferência e a chave pública.
+      return;
     }
 
     if (typeof window.MercadoPago === 'undefined') {
@@ -77,13 +76,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       return;
     }
 
-    let brickController: any; // O controlador do Brick é local para este efeito.
+    let brickController: any;
 
     const initializeBrick = async () => {
-      if (!brickContainerRef.current) return;
+      if (!paymentBrickContainerRef.current) return;
       
-      // Garante que o container esteja vazio antes de renderizar
-      brickContainerRef.current.innerHTML = '';
+      paymentBrickContainerRef.current.innerHTML = '';
 
       const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
       
@@ -99,7 +97,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               ticket: 'all',
               creditCard: 'all',
               debitCard: 'all',
-              mercadoPago: 'all', // Garante que PIX e outras opções da carteira apareçam
+              mercadoPago: 'all',
             },
           },
           callbacks: {
@@ -109,11 +107,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 const response = await fetch('/api/process-payment', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    ...formData,
-                    description: `Fatura Relp Cell - ${invoice.month}`,
-                    transaction_amount: invoice.amount,
-                  })
+                  body: JSON.stringify(formData)
                 });
                 
                 const result = await response.json();
@@ -138,11 +132,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               setStatus(PaymentStatus.ERROR);
               setMessage('Ocorreu um erro. Verifique os dados e tente novamente.');
             },
-            onReady: () => { /* O brick está pronto */ }
           },
         };
         
-        // Cria o brick e armazena a instância no controller
         brickController = await bricks.create('payment', 'paymentBrick_container', settings);
 
       } catch (e) {
@@ -154,13 +146,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     
     initializeBrick();
 
-    // Função de limpeza: desmonta o brick quando o componente é destruído ou o efeito re-executa.
     return () => {
       if (brickController) {
         brickController.unmount();
       }
     };
-  }, [preferenceId, mpPublicKey, invoice, onPaymentSuccess]); // Dependências essenciais para a recriação do brick
+  }, [preferenceId, mpPublicKey, invoice, onPaymentSuccess]);
 
 
   const renderContent = () => {
@@ -191,8 +182,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         )
     }
 
-    // O container do Brick
-    return <div id="paymentBrick_container" ref={brickContainerRef}></div>;
+    return <div id="paymentBrick_container" ref={paymentBrickContainerRef}></div>;
   };
 
   return (
