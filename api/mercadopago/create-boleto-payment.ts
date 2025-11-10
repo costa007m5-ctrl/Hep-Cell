@@ -30,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'bolbradesco', // Usando um ID específico de boleto
+            payment_method_id: 'boleto', // CORREÇÃO: Usando o ID genérico para boleto.
             payer: {
                 email: payerEmail,
                 first_name: "Test", // DADO DE TESTE
