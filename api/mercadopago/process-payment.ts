@@ -33,12 +33,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 payment_method_id: paymentData.payment_method_id,
                 payer: {
                     email: paymentData.payer.email,
-                    first_name: paymentData.payer.firstName,
-                    last_name: paymentData.payer.lastName,
+                    first_name: paymentData.payer.first_name,
+                    last_name: paymentData.payer.last_name,
                     identification: {
                         type: paymentData.payer.identification.type,
                         number: paymentData.payer.identification.number,
                     },
+                    address: {
+                        zip_code: paymentData.payer.address.zip_code,
+                        street_name: paymentData.payer.address.street_name,
+                        street_number: paymentData.payer.address.street_number,
+                        neighborhood: paymentData.payer.address.neighborhood,
+                        city: paymentData.payer.address.city,
+                        federal_unit: paymentData.payer.address.federal_unit,
+                    }
                 },
             },
         });

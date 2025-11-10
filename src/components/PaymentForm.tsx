@@ -58,35 +58,46 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   useEffect(() => {
     if (!mpPublicKey) return;
 
-    const mp = new window.MercadoPago(mpPublicKey);
-    const cardForm = mp.cardForm({
-      amount: String(invoice.amount),
-      iframe: true,
-      form: {
-        id: 'form-checkout',
-        cardNumber: { id: 'form-checkout-cardNumber' },
-        securityCode: { id: 'form-checkout-securityCode' },
-        expirationDate: { id: 'form-checkout-expirationDate' },
-      },
-      callbacks: {
-        onReady: () => setIsSDKReady(true),
-        onPaymentMethodsReceived: (error: any, paymentMethods: any) => {
-          if (error) return console.error('onPaymentMethodsReceived: ', error);
-          setPaymentMethodId(paymentMethods[0].id);
-        },
-        onInstallmentsReceived: (error: any, installments: any) => {
-          if (error) return console.error('onInstallmentsReceived: ', error);
-          setInstallments(installments[0].payer_costs);
-          setSelectedInstallment(installments[0].payer_costs[0].recommended_message);
-        },
-        onError: (error: any) => {
-          console.error("CardForm Error:", error);
-          setStatus(PaymentStatus.ERROR);
-          setMessage(error[0]?.message || 'Verifique os dados do cartão.');
-        }
-      },
-    });
-    cardFormRef.current = cardForm;
+    try {
+        const mp = new window.MercadoPago(mpPublicKey);
+        const cardForm = mp.cardForm({
+            amount: String(invoice.amount),
+            iframe: true,
+            form: {
+                id: 'form-checkout',
+                cardNumber: { id: 'form-checkout-cardNumber' },
+                securityCode: { id: 'form-checkout-securityCode' },
+                expirationDate: { id: 'form-checkout-expirationDate' },
+            },
+            callbacks: {
+                onReady: () => setIsSDKReady(true),
+                onPaymentMethodsReceived: (error: any, paymentMethods: any) => {
+                    if (error) return console.error('onPaymentMethodsReceived: ', error);
+                    setPaymentMethodId(paymentMethods[0].id);
+                },
+                onInstallmentsReceived: (error: any, installmentsResponse: any) => {
+                    if (error) return console.error('onInstallmentsReceived: ', error);
+                    if (installmentsResponse && installmentsResponse.length > 0 && installmentsResponse[0].payer_costs) {
+                        setInstallments(installmentsResponse[0].payer_costs);
+                        if (installmentsResponse[0].payer_costs.length > 0) {
+                            setSelectedInstallment(installmentsResponse[0].payer_costs[0].recommended_message);
+                        }
+                    }
+                },
+                onError: (error: any) => {
+                    console.error("CardForm Error:", error);
+                    setStatus(PaymentStatus.ERROR);
+                    setMessage(error[0]?.message || 'Verifique os dados do cartão.');
+                }
+            },
+        });
+        cardFormRef.current = cardForm;
+    } catch (e: any) {
+        console.error("Falha ao inicializar o formulário do Mercado Pago:", e);
+        setStatus(PaymentStatus.ERROR);
+        setMessage("Não foi possível carregar o formulário de pagamento seguro. Por favor, tente novamente.");
+    }
+
   }, [mpPublicKey, invoice.amount]);
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -224,7 +235,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       </div>
 
       <form id="form-checkout" onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4">
-        {!isSDKReady && (
+        {!isSDKReady && status !== PaymentStatus.ERROR && (
              <div className="flex flex-col items-center justify-center p-8 space-y-4">
                 <LoadingSpinner />
                 <p className="text-slate-500 dark:text-slate-400">Carregando formulário seguro...</p>

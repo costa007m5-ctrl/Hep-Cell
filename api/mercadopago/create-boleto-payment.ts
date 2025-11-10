@@ -7,17 +7,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // Espera-se que o corpo da requisição contenha os detalhes do pagamento e do pagador
     const { amount, description, payer } = req.body;
 
-    // Validação robusta para todos os campos obrigatórios
     if (
         !amount || 
         !description || 
         !payer ||
         !payer.email ||
-        !payer.firstName ||
-        !payer.lastName ||
+        !payer.fullName || // Alterado para fullName
         !payer.identification ||
         !payer.identification.type ||
         !payer.identification.number ||
@@ -42,21 +39,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const client = new MercadoPagoConfig({ accessToken });
         const payment = new Payment(client);
         
-        // Constrói o corpo da requisição para a API do Mercado Pago
+        // Lógica para dividir o nome completo em nome e sobrenome
+        const nameParts = payer.fullName.trim().split(' ');
+        const firstName = nameParts[0];
+        // Se houver mais de um nome, junta o restante como sobrenome. Senão, usa um ponto como placeholder.
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '.';
+
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
             payment_method_id: 'boleto',
             payer: {
                 email: payer.email,
-                first_name: payer.firstName,
-                last_name: payer.lastName,
+                first_name: firstName,
+                last_name: lastName,
                 identification: {
                     type: payer.identification.type,
-                    number: payer.identification.number.replace(/\D/g, ''), // Remove caracteres não numéricos
+                    number: payer.identification.number.replace(/\D/g, ''),
                 },
                 address:  {
-                    zip_code: payer.address.zipCode.replace(/\D/g, ''), // Remove caracteres não numéricos
+                    zip_code: payer.address.zipCode.replace(/\D/g, ''),
                     street_name: payer.address.streetName,
                     street_number: payer.address.streetNumber,
                     neighborhood: payer.address.neighborhood,
@@ -68,7 +70,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const result = await payment.create({ body: paymentData });
         
-        // Acessa os dados da transação de forma segura
         const transactionData = result.point_of_interaction?.transaction_data as any;
 
         if (transactionData && transactionData.ticket_url && transactionData.bar_code) {

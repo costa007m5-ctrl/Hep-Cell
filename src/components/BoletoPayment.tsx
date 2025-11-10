@@ -15,8 +15,7 @@ interface BoletoPaymentProps {
 // Componente para o formulário de dados do boleto
 const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
+    fullName: '', // Alterado para Nome Completo
     identificationType: 'CPF',
     identificationNumber: '',
     zipCode: '',
@@ -93,10 +92,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
         <p className="text-sm text-slate-500 dark:text-slate-400">
             Para gerar o boleto, precisamos de algumas informações suas.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <InputField label="Nome" name="firstName" value={formData.firstName} onChange={handleChange} required />
-            <InputField label="Sobrenome" name="lastName" value={formData.lastName} onChange={handleChange} required />
-        </div>
+        <InputField label="Nome Completo" name="fullName" value={formData.fullName} onChange={handleChange} required />
         <div>
             <label htmlFor="identificationType" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tipo de Documento</label>
             <select name="identificationType" value={formData.identificationType} onChange={handleChange} className={selectClasses}>
@@ -108,7 +104,9 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
         <InputField label="Rua / Avenida" name="streetName" value={formData.streetName} onChange={handleChange} required />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <InputField label="Número" name="streetNumber" value={formData.streetNumber} onChange={handleChange} required ref={streetNumberRef} />
-            <InputField label="Bairro" name="neighborhood" value={formData.neighborhood} onChange={handleChange} required />
+            <div className="col-span-2">
+                 <InputField label="Bairro" name="neighborhood" value={formData.neighborhood} onChange={handleChange} required />
+            </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <InputField label="Cidade" name="city" value={formData.city} onChange={handleChange} required />
