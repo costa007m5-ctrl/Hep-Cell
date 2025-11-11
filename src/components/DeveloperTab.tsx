@@ -215,9 +215,28 @@ const DeveloperTab: React.FC = () => {
         }
     };
 
+    const migrationScriptSQL = `
+-- Script de Migração: Adicionar colunas ausentes à tabela 'profiles'
+-- Este script adiciona colunas que podem estar faltando se a tabela foi criada com uma versão antiga.
+-- É seguro executá-lo múltiplas vezes.
+
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS first_name text NULL,
+ADD COLUMN IF NOT EXISTS last_name text NULL,
+ADD COLUMN IF NOT EXISTS identification_type text NULL,
+ADD COLUMN IF NOT EXISTS identification_number text NULL,
+ADD COLUMN IF NOT EXISTS zip_code text NULL,
+ADD COLUMN IF NOT EXISTS street_name text NULL,
+ADD COLUMN IF NOT EXISTS street_number text NULL,
+ADD COLUMN IF NOT EXISTS neighborhood text NULL,
+ADD COLUMN IF NOT EXISTS city text NULL,
+ADD COLUMN IF NOT EXISTS federal_unit text NULL,
+ADD COLUMN IF NOT EXISTS updated_at timestamptz NULL;
+    `.trim();
+
     const createProfilesTableSQL = `
--- Tabela para armazenar dados de perfil dos usuários
-CREATE TABLE public.profiles (
+-- Tabela para armazenar dados de perfil dos usuários (cria somente se não existir)
+CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid NOT NULL,
   email text NULL,
   first_name text NULL,
@@ -235,7 +254,8 @@ CREATE TABLE public.profiles (
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
--- Trigger para criar um perfil automaticamente quando um novo usuário se cadastra
+-- Função para criar um perfil automaticamente quando um novo usuário se cadastra
+-- CREATE OR REPLACE FUNCTION já é "rerunável", então não precisa de alterações.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -243,11 +263,16 @@ SECURITY DEFINER
 AS $function$
 begin
   insert into public.profiles (id, email)
-  values (new.id, new.email);
+  values (new.id, new.email)
+  on conflict (id) do nothing; -- Adicionado para evitar erro se o perfil já existir
   return new;
 end;
 $function$;
 
+-- Trigger para executar a função acima
+-- A criação de trigger pode falhar se já existir, mas o Supabase geralmente lida com isso.
+-- Para ser 100% seguro, poderia ser DROP TRIGGER IF EXISTS ...; CREATE TRIGGER ...
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
@@ -255,24 +280,40 @@ CREATE TRIGGER on_auth_user_created
 
     const profilesRlsSQL = `
 -- 1. Habilitar RLS (Row Level Security) na tabela de perfis
+-- Este comando não gera erro se o RLS já estiver habilitado.
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 2. Política de Segurança: Usuários só podem ver e editar seu próprio perfil
+-- 2. Recriar políticas de segurança para garantir que estão atualizadas
+-- Primeiro, removemos as políticas antigas se elas existirem.
+DROP POLICY IF EXISTS "Enable read access for own user" ON public.profiles;
+DROP POLICY IF EXISTS "Enable update for own user" ON public.profiles;
+DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles;
+
+-- Depois, criamos as políticas com a definição correta.
+-- Permite que usuários leiam seu próprio perfil.
 CREATE POLICY "Enable read access for own user"
 ON public.profiles
 FOR SELECT
 USING (auth.uid() = id);
 
+-- Permite que usuários atualizem seu próprio perfil.
 CREATE POLICY "Enable update for own user"
 ON public.profiles
 FOR UPDATE
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
+
+-- NOVO: Permite que usuários criem (insiram) seu próprio perfil.
+-- Essencial para a função 'upsert' funcionar corretamente se o perfil ainda não existir.
+CREATE POLICY "Enable insert for own user"
+ON public.profiles
+FOR INSERT
+WITH CHECK (auth.uid() = id);
     `.trim();
 
     const fullSetupSQL = `
 -- 1. Tabela para armazenar faturas
-CREATE TABLE public.invoices (
+CREATE TABLE IF NOT EXISTS public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   month text NOT NULL,
@@ -292,7 +333,7 @@ CREATE TABLE public.invoices (
 );
 
 -- 2. Tabela para armazenar dados de perfil dos usuários
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid NOT NULL,
   email text NULL,
   first_name text NULL,
@@ -318,11 +359,13 @@ SECURITY DEFINER
 AS $function$
 begin
   insert into public.profiles (id, email)
-  values (new.id, new.email);
+  values (new.id, new.email)
+  on conflict (id) do nothing;
   return new;
 end;
 $function$;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
@@ -331,22 +374,31 @@ CREATE TRIGGER on_auth_user_created
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 5. Política de Segurança: Usuários só podem ver as próprias faturas
+-- 5. Políticas de Segurança para 'invoices'
+DROP POLICY IF EXISTS "Enable read access for own invoices" ON public.invoices;
 CREATE POLICY "Enable read access for own invoices"
 ON public.invoices
 FOR SELECT
 USING (auth.uid() = user_id);
 
--- 6. Política de Segurança: Usuários só podem ver e editar seu próprio perfil
+-- 6. Políticas de Segurança para 'profiles'
+DROP POLICY IF EXISTS "Enable read access for own user" ON public.profiles;
 CREATE POLICY "Enable read access for own user"
 ON public.profiles
 FOR SELECT
 USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Enable update for own user" ON public.profiles;
 CREATE POLICY "Enable update for own user"
 ON public.profiles
 FOR UPDATE
 USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles;
+CREATE POLICY "Enable insert for own user"
+ON public.profiles
+FOR INSERT
 WITH CHECK (auth.uid() = id);
     `.trim();
     
@@ -390,26 +442,41 @@ WITH CHECK (auth.uid() = id);
             </section>
             
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Correções e Migrações</h2>
+                <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-8">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3">Erro ao salvar perfil?</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        Se você está vendo um erro como <code className="bg-yellow-100 dark:bg-yellow-800/50 p-1 rounded font-mono text-xs">Could not find the 'city' column</code>, significa que sua tabela <strong>profiles</strong> está desatualizada. Execute o script abaixo para adicionar as colunas que faltam sem perder nenhum dado.
+                    </p>
+                    <CodeBlock
+                        title="Passo de Correção: Atualizar Tabela 'profiles'"
+                        explanation="Execute este script no Editor SQL do Supabase para garantir que sua tabela 'profiles' tenha todas as colunas necessárias."
+                        code={migrationScriptSQL}
+                    />
+                </div>
+            </section>
+
+            <section>
+                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados</h2>
                 <div className="p-4 rounded-lg bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 mb-8">
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3">Última Atualização: Perfis de Usuário</h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                        Para a funcionalidade 'Meus Dados' funcionar, você precisa adicionar a tabela de perfis e as regras de segurança abaixo. Execute os scripts no Editor SQL do Supabase na ordem apresentada.
+                        Os scripts abaixo foram atualizados para serem seguros de executar novamente. Se um objeto (tabela, política, etc.) já existir, o comando será adaptado para evitar erros.
                     </p>
                     <CodeBlock
                         title="Passo 1: Criar Tabela 'profiles' e Trigger"
-                        explanation="Este script cria a tabela para guardar os dados do cliente e um gatilho que cria um novo perfil automaticamente sempre que um novo usuário se cadastra."
+                        explanation="Este script agora usa 'CREATE TABLE IF NOT EXISTS' para evitar erros se a tabela já existir. O trigger também é recriado de forma segura."
                         code={createProfilesTableSQL}
                     />
                      <CodeBlock
                         title="Passo 2: Ativar Segurança (RLS) para Perfis"
-                        explanation="Estas políticas garantem que cada usuário só possa ver e editar os seus próprios dados, protegendo a privacidade de todos."
+                        explanation="Este script agora remove as políticas antigas (SELECT, UPDATE, INSERT) antes de criá-las, garantindo que a versão mais recente seja aplicada sem conflitos. A nova política de INSERT corrige o erro ao salvar dados."
                         code={profilesRlsSQL}
                     />
                 </div>
                  <CodeBlock
                     title="Script Completo (Setup Inicial)"
-                    explanation="Se você está configurando o projeto pela primeira vez, pode usar este script completo que inclui todas as tabelas e políticas de segurança necessárias ('invoices' e 'profiles'). Ele contém todas as atualizações anteriores."
+                    explanation="Se você está configurando o projeto pela primeira vez, pode usar este script completo que inclui todas as tabelas e políticas de segurança necessárias ('invoices' e 'profiles'). Ele também foi atualizado para ser seguro de executar múltiplas vezes."
                     code={fullSetupSQL}
                 />
             </section>

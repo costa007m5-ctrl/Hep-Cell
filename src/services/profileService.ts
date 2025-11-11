@@ -28,12 +28,23 @@ export const getProfile = async (userId: string): Promise<Profile | null> => {
  * @param profile O objeto de perfil a ser salvo. O 'id' deve corresponder ao auth.uid().
  */
 export const updateProfile = async (profile: Profile): Promise<void> => {
+    // Para garantir a integridade dos dados, construímos um payload de atualização controlado.
+    // O campo 'email' não deve ser atualizado a partir do perfil do cliente.
+    // A data de 'updated_at' é sempre definida para o momento da atualização.
+    const { email, ...updateData } = profile;
+
+    const payload = {
+        ...updateData,
+        updated_at: new Date().toISOString(),
+    };
+
     const { error } = await supabase
         .from('profiles')
-        .upsert(profile, { onConflict: 'id' });
+        .upsert(payload, { onConflict: 'id' });
 
     if (error) {
-        console.error('Erro ao atualizar perfil:', error);
+        // Melhora o log de erro para mostrar a mensagem real em vez de '[object Object]'.
+        console.error('Erro ao atualizar perfil:', error.message, error);
         throw error;
     }
 };
