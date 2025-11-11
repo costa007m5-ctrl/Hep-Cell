@@ -43,6 +43,7 @@ const DeveloperTab: React.FC = () => {
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     
     const webhookUrl = `${window.location.origin}/api/mercadopago/webhook`;
+    const authHookUrl = `${window.location.origin}/api/mercadopago/auth-hook`;
 
     const rpcFunctionSQL = `
 CREATE OR REPLACE FUNCTION execute_admin_sql(sql_query text)
@@ -94,23 +95,23 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
             </section>
 
              <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup Completo do Banco de Dados</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados e Automações</h2>
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        Para automatizar a criação das tabelas e políticas de segurança, primeiro precisamos criar uma "ponte" segura entre o painel e seu banco de dados. Siga os passos abaixo.
+                        Para automatizar a criação das tabelas e a sincronização de perfis de usuário, o processo é dividido em 3 passos simples.
                     </p>
                 </div>
 
                 <CodeBlock
-                    title="Passo 1 (Executar uma única vez): Criar a Função Segura"
+                    title="Passo 1 (Uma única vez): Criar a Função Segura"
                     explanation="Copie o código abaixo e execute-o UMA VEZ no seu Editor SQL do Supabase. Isso permitirá que o botão do Passo 2 funcione."
                     code={rpcFunctionSQL}
                 />
                 
                 <div className="mt-6">
-                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Final): Executar Setup Completo</h3>
-                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique no botão abaixo para criar e configurar todas as tabelas, políticas de segurança e automações (como o gatilho de criação de perfil).</p>
+                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Automático): Preparar o Banco</h3>
+                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique aqui para criar todas as tabelas e políticas de segurança. Isso prepara o banco para o passo final.</p>
                      
                      {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
 
@@ -124,15 +125,23 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                                 <LoadingSpinner />
                                 <span className="ml-2">Configurando...</span>
                             </>
-                        ) : 'Executar Setup Completo do Banco'}
+                        ) : 'Executar Setup do Banco'}
                      </button>
+                </div>
+
+                <div className="mt-6">
+                    <CodeBlock
+                        title="Passo 3 (Manual): Sincronizar Novos Usuários"
+                        explanation="Para que um perfil seja criado automaticamente para cada novo usuário, configure um Webhook de Autenticação no Supabase: Vá para Authentication > Webhooks, clique em 'Add new webhook', dê um nome (ex: 'Criar Perfil'), selecione o evento 'User Signed Up' e cole a URL abaixo."
+                        code={authHookUrl}
+                    />
                 </div>
             </section>
             
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Webhook</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Webhook de Pagamentos</h2>
                  <CodeBlock
-                    title="URL do Webhook para Produção"
+                    title="URL do Webhook para Produção (Mercado Pago)"
                     explanation="Copie esta URL e cole no painel do Mercado Pago (Desenvolvedor > Suas Aplicações > Webhooks). Marque o evento 'Pagamentos' para receber notificações de PIX e boletos pagos."
                     code={webhookUrl}
                 />

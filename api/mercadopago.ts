@@ -31,6 +31,36 @@ function getGeminiClient() {
     return new GoogleGenAI({ apiKey });
 }
 
+// --- Handler para o Webhook de Autenticação do Supabase ---
+async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
+    try {
+        const supabase = getSupabaseAdminClient();
+        const { type, record } = req.body;
+
+        if (type === 'user.created' && record?.id && record?.email) {
+            console.log(`Auth Hook: Novo usuário recebido - ID: ${record.id}, Email: ${record.email}`);
+            const { error: rpcError } = await supabase.rpc('handle_new_user_creation', {
+                user_id: record.id,
+                user_email: record.email,
+            });
+
+            if (rpcError) {
+                console.error('Erro ao chamar RPC handle_new_user_creation:', rpcError);
+                throw new Error(`Falha ao criar perfil para o usuário ${record.id}`);
+            }
+
+            console.log(`Auth Hook: Perfil criado com sucesso para o usuário ${record.id}`);
+            return res.status(200).json({ message: 'Perfil do usuário criado com sucesso.' });
+        } else {
+            console.log('Auth Hook: Evento recebido não é de criação de usuário ou está malformado.', req.body);
+            return res.status(200).json({ message: 'Evento ignorado.' });
+        }
+    } catch (error: any) {
+        console.error('Erro no processamento do Auth Hook:', error);
+        return res.status(500).json({ error: 'Erro interno no webhook de autenticação.', message: error.message });
+    }
+}
+
 
 // --- Handler para /api/mercadopago/create-boleto-payment ---
 async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
@@ -230,7 +260,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
         const client = getMercadoPagoClient();
 
         const { body } = req;
-        console.log('Webhook recebido:', JSON.stringify(body, null, 2));
+        console.log('Webhook de pagamento recebido:', JSON.stringify(body, null, 2));
         if (body.type === 'payment' && body.data?.id) {
             const paymentId = body.data.id;
             
@@ -260,7 +290,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
         }
         res.status(200).send('OK');
     } catch (error: any) {
-        console.error('Erro no processamento do webhook:', error);
+        console.error('Erro no processamento do webhook de pagamento:', error);
         res.status(500).json({ error: 'Erro interno no webhook.', message: error.message });
     }
 }
@@ -273,6 +303,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Rota de webhook aceita GET para verificação de URL pelo MP
   if (path === '/api/mercadopago/webhook') {
     return await handleWebhook(req, res);
+  }
+
+  // A rota do Auth Hook do Supabase deve ser POST
+  if (path === '/api/mercadopago/auth-hook') {
+      if (req.method === 'POST') {
+          return await handleAuthHook(req, res);
+      } else {
+          res.setHeader('Allow', 'POST');
+          return res.status(405).json({ error: `Method ${req.method} Not Allowed for Auth Hook` });
+      }
   }
 
   // Demais rotas devem ser POST

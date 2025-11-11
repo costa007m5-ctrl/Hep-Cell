@@ -12,25 +12,31 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Cria a tabela se ela não existir, garantindo a estrutura correta.
 CREATE TABLE IF NOT EXISTS public.invoices ( id uuid NOT NULL DEFAULT gen_random_uuid(), user_id uuid NOT NULL, month text NOT NULL, due_date date NOT NULL, amount numeric(10,2) NOT NULL, status text NOT NULL DEFAULT 'Em aberto'::text, payment_method text NULL, payment_date timestamptz NULL, payment_id text NULL, boleto_url text NULL, boleto_barcode text NULL, notes text NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL, CONSTRAINT invoices_pkey PRIMARY KEY (id), CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
--- Adiciona a coluna de teste para verificação visual pelo admin.
-ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS teste text NULL;
+-- TABELA DE TESTE PARA VERIFICAÇÃO VISUAL
+-- Cria uma tabela de teste simples para que o admin possa confirmar que o script rodou.
+CREATE TABLE IF NOT EXISTS public.teste (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT teste_pkey PRIMARY KEY (id)
+);
 
 -- 2. TABELA DE PERFIS (PROFILES)
 -- Cria a tabela de perfis para armazenar dados adicionais dos usuários.
 CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
--- 3. FUNÇÃO PARA CRIAR PERFIL DE NOVO USUÁRIO
--- Esta função será chamada pelo gatilho para popular a tabela de perfis.
-CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $function$ begin insert into public.profiles (id, email) values (new.id, new.email) on conflict (id) do nothing; return new; end; $function$;
+-- 3. FUNÇÃO PARA CRIAR PERFIL (VIA RPC/WEBHOOK)
+-- Esta função será chamada pelo endpoint do webhook para criar o perfil de um novo usuário.
+CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
+RETURNS void AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email)
+  VALUES (user_id, user_email)
+  ON CONFLICT (id) DO NOTHING;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. GATILHO (TRIGGER) PARA SINCRONIZAÇÃO DE USUÁRIOS
--- Garante que todo novo usuário em auth.users tenha um perfil criado em public.profiles.
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 5. FUNÇÃO E GATILHOS PARA ATUALIZAR 'updated_at'
+-- 4. FUNÇÃO E GATILHOS PARA ATUALIZAR 'updated_at'
 -- Mantém o campo 'updated_at' atualizado automaticamente em cada modificação.
 CREATE OR REPLACE FUNCTION public.moddatetime() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS handle_updated_at ON public.invoices;
@@ -38,39 +44,37 @@ CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.invoices FOR EACH ROW E
 DROP TRIGGER IF EXISTS handle_updated_at ON public.profiles;
 CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE PROCEDURE public.moddatetime();
 
--- 6. HABILITAR ROW LEVEL SECURITY (RLS)
+-- 5. HABILITAR ROW LEVEL SECURITY (RLS)
 -- Ativa a segurança a nível de linha para ambas as tabelas.
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- 7. POLÍTICAS DE SEGURANÇA PARA 'INVOICES'
+-- 6. POLÍTICAS DE SEGURANÇA PARA 'INVOICES'
 -- Remove as políticas antigas para evitar conflitos.
 DROP POLICY IF EXISTS "Allow service_role full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Allow admin full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Enable read access for own invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Enable update for own invoices" ON public.invoices;
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices; -- Remove a política antiga e combinada
--- 7.1. Permite que o backend (service_role) tenha acesso total para operações automáticas.
+-- 6.1. Permite que o backend (service_role) tenha acesso total para operações automáticas.
 CREATE POLICY "Allow service_role full access on invoices" ON public.invoices FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
--- 7.2. Permite que o usuário admin (pelo UID) tenha acesso total no painel.
+-- 6.2. Permite que o usuário admin (pelo UID) tenha acesso total no painel.
 CREATE POLICY "Allow admin full access on invoices" ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
--- 7.3. Permite que usuários leiam e atualizem suas próprias faturas.
+-- 6.3. Permite que usuários leiam e atualizem suas próprias faturas.
 CREATE POLICY "Enable read access for own invoices" ON public.invoices FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Enable update for own invoices" ON public.invoices FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 8. POLÍTICAS DE SEGURANÇA PARA 'PROFILES'
+-- 7. POLÍTICAS DE SEGURANÇA PARA 'PROFILES'
 -- Remove as políticas antigas para evitar conflitos.
 DROP POLICY IF EXISTS "Allow service_role full access on profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Allow admin full access on profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Enable read access for own user" ON public.profiles;
 DROP POLICY IF EXISTS "Enable update for own user" ON public.profiles;
 DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles;
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles; -- Remove a política antiga e combinada
--- 8.1. Permite que o backend (service_role) tenha acesso total.
+-- 7.1. Permite que o backend (service_role) tenha acesso total.
 CREATE POLICY "Allow service_role full access on profiles" ON public.profiles FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
--- 8.2. Permite que o usuário admin (pelo UID) tenha acesso total.
+-- 7.2. Permite que o usuário admin (pelo UID) tenha acesso total.
 CREATE POLICY "Allow admin full access on profiles" ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
--- 8.3. Permite que usuários gerenciem seu próprio perfil.
+-- 7.3. Permite que usuários gerenciem seu próprio perfil.
 CREATE POLICY "Enable read access for own user" ON public.profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Enable update for own user" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 CREATE POLICY "Enable insert for own user" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
@@ -95,7 +99,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
       }
       throw error;
     }
-    res.status(200).json({ success: true, message: 'Setup completo! O banco de dados e todas as automações foram configurados com sucesso.' });
+    res.status(200).json({ success: true, message: 'Setup completo! O banco de dados foi preparado. Siga para o próximo passo para configurar a automação.' });
   } catch (error: any) {
     console.error('Error setting up database:', error);
     res.status(500).json({ error: 'Falha ao executar o setup do banco de dados.', message: error.message });
