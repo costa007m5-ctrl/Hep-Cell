@@ -4,6 +4,7 @@ import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import DeveloperTab from './DeveloperTab';
+import StatusTab from './StatusTab'; // Importa a nova aba
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -13,7 +14,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminView, setAdminView] = useState<'invoices' | 'dev'>('invoices');
+  const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status'>('invoices'); // Adiciona 'status'
   
   // States para o formulário de criação
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -41,13 +42,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   }, []);
 
   useEffect(() => {
+    if (adminView !== 'invoices') return;
+
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
       try {
         await fetchAllInvoices();
 
-        // Busca perfis de usuários para popular o dropdown
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
           .select('id, email');
@@ -65,7 +67,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       }
     };
     fetchData();
-  }, [fetchAllInvoices]);
+  }, [fetchAllInvoices, adminView]);
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -93,9 +95,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       if (insertError) throw insertError;
       
       setSubmitMessage({ text: 'Fatura criada com sucesso!', type: 'success' });
-      setFormState({ userId: '', month: '', amount: '', due_date: '' }); // Limpa o form
+      setFormState({ userId: '', month: '', amount: '', due_date: '' });
       setShowCreateForm(false);
-      await fetchAllInvoices(); // Atualiza a lista
+      await fetchAllInvoices();
 
     } catch (err: any) {
       setSubmitMessage({ text: `Erro: ${err.message}`, type: 'error' });
@@ -192,6 +194,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       </>
     );
   };
+
+  const renderContent = () => {
+    switch(adminView) {
+        case 'invoices':
+            return renderInvoicesView();
+        case 'dev':
+            return <DeveloperTab />;
+        case 'status':
+            return <StatusTab />;
+        default:
+            return renderInvoicesView();
+    }
+  }
   
   return (
     <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 p-4 sm:p-6 lg:p-8">
@@ -206,17 +221,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           </button>
         </header>
 
-        <div className="flex space-x-4 mb-6">
-            <button onClick={() => setAdminView('invoices')} className={`py-2 px-4 rounded-md text-sm font-medium ${adminView === 'invoices' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>
+        <div className="flex space-x-2 sm:space-x-4 mb-6 border-b border-slate-200 dark:border-slate-700">
+            <button onClick={() => setAdminView('invoices')} className={`py-2 px-4 rounded-t-md text-sm font-medium transition-colors ${adminView === 'invoices' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                 Visão Geral
             </button>
-            <button onClick={() => setAdminView('dev')} className={`py-2 px-4 rounded-md text-sm font-medium ${adminView === 'dev' ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>
+            <button onClick={() => setAdminView('dev')} className={`py-2 px-4 rounded-t-md text-sm font-medium transition-colors ${adminView === 'dev' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                 Desenvolvedor
+            </button>
+            <button onClick={() => setAdminView('status')} className={`py-2 px-4 rounded-t-md text-sm font-medium transition-colors ${adminView === 'status' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                Status & Verificação
             </button>
         </div>
 
         <main className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-1 sm:p-6">
-            {adminView === 'invoices' ? renderInvoicesView() : <DeveloperTab />}
+            {renderContent()}
         </main>
       </div>
     </div>
