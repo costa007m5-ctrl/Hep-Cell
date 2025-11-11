@@ -25,12 +25,13 @@ CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW E
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY; ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 -- 6. POLÍTICAS DE SEGURANÇA PARA USUÁRIOS NORMAIS
 DROP POLICY IF EXISTS "Enable read access for own invoices" ON public.invoices; CREATE POLICY "Enable read access for own invoices" ON public.invoices FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Enable update for own invoices" ON public.invoices; CREATE POLICY "Enable update for own invoices" ON public.invoices FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Enable read access for own user" ON public.profiles; CREATE POLICY "Enable read access for own user" ON public.profiles FOR SELECT USING (auth.uid() = id);
 DROP POLICY IF EXISTS "Enable update for own user" ON public.profiles; CREATE POLICY "Enable update for own user" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles; CREATE POLICY "Enable insert for own user" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 -- 7. POLÍTICAS DE SEGURANÇA PARA O ADMINISTRADOR (!!! SUBSTITUA O ID !!!)
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices; CREATE POLICY "Enable full access for admin" ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles; CREATE POLICY "Enable full access for admin" ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices; CREATE POLICY "Enable full access for admin" ON public.invoices FOR ALL USING ((auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') OR (auth.role() = 'service_role')) WITH CHECK ((auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') OR (auth.role() = 'service_role'));
+DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles; CREATE POLICY "Enable full access for admin" ON public.profiles FOR ALL USING ((auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') OR (auth.role() = 'service_role')) WITH CHECK ((auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') OR (auth.role() = 'service_role'));
 `;
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
