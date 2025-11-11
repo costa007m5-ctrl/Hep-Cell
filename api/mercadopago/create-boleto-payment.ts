@@ -61,19 +61,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         
         const transactionData = result.point_of_interaction?.transaction_data as any;
 
-        if (transactionData && transactionData.ticket_url && transactionData.bar_code) {
+        // A API do Mercado Pago retorna o código de barras dentro de um objeto { content: "..." }
+        if (transactionData && transactionData.ticket_url && transactionData.bar_code?.content) {
             
-            // Etapa CRUCIAL: Salvar os dados do boleto no nosso banco de dados
+            // --- INÍCIO DA LÓGICA DE ARMAZENAMENTO ---
+            // Este é o bloco de código crucial que armazena os detalhes do boleto no seu banco de dados Supabase.
+            // É daqui que o aplicativo lê as informações para mostrar ao cliente depois.
             const { error: updateError } = await supabase
-                .from('invoices')
-                .update({
-                    status: 'Boleto Gerado',
-                    payment_id: String(result.id),
-                    boleto_url: transactionData.ticket_url,
-                    boleto_barcode: transactionData.bar_code, // CORREÇÃO: Acessa o código de barras diretamente
-                    payment_method: 'Boleto'
+                .from('invoices') // 1. Seleciona a tabela 'invoices'.
+                .update({ // 2. Prepara uma operação para atualizar uma fatura existente.
+                    status: 'Boleto Gerado',                           // -> Atualiza o status.
+                    payment_id: String(result.id),                      // -> Armazena o ID do pagamento do Mercado Pago.
+                    boleto_url: transactionData.ticket_url,             // -> Armazena o LINK para visualizar o PDF do boleto.
+                    boleto_barcode: transactionData.bar_code.content,   // -> Armazena o CÓDIGO DE BARRAS do boleto.
+                    payment_method: 'Boleto'                            // -> Define o método de pagamento.
                 })
-                .eq('id', invoiceId);
+                .eq('id', invoiceId); // 3. Garante que estamos atualizando a fatura correta, usando o ID que veio do app.
+            // --- FIM DA LÓGICA DE ARMAZENAMENTO ---
             
             if (updateError) {
                 // Se falhar, tenta cancelar o pagamento no MP para evitar inconsistência
@@ -86,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 message: "Boleto gerado e salvo com sucesso!",
                 paymentId: result.id,
                 boletoUrl: transactionData.ticket_url,
-                boletoBarcode: transactionData.bar_code,
+                boletoBarcode: transactionData.bar_code.content,
             });
         } else {
             console.error("Resposta inesperada do Mercado Pago:", result);

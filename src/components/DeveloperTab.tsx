@@ -1,72 +1,44 @@
 import React from 'react';
-import CodeBlock from './CodeBlock'; // Supondo que CodeBlock foi movido para seu próprio arquivo
+
+// Componente auxiliar para blocos de código
+interface CodeBlockProps {
+    title: string;
+    code: string;
+    explanation?: string;
+}
+
+const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
+    const [copyText, setCopyText] = React.useState('Copiar');
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(code);
+        setCopyText('Copiado!');
+        setTimeout(() => setCopyText('Copiar'), 2000);
+    };
+
+    return (
+        <div className="mb-6">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">{title}</h3>
+            {explanation && <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{explanation}</p>}
+            <div className="relative">
+                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-sm">
+                    <code>{code.trim()}</code>
+                </pre>
+                <button
+                    onClick={handleCopy}
+                    className="absolute top-2 right-2 bg-slate-700 text-slate-200 text-xs font-semibold py-1 px-2 rounded-md hover:bg-slate-600 transition-colors"
+                >
+                    {copyText}
+                </button>
+            </div>
+        </div>
+    );
+};
+
 
 const DeveloperTab: React.FC = () => {
     
     const webhookUrl = `${window.location.origin}/api/mercadopago/webhook`;
-
-    const adminRlsSQL = `
--- Habilita o acesso total para o usuário administrador
--- IMPORTANTE: Substitua '1da77e27-f1df-4e35-bcec-51dc2c5a9062' pelo ID do seu usuário Admin no Supabase Auth.
-
--- 1. Políticas de Admin para a tabela 'invoices'
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices;
-CREATE POLICY "Enable full access for admin"
-ON public.invoices
-FOR ALL
-USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062')
-WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
-
--- 2. Políticas de Admin para a tabela 'profiles'
-DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles;
-CREATE POLICY "Enable full access for admin"
-ON public.profiles
-FOR ALL
-USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062')
-WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
-    `.trim();
-
-    const updatedAtTriggerSQL = `
--- 1. Cria a função que atualiza o campo 'updated_at'
-CREATE OR REPLACE FUNCTION public.moddatetime()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- 2. Aplica o trigger na tabela 'invoices'
-DROP TRIGGER IF EXISTS handle_updated_at ON public.invoices;
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.invoices
-FOR EACH ROW
-EXECUTE PROCEDURE public.moddatetime();
-
--- 3. Aplica o trigger na tabela 'profiles'
-DROP TRIGGER IF EXISTS handle_updated_at ON public.profiles;
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.profiles
-FOR EACH ROW
-EXECUTE PROCEDURE public.moddatetime();
-    `.trim();
-
-    const migrationScriptSQL = `
--- Adiciona colunas que podem estar faltando se a tabela foi criada com uma versão antiga.
--- É seguro executá-lo múltiplas vezes.
-ALTER TABLE public.profiles
-ADD COLUMN IF NOT EXISTS first_name text NULL,
-ADD COLUMN IF NOT EXISTS last_name text NULL,
-ADD COLUMN IF NOT EXISTS identification_type text NULL,
-ADD COLUMN IF NOT EXISTS identification_number text NULL,
-ADD COLUMN IF NOT EXISTS zip_code text NULL,
-ADD COLUMN IF NOT EXISTS street_name text NULL,
-ADD COLUMN IF NOT EXISTS street_number text NULL,
-ADD COLUMN IF NOT EXISTS neighborhood text NULL,
-ADD COLUMN IF NOT EXISTS city text NULL,
-ADD COLUMN IF NOT EXISTS federal_unit text NULL,
-ADD COLUMN IF NOT EXISTS updated_at timestamptz NULL;
-    `.trim();
 
     const fullSetupSQL = `
 -- =================================================================
@@ -77,21 +49,23 @@ ADD COLUMN IF NOT EXISTS updated_at timestamptz NULL;
 -- É seguro executá-lo múltiplas vezes.
 
 -- 1. TABELA DE FATURAS (INVOICES)
+-- Esta tabela armazena todas as faturas e também os detalhes de pagamento,
+-- incluindo as informações do boleto.
 CREATE TABLE IF NOT EXISTS public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   month text NOT NULL,
   due_date date NOT NULL,
   amount numeric(10,2) NOT NULL,
-  status text NOT NULL DEFAULT 'Em aberto'::text,
+  status text NOT NULL DEFAULT 'Em aberto'::text, -- >> COLUNA DE STATUS (muda para 'Boleto Gerado')
   payment_method text NULL,
   payment_date timestamptz NULL,
-  payment_id text NULL,
-  boleto_url text NULL,
-  boleto_barcode text NULL,
+  payment_id text NULL, -- >> COLUNA PARA O ID DA TRANSAÇÃO NO MERCADO PAGO
+  boleto_url text NULL, -- >> COLUNA PARA ARMAZENAR O LINK DO BOLETO PDF
+  boleto_barcode text NULL, -- >> COLUNA PARA ARMAZENAR O CÓDIGO DE BARRAS
   notes text NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NULL,
   CONSTRAINT invoices_pkey PRIMARY KEY (id),
   CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
 );
@@ -182,17 +156,21 @@ CREATE POLICY "Enable insert for own user"
 ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- 7. POLÍTICAS DE SEGURANÇA PARA O ADMINISTRADOR
--- IMPORTANTE: Substitua '1da77e27-f1df-4e35-bcec-51dc2c5a9062' pelo ID do seu usuário Admin.
+-- !!! IMPORTANTE !!!
+-- Substitua '1da77e27-f1df-4e35-bcec-51dc2c5a9062' pelo ID do seu usuário Admin.
+-- Você pode encontrá-lo em 'Authentication' > 'Users' no painel do Supabase.
 
 -- Acesso total a 'invoices':
 DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices;
 CREATE POLICY "Enable full access for admin"
-ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062')
+WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
 
 -- Acesso total a 'profiles':
 DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles;
 CREATE POLICY "Enable full access for admin"
-ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
+ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062')
+WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
     `.trim();
 
     return (
@@ -221,85 +199,22 @@ ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a
                 />
             </section>
 
-             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup Essencial para Administradores</h2>
-                <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
-                    <h3 className="font-bold text-green-800 dark:text-green-200">Por que isso é importante?</h3>
+            <section>
+                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup Completo e Correções</h2>
+                 <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
+                    <h3 className="font-bold text-green-800 dark:text-green-200">Passo Único e Obrigatório</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        Para que o painel de administrador funcione, o banco de dados precisa saber que seu usuário tem permissão para ver e gerenciar os dados de **todos** os clientes. O script abaixo cria essa permissão.
+                        Para que o aplicativo funcione, o banco de dados precisa ser preparado. O script abaixo cria todas as tabelas e regras de segurança necessárias. Execute-o uma vez no seu Editor SQL do Supabase.
                     </p>
                 </div>
                  <CodeBlock
-                    title="Passo Obrigatório: Habilitar Acesso de Administrador"
-                    explanation="Execute este script no Editor SQL do Supabase. Lembre-se de verificar se o ID do usuário no script corresponde ao seu ID de administrador."
-                    code={adminRlsSQL}
-                />
-            </section>
-
-            <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Automação e Melhorias</h2>
-                 <CodeBlock
-                    title="Opcional: Automatizar Data de Atualização"
-                    explanation="Este script cria uma automação no banco de dados que atualiza o campo 'updated_at' sempre que uma fatura ou perfil for modificado. É uma boa prática que garante a integridade dos dados."
-                    code={updatedAtTriggerSQL}
-                />
-            </section>
-
-            <section>
-                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup Completo e Correções</h2>
-                 <CodeBlock
                     title="Script Completo (Setup Inicial)"
-                    explanation="Se você está configurando o projeto pela primeira vez, use este script. Ele inclui todas as tabelas, permissões de cliente e as novas permissões de administrador e automações."
+                    explanation="Este script configura tudo! Lembre-se de alterar o ID do usuário administrador dentro do script antes de executá-lo."
                     code={fullSetupSQL}
                 />
-                 <CodeBlock
-                    title="Correção: Atualizar Tabela 'profiles' Antiga"
-                    explanation="Se você encontrar o erro 'Could not find the 'city' column' ao salvar um perfil, execute este script para adicionar as colunas que faltam sem perder dados."
-                    code={migrationScriptSQL}
-                />
             </section>
         </div>
     );
 };
-
-// Componente auxiliar para blocos de código
-interface CodeBlockProps {
-    title: string;
-    code: string;
-    explanation?: string;
-}
-
-const CodeBlockReact: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
-    const [copyText, setCopyText] = React.useState('Copiar');
-
-    const handleCopy = () => {
-        navigator.clipboard.writeText(code);
-        setCopyText('Copiado!');
-        setTimeout(() => setCopyText('Copiar'), 2000);
-    };
-
-    return (
-        <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">{title}</h3>
-            {explanation && <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{explanation}</p>}
-            <div className="relative">
-                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-sm">
-                    <code>{code.trim()}</code>
-                </pre>
-                <button
-                    onClick={handleCopy}
-                    className="absolute top-2 right-2 bg-slate-700 text-slate-200 text-xs font-semibold py-1 px-2 rounded-md hover:bg-slate-600 transition-colors"
-                >
-                    {copyText}
-                </button>
-            </div>
-        </div>
-    );
-};
-
-// Para evitar problemas de importação circular ou de escopo, 
-// renomeei o componente CodeBlock para CodeBlockReact para uso interno.
-const CodeBlock = CodeBlockReact;
-
 
 export default DeveloperTab;
