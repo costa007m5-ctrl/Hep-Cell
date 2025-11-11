@@ -8,7 +8,7 @@ import InputField from './InputField';
 interface BoletoPaymentProps {
   invoice: Invoice;
   onBack: () => void;
-  onPaymentConfirmed: () => void;
+  onBoletoGenerated: (updatedInvoice: Invoice) => void;
 }
 
 
@@ -125,8 +125,8 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
 };
 
 
-const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymentConfirmed }) => {
-  const [step, setStep] = useState<'form' | 'loading' | 'success' | 'error'>('form');
+const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoletoGenerated }) => {
+  const [step, setStep] = useState<'form' | 'loading' | 'error'>('form');
   const [error, setError] = useState<string | null>(null);
   
   const handleFormSubmit = async (formData: any) => {
@@ -158,7 +158,17 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
         if (!response.ok) {
             throw new Error(data.error || data.message || 'Falha ao gerar o boleto.');
         }
-        setStep('success');
+        
+        const updatedInvoice: Invoice = {
+            ...invoice,
+            status: 'Boleto Gerado',
+            boleto_url: data.boletoUrl,
+            boleto_barcode: data.boletoBarcode,
+            payment_id: String(data.paymentId),
+        };
+        
+        onBoletoGenerated(updatedInvoice);
+
     } catch (err: any) {
         setError(err.message);
         setStep('error');
@@ -167,11 +177,9 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
 
   const renderContent = () => {
     switch(step) {
-        case 'form':
-            return <BoletoForm onSubmit={handleFormSubmit} isSubmitting={false} />;
         case 'loading':
             return (
-                <div className="flex flex-col items-center justify-center p-8 space-y-4">
+                <div className="flex flex-col items-center justify-center p-8 space-y-4 h-full">
                     <LoadingSpinner />
                     <p className="text-slate-500 dark:text-slate-400">Gerando e salvando seu boleto...</p>
                 </div>
@@ -185,25 +193,9 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
                     </button>
                 </div>
             );
-        case 'success':
-            return (
-                 <div className="flex flex-col items-center text-center p-8 space-y-4 animate-fade-in">
-                     <div className="w-16 h-16 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200">Boleto Gerado!</h3>
-                    <p className="text-slate-500 dark:text-slate-400">
-                        Seu boleto foi criado com sucesso. Você pode visualizá-lo agora na sua lista de faturas.
-                    </p>
-                    <button onClick={onPaymentConfirmed} className="w-full mt-4 py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
-                        Ver minhas Faturas
-                    </button>
-                </div>
-            )
+        case 'form':
         default:
-            return null;
+            return <BoletoForm onSubmit={handleFormSubmit} isSubmitting={step === 'loading'} />;
     }
   };
 
@@ -214,13 +206,13 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onPaymen
         <p className="text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - R$ {invoice.amount.toFixed(2).replace('.', ',')}</p>
       </div>
       
-      <div className="min-h-[250px] flex items-start justify-center">
+      <div className="min-h-[500px] flex items-start justify-center">
         {renderContent()}
       </div>
 
       <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
-        <button type="button" onClick={step === 'success' ? onPaymentConfirmed : onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
-          {step === 'success' ? 'Voltar para Faturas' : 'Voltar'}
+        <button type="button" onClick={onBack} disabled={step === 'loading'} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50">
+          Voltar
         </button>
       </div>
     </div>

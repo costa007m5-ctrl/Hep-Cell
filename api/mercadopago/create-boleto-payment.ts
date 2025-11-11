@@ -85,6 +85,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             res.status(200).json({
                 message: "Boleto gerado e salvo com sucesso!",
                 paymentId: result.id,
+                boletoUrl: transactionData.ticket_url,
+                boletoBarcode: transactionData.bar_code.content,
             });
         } else {
             console.error("Resposta inesperada do Mercado Pago:", result);

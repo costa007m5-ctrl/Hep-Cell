@@ -162,6 +162,14 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         handleBackToList();
     }, [selectedInvoice]);
     
+    const handleBoletoGenerated = (updatedInvoice: Invoice) => {
+        setInvoices(prevInvoices => prevInvoices.map(inv =>
+            inv.id === updatedInvoice.id ? updatedInvoice : inv
+        ));
+        setSelectedInvoice(updatedInvoice);
+        setPaymentStep('view_boleto');
+    };
+    
     if (isRedirecting) { /* ... (código de redirecionamento existente) ... */ }
 
     if (paymentStep === 'view_boleto' && selectedInvoice) {
@@ -177,7 +185,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     }
 
     if (paymentStep === 'boleto' && selectedInvoice) {
-        return <BoletoPayment invoice={selectedInvoice} onBack={handleBackToMethodSelection} onPaymentConfirmed={handleBackToList} />;
+        return <BoletoPayment invoice={selectedInvoice} onBack={handleBackToMethodSelection} onBoletoGenerated={handleBoletoGenerated} />;
     }
     
     if (paymentStep === 'form' && selectedInvoice) {
