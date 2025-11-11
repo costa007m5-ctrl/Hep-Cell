@@ -215,6 +215,61 @@ const DeveloperTab: React.FC = () => {
         }
     };
 
+    const createProfilesTableSQL = `
+-- Tabela para armazenar dados de perfil dos usuários
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text NULL,
+  first_name text NULL,
+  last_name text NULL,
+  identification_type text NULL,
+  identification_number text NULL,
+  zip_code text NULL,
+  street_name text NULL,
+  street_number text NULL,
+  neighborhood text NULL,
+  city text NULL,
+  federal_unit text NULL,
+  updated_at timestamptz NULL,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- Trigger para criar um perfil automaticamente quando um novo usuário se cadastra
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+begin
+  insert into public.profiles (id, email)
+  values (new.id, new.email);
+  return new;
+end;
+$function$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+    `.trim();
+
+    const profilesRlsSQL = `
+-- 1. Habilitar RLS (Row Level Security) na tabela de perfis
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- 2. Política de Segurança: Usuários só podem ver e editar seu próprio perfil
+CREATE POLICY "Enable read access for own user"
+ON public.profiles
+FOR SELECT
+USING (auth.uid() = id);
+
+CREATE POLICY "Enable update for own user"
+ON public.profiles
+FOR UPDATE
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+    `.trim();
+
     const fullSetupSQL = `
 -- 1. Tabela para armazenar faturas
 CREATE TABLE public.invoices (
@@ -293,25 +348,12 @@ ON public.profiles
 FOR UPDATE
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
-
--- 7. Política de Segurança: Permitir que o admin (service_role) veja tudo
---    (Para o painel do administrador funcionar)
-CREATE POLICY "Allow admin full access to invoices"
-ON public.invoices
-FOR ALL
-USING (true); -- Somente a service_role key ignora as políticas RLS
-
-CREATE POLICY "Allow admin full access to profiles"
-ON public.profiles
-FOR ALL
-USING (true); -- Somente a service_role key ignora as políticas RLS
     `.trim();
     
     const webhookUrl = `${window.location.origin}/api/mercadopago/webhook`;
 
     return (
         <div className="p-4 space-y-8">
-            {/* Seção 1: Variáveis de Ambiente */}
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração das Variáveis de Ambiente</h2>
                 <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 mb-6">
@@ -328,7 +370,6 @@ USING (true); -- Somente a service_role key ignora as políticas RLS
                 </div>
             </section>
             
-            {/* Seção 2: Webhooks */}
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Webhook</h2>
                 <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
@@ -344,17 +385,31 @@ USING (true); -- Somente a service_role key ignora as políticas RLS
                 />
             </section>
 
-            {/* Seção 3: Ferramentas de Teste */}
             <section>
                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Ferramentas de Teste da API</h2>
             </section>
-
-            {/* Seção 4: Setup do Banco */}
+            
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados</h2>
+                <div className="p-4 rounded-lg bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 mb-8">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3">Última Atualização: Perfis de Usuário</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        Para a funcionalidade 'Meus Dados' funcionar, você precisa adicionar a tabela de perfis e as regras de segurança abaixo. Execute os scripts no Editor SQL do Supabase na ordem apresentada.
+                    </p>
+                    <CodeBlock
+                        title="Passo 1: Criar Tabela 'profiles' e Trigger"
+                        explanation="Este script cria a tabela para guardar os dados do cliente e um gatilho que cria um novo perfil automaticamente sempre que um novo usuário se cadastra."
+                        code={createProfilesTableSQL}
+                    />
+                     <CodeBlock
+                        title="Passo 2: Ativar Segurança (RLS) para Perfis"
+                        explanation="Estas políticas garantem que cada usuário só possa ver e editar os seus próprios dados, protegendo a privacidade de todos."
+                        code={profilesRlsSQL}
+                    />
+                </div>
                  <CodeBlock
-                    title="Script SQL Completo"
-                    explanation="Execute este script no Editor SQL do seu projeto Supabase para criar as tabelas 'invoices', 'profiles', o trigger de novos usuários e as políticas de segurança (RLS)."
+                    title="Script Completo (Setup Inicial)"
+                    explanation="Se você está configurando o projeto pela primeira vez, pode usar este script completo que inclui todas as tabelas e políticas de segurança necessárias ('invoices' e 'profiles'). Ele contém todas as atualizações anteriores."
                     code={fullSetupSQL}
                 />
             </section>
