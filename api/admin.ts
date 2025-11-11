@@ -35,7 +35,7 @@ DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles; CREATE PO
 DROP POLICY IF EXISTS "Enable full access for admin" ON public.invoices; CREATE POLICY "Enable full access for admin" ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
 DROP POLICY IF EXISTS "Enable full access for admin" ON public.profiles; CREATE POLICY "Enable full access for admin" ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
 `;
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -63,7 +63,7 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
 }
 
 // --- Handler para /api/admin/test-gemini ---
-async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
+async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     return res.status(400).json({ success: false, message: "A variável de ambiente 'API_KEY' do Gemini não foi encontrada. Verifique sua configuração na Vercel." });
@@ -83,7 +83,7 @@ async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
 }
 
 // --- Handler para /api/admin/test-mercadopago ---
-async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
+async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
   const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!accessToken) {
     return res.status(400).json({ success: false, message: "A variável de ambiente 'MERCADO_PAGO_ACCESS_TOKEN' não foi encontrada. Verifique sua configuração na Vercel." });
@@ -114,7 +114,7 @@ async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
 }
 
 // --- Handler para /api/admin/test-supabase ---
-async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
+async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !supabaseServiceKey) {
