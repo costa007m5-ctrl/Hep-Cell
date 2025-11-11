@@ -53,6 +53,16 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
+    const triggerSQL = `
+-- Remove o gatilho antigo, se existir, para evitar erros
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+
+-- Cria o novo gatilho
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+    `.trim();
+
     const handleSetupDatabase = async () => {
         setIsLoading(true);
         setMessage(null);
@@ -98,19 +108,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        Para automatizar a criação das tabelas e políticas de segurança, primeiro precisamos criar uma "ponte" segura entre o painel e seu banco de dados. Siga os dois passos abaixo.
+                        Para automatizar a criação das tabelas e políticas de segurança, primeiro precisamos criar uma "ponte" segura entre o painel e seu banco de dados. Siga os passos abaixo.
                     </p>
                 </div>
 
                 <CodeBlock
                     title="Passo 1 (Executar uma única vez): Criar a Função Segura"
-                    explanation="Copie o código abaixo e execute-o UMA VEZ no seu Editor SQL do Supabase. Isso permitirá que o botão abaixo funcione."
+                    explanation="Copie o código abaixo e execute-o UMA VEZ no seu Editor SQL do Supabase. Isso permitirá que o botão do Passo 2 funcione."
                     code={rpcFunctionSQL}
                 />
                 
                 <div className="mt-6">
-                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2: Executar o Setup Completo</h3>
-                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique no botão abaixo para criar e configurar todas as tabelas e políticas de segurança automaticamente.</p>
+                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2: Executar o Setup Automático</h3>
+                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique no botão abaixo para criar e configurar todas as tabelas e políticas de segurança (exceto o gatilho de usuário).</p>
                      
                      {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
 
@@ -124,14 +134,15 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                                 <LoadingSpinner />
                                 <span className="ml-2">Configurando...</span>
                             </>
-                        ) : 'Executar Setup Completo do Banco de Dados'}
+                        ) : 'Executar Setup Automático do Banco'}
                      </button>
-                      {message?.type === 'success' && (
-                        <p className="mt-4 text-sm text-green-700 dark:text-green-300">
-                            Ótimo! Agora, vá para a aba <strong>"Status & Verificação"</strong> para confirmar que tudo está funcionando.
-                        </p>
-                    )}
                 </div>
+
+                 <CodeBlock
+                    title="Passo 3 (Passo Final Manual): Criar o Gatilho de Sincronização"
+                    explanation="Para corrigir o erro de permissão, esta etapa final deve ser feita manualmente. Copie o código abaixo e execute-o no seu Editor SQL do Supabase. Isso garante que cada novo usuário cadastrado tenha um perfil criado automaticamente."
+                    code={triggerSQL}
+                />
             </section>
             
             <section>

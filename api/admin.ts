@@ -13,9 +13,6 @@ CREATE TABLE IF NOT EXISTS public.invoices ( id uuid NOT NULL DEFAULT gen_random
 CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );
 -- 3. FUNÇÃO PARA CRIAR PERFIL DE NOVO USUÁRIO
 CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $function$ begin insert into public.profiles (id, email) values (new.id, new.email) on conflict (id) do nothing; return new; end; $function$;
--- TRIGGER para executar a função acima
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 -- 4. FUNÇÃO PARA ATUALIZAR O CAMPO 'updated_at' AUTOMATICAMENTE
 CREATE OR REPLACE FUNCTION public.moddatetime() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $$ language 'plpgsql';
 -- TRIGGER para 'invoices'
@@ -55,7 +52,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
       }
       throw error;
     }
-    res.status(200).json({ success: true, message: 'Banco de dados configurado com sucesso!' });
+    res.status(200).json({ success: true, message: 'Banco de dados configurado com sucesso! Agora, siga para o Passo 3 manual para finalizar.' });
   } catch (error: any) {
     console.error('Error setting up database:', error);
     res.status(500).json({ error: 'Falha ao executar o setup do banco de dados.', message: error.message });

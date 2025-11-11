@@ -30,6 +30,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                invoiceId: invoice.id, // Envia o ID da fatura para o backend
                 amount: invoice.amount,
                 description: `Fatura Relp Cell - ${invoice.month}`,
                 payerEmail: user.email,

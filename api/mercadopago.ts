@@ -24,7 +24,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'bolbradesco',
+            payment_method_id: 'boleto', // Padronizado para 'boleto'
             payer: {
                 email: payer.email, first_name: payer.firstName, last_name: payer.lastName,
                 identification: { type: payer.identificationType, number: payer.identificationNumber.replace(/\D/g, '') },
@@ -68,9 +68,9 @@ function formatDateForMP(date: Date): string {
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${offsetSign}${offsetHours}:${offsetMinutes}`;
 }
 async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
-    const { amount, description, payerEmail } = req.body;
-    if (!amount || !description || !payerEmail) {
-        return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
+    const { amount, description, payerEmail, invoiceId } = req.body;
+    if (!amount || !description || !payerEmail || !invoiceId) {
+        return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (invoiceId é necessário).' });
     }
     if (!mpAccessToken) {
         console.error('Mercado Pago Access Token não configurado.');
@@ -86,10 +86,20 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             description: description,
             payment_method_id: 'pix',
             payer: { email: payerEmail },
-            date_of_expiration: formatDateForMP(expirationDate)
+            date_of_expiration: formatDateForMP(expirationDate),
+            external_reference: invoiceId,
         };
         const result = await payment.create({ body: paymentData });
-        if (result.point_of_interaction?.transaction_data) {
+
+        if (result.id && result.point_of_interaction?.transaction_data) {
+             // **CORREÇÃO CRÍTICA**: Salva o payment_id na fatura para o webhook funcionar
+            const { error: updateError } = await supabase.from('invoices').update({ payment_id: String(result.id), payment_method: 'PIX' }).eq('id', invoiceId);
+            if (updateError) {
+                console.error('Falha ao salvar o ID do pagamento PIX no Supabase:', updateError);
+                await payment.cancel({ id: result.id! });
+                throw new Error('Falha ao vincular o pagamento PIX à fatura no banco de dados.');
+            }
+            
             res.status(200).json({ paymentId: result.id, qrCode: result.point_of_interaction.transaction_data.qr_code, qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64, expires: result.date_of_expiration });
         } else {
             throw new Error('A resposta da API do Mercado Pago não incluiu os dados do PIX.');
