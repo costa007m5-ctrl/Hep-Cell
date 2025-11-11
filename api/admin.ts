@@ -3,6 +3,15 @@ import { URL } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
+// --- Helper Functions ---
+function getGeminiClient() {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error('A chave da API do Gemini (API_KEY) não está configurada no servidor.');
+    }
+    return new GoogleGenAI({ apiKey });
+}
+
 // --- Handler para /api/admin/setup-database ---
 const fullSetupSQL = `
 -- Habilita a extensão pgcrypto se ainda não estiver habilitada (necessária para gen_random_uuid)
@@ -106,6 +115,52 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// --- Handler para /api/admin/diagnose-error ---
+async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
+  try {
+    const genAI = getGeminiClient();
+    const { errorMessage } = req.body;
+    if (!errorMessage) {
+      return res.status(400).json({ error: 'O parâmetro errorMessage é obrigatório.' });
+    }
+
+    const prompt = `
+        Você é um assistente especialista em Supabase e PostgreSQL para o aplicativo "Relp Cell". Ocorreu um erro de banco de dados e sua tarefa é ajudar o administrador do sistema a resolvê-lo.
+
+        Contexto:
+        - O administrador está vendo esta mensagem dentro do painel de administração do aplicativo.
+        - O painel tem uma aba "Desenvolvedor" que contém instruções e scripts SQL para configurar o banco de dados (tabelas 'invoices', 'profiles', políticas de segurança RLS, etc.).
+        - O erro provavelmente está relacionado a uma configuração inicial incompleta ou a um problema de permissão (RLS).
+
+        O erro técnico é:
+        "${errorMessage}"
+
+        Por favor, forneça uma resposta clara e concisa em português do Brasil, formatada com títulos simples (usando ###), com as seguintes seções:
+
+        ### O Que Aconteceu?
+        Uma explicação simples e não-técnica do que o erro significa.
+
+        ### Como Resolver
+        Uma sugestão de passo a passo para o administrador.
+        - Se o erro indicar uma tabela ou função ausente (ex: "relation does not exist"), instrua-o a ir à aba "Desenvolvedor" e executar o setup do banco de dados.
+        - Se o erro sugerir um problema de permissão (ex: "permission denied for table"), explique que pode ser um problema com as Políticas de Segurança (RLS) e que ele deve verificar as políticas no painel do Supabase ou recriá-las usando os scripts da aba "Desenvolvedor".
+        - Para outros erros, dê a melhor sugestão possível.
+    `;
+    
+    const response = await genAI.models.generateContent({ 
+        model: 'gemini-2.5-flash', 
+        contents: prompt 
+    });
+
+    res.status(200).json({ diagnosis: response.text });
+
+  } catch (error: any) {
+    console.error("Error diagnosing with Gemini:", error);
+    res.status(500).json({ error: 'Falha ao analisar o erro com a IA.', message: error.message });
+  }
+}
+
+
 // --- Handler para /api/admin/test-gemini ---
 async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.API_KEY;
@@ -199,6 +254,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await handleTestMercadoPago(req, res);
     case '/api/admin/test-supabase':
       return await handleTestSupabase(req, res);
+    case '/api/admin/diagnose-error':
+        return await handleDiagnoseError(req, res);
     default:
       return res.status(404).json({ error: 'Admin route not found' });
   }

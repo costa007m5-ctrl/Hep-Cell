@@ -5,15 +5,22 @@ import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import DeveloperTab from './DeveloperTab';
 import StatusTab from './StatusTab'; // Importa a nova aba
+import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface AdminDashboardProps {
   onLogout: () => void;
 }
 
+interface ErrorInfo {
+    message: string;
+    diagnosis?: string;
+    isDiagnosing: boolean;
+}
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
   const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status'>('invoices'); // Adiciona 'status'
   
   // States para o formulário de criação
@@ -41,12 +48,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     }
   }, []);
 
-  useEffect(() => {
-    if (adminView !== 'invoices') return;
-
-    const fetchData = async () => {
+  const fetchData = useCallback(async () => {
       setIsLoading(true);
-      setError(null);
+      setErrorInfo(null);
       try {
         await fetchAllInvoices();
 
@@ -61,13 +65,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
       } catch (err: any) {
         console.error("Error fetching admin data:", err);
-        setError(`Falha ao carregar os dados: ${err.message}`);
+        const errorMessage = err.message || 'Ocorreu um erro desconhecido.';
+        setErrorInfo({
+            message: `Falha ao carregar os dados do painel: ${errorMessage}`,
+            isDiagnosing: true,
+        });
+
+        diagnoseDatabaseError(errorMessage).then(diagnosis => {
+            setErrorInfo(prev => prev ? { ...prev, diagnosis, isDiagnosing: false } : null);
+        });
       } finally {
         setIsLoading(false);
       }
-    };
-    fetchData();
-  }, [fetchAllInvoices, adminView]);
+    }, [fetchAllInvoices]);
+
+  useEffect(() => {
+    if (adminView === 'invoices') {
+        fetchData();
+    }
+  }, [adminView, fetchData]);
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -117,7 +133,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       );
     }
 
-    if (error) return <div className="p-4"><Alert message={error} type="error" /></div>;
+    if (errorInfo) {
+      return (
+        <div className="p-4 space-y-4">
+            <Alert message={errorInfo.message} type="error" />
+             <div className="p-4 bg-slate-100 dark:bg-slate-900/50 rounded-lg border border-slate-200 dark:border-slate-700">
+                <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>
+                    Análise da IA
+                </h3>
+                {errorInfo.isDiagnosing && (
+                    <div className="flex items-center space-x-2 mt-2">
+                        <LoadingSpinner />
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Analisando o problema...</p>
+                    </div>
+                )}
+                {errorInfo.diagnosis && (
+                    <div className="mt-2 text-slate-600 dark:text-slate-300 space-y-2 text-sm">
+                        {errorInfo.diagnosis.split('\n').map((line, index) => {
+                            if (line.startsWith('### ')) {
+                                return <h4 key={index} className="font-bold text-base text-slate-800 dark:text-slate-100 pt-2">{line.replace('### ', '')}</h4>
+                            }
+                            if (line.trim() === '') return null;
+                            return <p key={index}>{line}</p>
+                        })}
+                    </div>
+                )}
+            </div>
+            <button onClick={fetchData} className="w-full text-center text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">Tentar Novamente</button>
+        </div>
+      );
+    }
 
     return (
       <>

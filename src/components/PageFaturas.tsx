@@ -8,12 +8,19 @@ import PaymentMethodSelector from './PaymentMethodSelector';
 import PixPayment from './PixPayment';
 import BoletoPayment from './BoletoPayment';
 import BoletoDetails from './BoletoDetails';
+import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
 
 type PaymentStep = 'list' | 'select_method' | 'form' | 'pix' | 'boleto' | 'view_boleto';
+
+interface ErrorInfo {
+    message: string;
+    diagnosis?: string;
+    isDiagnosing: boolean;
+}
 
 // Helper para calcular o desconto por antecipação
 const getDiscountInfo = (dueDateString: string, originalAmount: number) => {
@@ -141,15 +148,15 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [selectedInvoice, setSelectedInvoice] = useState<(Invoice & { originalAmount?: number; discountValue?: number; }) | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
     const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
     const [isRedirecting, setIsRedirecting] = useState(false);
 
     const fetchInvoices = useCallback(async () => {
+        setIsLoading(true);
+        setErrorInfo(null);
         try {
-            setIsLoading(true);
-            setError(null);
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
 
@@ -161,8 +168,16 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             if (dbError) throw dbError;
             setInvoices(data || []);
         } catch (err: any) {
-            setError('Falha ao carregar as faturas. Tente novamente mais tarde.');
             console.error('Error fetching invoices:', err);
+            const errorMessage = err.message || 'Ocorreu um erro desconhecido.';
+            setErrorInfo({
+                message: `Falha ao carregar as faturas: ${errorMessage}`,
+                isDiagnosing: true,
+            });
+
+            diagnoseDatabaseError(errorMessage).then(diagnosis => {
+                setErrorInfo(prev => prev ? { ...prev, diagnosis, isDiagnosing: false } : null);
+            });
         } finally {
             setIsLoading(false);
         }
@@ -217,7 +232,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
             if (updateError) {
                 console.error('Failed to update invoice status:', updateError);
-                setError('Houve um erro ao atualizar o status do pagamento.');
+                 setErrorInfo({ message: 'Houve um erro ao atualizar o status do pagamento.', isDiagnosing: false });
             }
         }
         handleBackToList();
@@ -257,8 +272,36 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         return <div className="w-full max-w-md flex flex-col items-center justify-center space-y-4 p-8"><LoadingSpinner /><p className="text-slate-500 dark:text-slate-400">Carregando faturas...</p></div>;
     }
 
-    if (error) {
-        return <div className="w-full max-w-md p-4"><Alert message={error} type="error" /><button onClick={handleBackToList} className="mt-4 w-full text-center text-sm font-medium text-indigo-600 dark:text-indigo-400">Voltar para Faturas</button></div>;
+    if (errorInfo) {
+        return (
+            <div className="w-full max-w-md p-4 space-y-4 animate-fade-in">
+                <Alert message={errorInfo.message} type="error" />
+                <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg>
+                        Análise da IA
+                    </h3>
+                    {errorInfo.isDiagnosing && (
+                        <div className="flex items-center space-x-2 mt-2">
+                            <LoadingSpinner />
+                            <p className="text-sm text-slate-500 dark:text-slate-400">Analisando o problema...</p>
+                        </div>
+                    )}
+                    {errorInfo.diagnosis && (
+                         <div className="mt-2 text-slate-600 dark:text-slate-300 space-y-2 text-sm">
+                            {errorInfo.diagnosis.split('\n').map((line, index) => {
+                                if (line.startsWith('### ')) {
+                                    return <h4 key={index} className="font-bold text-base text-slate-800 dark:text-slate-100 pt-2">{line.replace('### ', '')}</h4>
+                                }
+                                if (line.trim() === '') return null;
+                                return <p key={index}>{line}</p>
+                            })}
+                        </div>
+                    )}
+                </div>
+                <button onClick={fetchInvoices} className="w-full text-center text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">Tentar Novamente</button>
+            </div>
+        );
     }
 
     return (
