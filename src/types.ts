@@ -43,3 +43,13 @@ export interface Profile {
   city?: string | null;
   federal_unit?: string | null;
 }
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  stock: number;
+  image_url: string | null;
+  created_at: string;
+}

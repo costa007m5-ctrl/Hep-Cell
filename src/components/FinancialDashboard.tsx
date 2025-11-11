@@ -1,0 +1,138 @@
+import React, { useMemo } from 'react';
+import { Invoice } from '../types';
+import LoadingSpinner from './LoadingSpinner';
+
+interface FinancialDashboardProps {
+  invoices: Invoice[];
+  isLoading: boolean;
+}
+
+// Componente de cartão para exibir métricas
+const MetricCard: React.FC<{ title: string; value: string; description?: string }> = ({ title, value, description }) => (
+    <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-xl shadow-md">
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
+        <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{value}</p>
+        {description && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{description}</p>}
+    </div>
+);
+
+const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoading }) => {
+    const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+
+    const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga' && inv.payment_date), [invoices]);
+    const openInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'), [invoices]);
+
+    const financialMetrics = useMemo(() => {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfWeek = new Date(startOfToday);
+        startOfWeek.setDate(startOfWeek.getDate() - now.getDay());
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+        const dailyIncome = paidInvoices
+            .filter(inv => new Date(inv.payment_date!) >= startOfToday)
+            .reduce((sum, inv) => sum + inv.amount, 0);
+
+        const weeklyIncome = paidInvoices
+            .filter(inv => new Date(inv.payment_date!) >= startOfWeek)
+            .reduce((sum, inv) => sum + inv.amount, 0);
+
+        const monthlyIncome = paidInvoices
+            .filter(inv => new Date(inv.payment_date!) >= startOfMonth)
+            .reduce((sum, inv) => sum + inv.amount, 0);
+
+        const yearlyIncome = paidInvoices
+            .filter(inv => new Date(inv.payment_date!) >= startOfYear)
+            .reduce((sum, inv) => sum + inv.amount, 0);
+
+        const projectedRemainingYearly = openInvoices
+            .filter(inv => {
+                const dueDate = new Date(inv.due_date + 'T00:00:00');
+                return dueDate >= now && dueDate.getFullYear() === now.getFullYear();
+            })
+            .reduce((sum, inv) => sum + inv.amount, 0);
+        
+        const monthlyProjections = openInvoices.reduce((acc, inv) => {
+            const dueDate = new Date(inv.due_date + 'T00:00:00');
+            const monthYear = dueDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+            acc[monthYear] = (acc[monthYear] || 0) + inv.amount;
+            return acc;
+        }, {} as Record<string, number>);
+
+        // Ordenar projeções por data
+        const sortedProjections = Object.entries(monthlyProjections).sort(([keyA], [keyB]) => {
+            const dateA = new Date(keyA.split('/').reverse().join('-'));
+            const dateB = new Date(keyB.split('/').reverse().join('-'));
+            return dateA.getTime() - dateB.getTime();
+        });
+
+
+        return {
+            dailyIncome,
+            weeklyIncome,
+            monthlyIncome,
+            yearlyIncome,
+            projectedRemainingYearly,
+            sortedProjections,
+        };
+    }, [paidInvoices, openInvoices]);
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center space-y-4 p-8 min-h-[300px]">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Calculando métricas financeiras...</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-4 space-y-8">
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Resumo Financeiro</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <MetricCard title="Faturamento Hoje" value={formatCurrency(financialMetrics.dailyIncome)} />
+                    <MetricCard title="Faturamento na Semana" value={formatCurrency(financialMetrics.weeklyIncome)} />
+                    <MetricCard title="Faturamento no Mês" value={formatCurrency(financialMetrics.monthlyIncome)} />
+                    <MetricCard title="Faturamento Total do Ano" value={formatCurrency(financialMetrics.yearlyIncome)} />
+                    <MetricCard title="A Receber no Ano" value={formatCurrency(financialMetrics.projectedRemainingYearly)} description="Valor de faturas em aberto no ano corrente" />
+                    <MetricCard title="Faturas Pendentes" value={String(openInvoices.length)} description="Total de faturas em aberto ou com boleto gerado" />
+                </div>
+            </section>
+            
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Projeção de Entradas</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    Valores a receber com base nas datas de vencimento das faturas em aberto.
+                </p>
+                {financialMetrics.sortedProjections.length > 0 ? (
+                    <div className="overflow-x-auto">
+                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                            <thead className="bg-slate-50 dark:bg-slate-900/50">
+                                <tr>
+                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês de Vencimento</th>
+                                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Valor a Receber</th>
+                                </tr>
+                            </thead>
+                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
+                                {financialMetrics.sortedProjections.map(([monthYear, amount]) => (
+                                    <tr key={monthYear}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white capitalize">{monthYear}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-slate-500 dark:text-slate-300 font-semibold">{formatCurrency(amount)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="text-center p-8 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
+                        <p className="text-slate-500 dark:text-slate-400">Nenhuma entrada futura para projetar.</p>
+                    </div>
+                )}
+            </section>
+        </div>
+    );
+};
+
+export default FinancialDashboard;
