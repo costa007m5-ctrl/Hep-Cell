@@ -90,9 +90,27 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         const supabase = getSupabaseAdminClient();
         const client = getMercadoPagoClient();
 
-        const { amount, description, payerEmail, invoiceId } = req.body;
-        if (!amount || !description || !payerEmail || !invoiceId) {
-            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (invoiceId é necessário).' });
+        const { amount, description, payerEmail, invoiceId, userId } = req.body;
+        if (!amount || !description || !payerEmail || !invoiceId || !userId) {
+            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (userId, invoiceId são necessários).' });
+        }
+        
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('first_name, last_name, identification_number')
+            .eq('id', userId)
+            .single();
+
+        if (profileError || !profile) {
+            console.error('Erro ao buscar perfil para PIX:', profileError);
+            return res.status(404).json({ message: 'Perfil do usuário não foi encontrado para gerar o PIX.' });
+        }
+
+        if (!profile.first_name || !profile.last_name || !profile.identification_number) {
+            return res.status(400).json({ 
+                error: 'Dados de perfil incompletos.',
+                message: 'Para gerar um PIX, por favor, preencha seu nome, sobrenome e CPF na aba "Perfil".' 
+            });
         }
         
         const payment = new Payment(client);
@@ -102,7 +120,15 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             transaction_amount: Number(amount),
             description: description,
             payment_method_id: 'pix',
-            payer: { email: payerEmail },
+            payer: {
+                email: payerEmail,
+                first_name: profile.first_name,
+                last_name: profile.last_name,
+                identification: {
+                    type: "CPF",
+                    number: profile.identification_number.replace(/\D/g, '')
+                }
+            },
             date_of_expiration: formatDateForMP(expirationDate),
             external_reference: invoiceId,
         };
@@ -118,6 +144,7 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             
             res.status(200).json({ paymentId: result.id, qrCode: result.point_of_interaction.transaction_data.qr_code, qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64, expires: result.date_of_expiration });
         } else {
+            console.error("Resposta inesperada do Mercado Pago ao criar PIX:", result);
             throw new Error('A resposta da API do Mercado Pago não incluiu os dados do PIX.');
         }
     } catch (error: any) {

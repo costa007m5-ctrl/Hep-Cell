@@ -30,16 +30,17 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                invoiceId: invoice.id, // Envia o ID da fatura para o backend
+                invoiceId: invoice.id,
                 amount: invoice.amount,
                 description: `Fatura Relp Cell - ${invoice.month}`,
                 payerEmail: user.email,
+                userId: invoice.user_id, // Envia o ID do usuário para buscar o perfil
             }),
         });
 
         const data = await response.json();
         if (!response.ok) {
-            throw new Error(data.error || 'Falha ao gerar o código PIX.');
+            throw new Error(data.message || data.error || 'Falha ao gerar o código PIX.');
         }
         setPixData(data);
       } catch (err: any) {
