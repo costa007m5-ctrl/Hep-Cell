@@ -75,7 +75,6 @@ ALTER TABLE public.action_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow service_role full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Allow admin full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Enable read access for own invoices" ON public.invoices;
-DROP POLICY IF EXISTS "Enable update for own invoices" ON public.invoices;
 CREATE POLICY "Allow service_role full access on invoices" ON public.invoices FOR ALL TO service_role;
 CREATE POLICY "Allow admin full access on invoices" ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
 CREATE POLICY "Enable read access for own invoices" ON public.invoices FOR SELECT USING (auth.uid() = user_id);
