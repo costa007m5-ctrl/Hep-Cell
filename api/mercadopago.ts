@@ -4,27 +4,50 @@ import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
-// --- Clientes e Configurações Globais ---
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-const mpAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+// --- Funções Auxiliares de Validação ---
+function getSupabaseAdminClient() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+        throw new Error('As variáveis de ambiente do Supabase não estão configuradas no servidor.');
+    }
+    return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+function getMercadoPagoClient() {
+    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!accessToken) {
+        throw new Error('O Access Token do Mercado Pago não está configurado no servidor.');
+    }
+    return new MercadoPagoConfig({ accessToken });
+}
+
+function getGeminiClient() {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error('A chave da API do Gemini (API_KEY) não está configurada no servidor.');
+    }
+    return new GoogleGenAI({ apiKey });
+}
+
 
 // --- Handler para /api/mercadopago/create-boleto-payment ---
 async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
-    const { amount, description, payer, invoiceId } = req.body;
-    if (!amount || !description || !payer || !payer.email || !payer.firstName || !payer.lastName || !payer.identificationType || !payer.identificationNumber || !payer.zipCode || !payer.streetName || !payer.streetNumber || !payer.neighborhood || !payer.city || !payer.federalUnit || !invoiceId) {
-        return res.status(400).json({ error: 'Dados do pagador, da fatura ou do pagamento estão incompletos.' });
-    }
-    if (!mpAccessToken) {
-        console.error('Mercado Pago Access Token não configurado.');
-        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
-    }
     try {
-        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const supabase = getSupabaseAdminClient();
+        const client = getMercadoPagoClient();
+        
+        const { amount, description, payer, invoiceId } = req.body;
+        if (!amount || !description || !payer || !payer.email || !payer.firstName || !payer.lastName || !payer.identificationType || !payer.identificationNumber || !payer.zipCode || !payer.streetName || !payer.streetNumber || !payer.neighborhood || !payer.city || !payer.federalUnit || !invoiceId) {
+            return res.status(400).json({ error: 'Dados do pagador, da fatura ou do pagamento estão incompletos.' });
+        }
+
         const payment = new Payment(client);
         const paymentData = {
             transaction_amount: Number(amount),
             description: description,
-            payment_method_id: 'boleto', // Padronizado para 'boleto'
+            payment_method_id: 'boleto',
             payer: {
                 email: payer.email, first_name: payer.firstName, last_name: payer.lastName,
                 identification: { type: payer.identificationType, number: payer.identificationNumber.replace(/\D/g, '') },
@@ -34,6 +57,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         };
         const result = await payment.create({ body: paymentData });
         const transactionData = result.point_of_interaction?.transaction_data as any;
+
         if (transactionData && transactionData.ticket_url && transactionData.bar_code?.content) {
             const { error: updateError } = await supabase.from('invoices').update({ status: 'Boleto Gerado', payment_id: String(result.id), boleto_url: transactionData.ticket_url, boleto_barcode: transactionData.bar_code.content, payment_method: 'Boleto' }).eq('id', invoiceId);
             if (updateError) {
@@ -58,26 +82,19 @@ function formatDateForMP(date: Date): string {
     const offsetSign = offset >= 0 ? '+' : '-';
     const offsetHours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
     const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${offsetSign}${offsetHours}:${offsetMinutes}`;
+    return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}T${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}${offsetSign}${offsetHours}:${offsetMinutes}`;
 }
+
 async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
-    const { amount, description, payerEmail, invoiceId } = req.body;
-    if (!amount || !description || !payerEmail || !invoiceId) {
-        return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (invoiceId é necessário).' });
-    }
-    if (!mpAccessToken) {
-        console.error('Mercado Pago Access Token não configurado.');
-        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
-    }
     try {
-        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const supabase = getSupabaseAdminClient();
+        const client = getMercadoPagoClient();
+
+        const { amount, description, payerEmail, invoiceId } = req.body;
+        if (!amount || !description || !payerEmail || !invoiceId) {
+            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (invoiceId é necessário).' });
+        }
+        
         const payment = new Payment(client);
         const expirationDate = new Date();
         expirationDate.setMinutes(expirationDate.getMinutes() + 30);
@@ -92,7 +109,6 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         const result = await payment.create({ body: paymentData });
 
         if (result.id && result.point_of_interaction?.transaction_data) {
-             // **CORREÇÃO CRÍTICA**: Salva o payment_id na fatura para o webhook funcionar
             const { error: updateError } = await supabase.from('invoices').update({ payment_id: String(result.id), payment_method: 'PIX' }).eq('id', invoiceId);
             if (updateError) {
                 console.error('Falha ao salvar o ID do pagamento PIX no Supabase:', updateError);
@@ -106,22 +122,20 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         }
     } catch (error: any) {
         console.error('Erro ao criar pagamento PIX com Mercado Pago:', error);
-        res.status(500).json({ error: 'Falha ao gerar o código PIX.', message: error?.cause?.message || 'Ocorreu um erro interno.' });
+        res.status(500).json({ error: 'Falha ao gerar o código PIX.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
 }
 
 // --- Handler para /api/mercadopago/create-preference ---
 async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
-    const { amount, description, id, redirect, payerEmail } = req.body;
-    if (!amount || !description || !id) {
-        return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
-    }
-    if (!mpAccessToken) {
-        console.error('Mercado Pago Access Token não configurado.');
-        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
-    }
     try {
-        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const client = getMercadoPagoClient();
+
+        const { amount, description, id, redirect, payerEmail } = req.body;
+        if (!amount || !description || !id) {
+            return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
+        }
+        
         const preference = new Preference(client);
         const preferenceBody: any = {
             items: [{ id: id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
@@ -142,38 +156,33 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
 
 // --- Handler para /api/mercadopago/generate-message ---
 async function handleGenerateMessage(req: VercelRequest, res: VercelResponse) {
-    const { customerName, amount } = req.body;
-    if (!customerName || !amount) {
-        return res.status(400).json({ error: 'Faltam os parâmetros customerName e amount.' });
-    }
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-        console.error('Gemini API Key (API_KEY) não configurada.');
-        return res.status(500).json({ error: 'O serviço de IA não está configurado.' });
-    }
     try {
-        const genAI = new GoogleGenAI({ apiKey });
+        const genAI = getGeminiClient();
+        
+        const { customerName, amount } = req.body;
+        if (!customerName || !amount) {
+            return res.status(400).json({ error: 'Faltam os parâmetros customerName e amount.' });
+        }
+
         const prompt = `Gere uma mensagem curta, amigável e profissional de confirmação de pagamento para um cliente chamado "${customerName}". O valor pago foi de R$ ${amount}. Agradeça ao cliente por sua pontualidade e por escolher a "Relp Cell". A mensagem deve ser em português do Brasil.`;
         const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
         res.status(200).json({ message: response.text });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error generating message with Gemini:", error);
-        res.status(500).json({ error: 'Falha ao gerar a mensagem de confirmação.' });
+        res.status(500).json({ error: 'Falha ao gerar a mensagem de confirmação.', message: error.message });
     }
 }
 
 // --- Handler para /api/mercadopago/process-payment ---
 async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
-    if (!mpAccessToken) {
-        console.error('Mercado Pago Access Token não configurado.');
-        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
-    }
     try {
+        const client = getMercadoPagoClient();
+
         const paymentData = req.body;
         if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
             return res.status(400).json({ message: 'Dados de pagamento incompletos.' });
         }
-        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        
         const payment = new Payment(client);
         const result = await payment.create({ body: paymentData });
         if (result.status === 'approved' || result.status === 'in_process') {
@@ -183,30 +192,36 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         }
     } catch (error: any) {
         console.error('Erro ao processar pagamento com Mercado Pago:', error);
-        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || 'Ocorreu um erro interno.' });
+        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
 }
 
 // --- Handler para /api/mercadopago/webhook ---
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     try {
+        const supabase = getSupabaseAdminClient();
+        const client = getMercadoPagoClient();
+
         const { body } = req;
         console.log('Webhook recebido:', JSON.stringify(body, null, 2));
         if (body.type === 'payment' && body.data?.id) {
             const paymentId = body.data.id;
-            const client = new MercadoPagoConfig({ accessToken: mpAccessToken! });
+            
             const payment = new Payment(client);
             const paymentDetails = await payment.get({ id: paymentId });
             console.log('Detalhes do pagamento obtidos do MP:', JSON.stringify(paymentDetails, null, 2));
+            
             if (!paymentDetails || !paymentDetails.id) {
                 console.warn(`Payment ID ${paymentId} não encontrado no Mercado Pago.`);
                 return res.status(200).send('OK. Pagamento não encontrado no MP.');
             }
+
             let newStatus: 'Paga' | 'Expirado' | 'Cancelado' | null = null;
             switch(paymentDetails.status) {
                 case 'approved': newStatus = 'Paga'; break;
                 case 'cancelled': newStatus = paymentDetails.status_detail === 'expired' ? 'Expirado' : 'Cancelado'; break;
             }
+
             if (newStatus) {
                 const { data, error } = await supabase.from('invoices').update({ status: newStatus, payment_date: newStatus === 'Paga' ? new Date().toISOString() : null }).eq('payment_id', String(paymentId)).select();
                 if (error) {
@@ -228,18 +243,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url!, `http://${req.headers.host}`);
   const path = url.pathname;
 
-  if (req.method !== 'POST') {
-    // Webhook é GET para verificação inicial, mas a notificação é POST.
-    // O status e test também podem ser GET. Vamos relaxar a verificação de método para o roteador.
-    if (path === '/api/mercadopago/webhook') {
-        return await handleWebhook(req, res);
-    }
-     if (req.method === 'GET') { // Adicionar rotas GET se necessário no futuro
-        return res.status(405).json({ error: 'Method Not Allowed for this path' });
-    }
+  // Rota de webhook aceita GET para verificação de URL pelo MP
+  if (path === '/api/mercadopago/webhook') {
+    return await handleWebhook(req, res);
   }
 
-  // Rotas POST
+  // Demais rotas devem ser POST
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
+  }
+
   switch (path) {
     case '/api/mercadopago/create-boleto-payment':
       return await handleCreateBoletoPayment(req, res);
@@ -251,8 +265,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await handleGenerateMessage(req, res);
     case '/api/mercadopago/process-payment':
       return await handleProcessPayment(req, res);
-    case '/api/mercadopago/webhook': // Já tratado acima para GET, aqui para POST
-        return await handleWebhook(req, res);
     default:
       return res.status(404).json({ error: 'Mercado Pago route not found' });
   }
