@@ -2,7 +2,7 @@ import React from 'react';
 import { Invoice } from '../types';
 
 interface PaymentMethodSelectorProps {
-  invoice: Invoice;
+  invoice: Invoice & { originalAmount?: number; discountValue?: number };
   onSelectMethod: (method: string) => void;
   onBack: () => void;
 }
@@ -47,8 +47,13 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
       <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in">
         <div className="text-center p-6 sm:p-8 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Escolha como Pagar</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
+           <p className="text-slate-500 dark:text-slate-400 mt-1">
             Fatura de {invoice.month} - <strong>{invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            {invoice.discountValue && invoice.discountValue > 0 && (
+                <span className="block text-sm text-green-600 dark:text-green-400 font-semibold mt-1 animate-fade-in">
+                    Desconto por antecipação: -{invoice.discountValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+            )}
           </p>
         </div>
 

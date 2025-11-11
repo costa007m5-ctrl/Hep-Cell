@@ -15,6 +15,42 @@ interface PageFaturasProps {
 
 type PaymentStep = 'list' | 'select_method' | 'form' | 'pix' | 'boleto' | 'view_boleto';
 
+// Helper para calcular o desconto por antecipação
+const getDiscountInfo = (dueDateString: string, originalAmount: number) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Normaliza para o início do dia
+
+  // Adiciona T00:00:00 para garantir que a data seja interpretada no fuso horário local
+  const dueDate = new Date(dueDateString + 'T00:00:00');
+
+  if (isNaN(dueDate.getTime())) return null;
+  
+  const diffTime = dueDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return null; // Sem desconto no dia ou após o vencimento
+
+  const MAX_DISCOUNT_PERCENTAGE = 15;
+  const MAX_DISCOUNT_DAYS = 30; // O desconto escala ao longo de 30 dias
+
+  const effectiveDays = Math.min(diffDays, MAX_DISCOUNT_DAYS);
+  const discountPercentage = (effectiveDays / MAX_DISCOUNT_DAYS) * MAX_DISCOUNT_PERCENTAGE;
+
+  if (discountPercentage <= 0) return null;
+
+  const discountValue = (originalAmount * discountPercentage) / 100;
+  // Arredonda para 2 casas decimais para evitar problemas com centavos
+  const roundedDiscountValue = Math.round(discountValue * 100) / 100;
+  const discountedAmount = originalAmount - roundedDiscountValue;
+
+  return {
+    discountedAmount,
+    discountValue: roundedDiscountValue,
+    discountPercentage,
+  };
+};
+
+
 // Icons
 const InvoiceIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -47,7 +83,7 @@ const statusConfig = {
 };
 
 // InvoiceItem Component
-const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void; onViewBoleto?: (invoice: Invoice) => void; }> = ({ invoice, onPay, onViewBoleto }) => {
+const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void; onViewBoleto?: (invoice: Invoice) => void; discountInfo: ReturnType<typeof getDiscountInfo> | null }> = ({ invoice, onPay, onViewBoleto, discountInfo }) => {
     const config = statusConfig[invoice.status] || statusConfig['Em aberto'];
     const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
 
@@ -65,12 +101,30 @@ const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => vo
                 </div>
             </div>
             <div className="text-right">
-                 <p className={`font-semibold ${config.textColor}`}>
-                    {invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </p>
+                {discountInfo && invoice.status === 'Em aberto' ? (
+                    <>
+                        <p className="font-semibold text-green-600 dark:text-green-400">
+                            {discountInfo.discountedAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 line-through">
+                            {invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </p>
+                    </>
+                ) : (
+                    <p className={`font-semibold ${config.textColor}`}>
+                        {invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                )}
                 {invoice.status === 'Em aberto' && onPay && (
-                    <button onClick={() => onPay(invoice)} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none">
-                        Pagar
+                    <button onClick={() => onPay(invoice)} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none mt-1">
+                         {discountInfo ? (
+                             <span className="flex items-center justify-end gap-1">
+                                <span>Antecipar com</span>
+                                <span className="font-bold bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-300 px-1.5 py-0.5 rounded-full text-xs">
+                                    {discountInfo.discountPercentage.toFixed(0)}% OFF
+                                </span>
+                             </span>
+                        ) : 'Pagar'}
                     </button>
                 )}
                  {invoice.status === 'Boleto Gerado' && onViewBoleto && (
@@ -84,7 +138,7 @@ const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => vo
 };
 
 const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
-    const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+    const [selectedInvoice, setSelectedInvoice] = useState<(Invoice & { originalAmount?: number; discountValue?: number; }) | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -122,10 +176,17 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const openInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'), [invoices]);
     const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga' || inv.status === 'Expirado' || inv.status === 'Cancelado'), [invoices]);
-    const totalDue = useMemo(() => openInvoices.reduce((sum, inv) => sum + inv.amount, 0), [openInvoices]);
+    const totalDue = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto').reduce((sum, inv) => sum + inv.amount, 0), [invoices]);
 
     const handlePayClick = (invoice: Invoice) => {
-        setSelectedInvoice(invoice);
+        const discountInfo = getDiscountInfo(invoice.due_date, invoice.amount);
+        const invoiceToPay = {
+            ...invoice,
+            amount: discountInfo ? discountInfo.discountedAmount : invoice.amount,
+            originalAmount: invoice.amount,
+            discountValue: discountInfo ? discountInfo.discountValue : 0,
+        };
+        setSelectedInvoice(invoiceToPay);
         setPaymentStep('select_method');
     };
     
@@ -211,7 +272,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                             {totalDue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </p>
                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                            {openInvoices.length} {openInvoices.length > 1 ? 'faturas pendentes' : 'fatura pendente'}
+                            {invoices.filter(i => i.status === 'Em aberto').length} {invoices.filter(i => i.status === 'Em aberto').length === 1 ? 'fatura pendente' : 'faturas pendentes'}
                         </p>
                     </div>
                 ) : (
@@ -234,9 +295,18 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     <h2 id="open-invoices-title" className="text-xl font-bold text-slate-800 dark:text-slate-200 px-1">
                         Faturas Pendentes
                     </h2>
-                    {openInvoices.map(invoice => (
-                        <InvoiceItem key={invoice.id} invoice={invoice} onPay={handlePayClick} onViewBoleto={handleViewBoletoClick} />
-                    ))}
+                    {openInvoices.map(invoice => {
+                         const discountInfo = invoice.status === 'Em aberto' ? getDiscountInfo(invoice.due_date, invoice.amount) : null;
+                         return (
+                            <InvoiceItem 
+                                key={invoice.id} 
+                                invoice={invoice} 
+                                onPay={handlePayClick} 
+                                onViewBoleto={handleViewBoletoClick}
+                                discountInfo={discountInfo}
+                             />
+                        );
+                    })}
                 </section>
             )}
 
@@ -255,7 +325,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                      {isHistoryExpanded && (
                         <div className="space-y-3 animate-fade-in">
                             {paidInvoices.map(invoice => (
-                                <InvoiceItem key={invoice.id} invoice={invoice} />
+                                <InvoiceItem key={invoice.id} invoice={invoice} discountInfo={null} />
                             ))}
                         </div>
                     )}
