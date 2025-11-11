@@ -3,7 +3,7 @@ export const generateSuccessMessage = async (
   amount: string
 ): Promise<string> => {
   try {
-    const response = await fetch('/api/generate-message', {
+    const response = await fetch('/api/mercadopago/generate-message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

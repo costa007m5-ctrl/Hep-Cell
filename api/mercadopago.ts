@@ -1,0 +1,249 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { URL } from 'url';
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from "@google/genai";
+
+// --- Clientes e Configurações Globais ---
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const mpAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+
+// --- Handler para /api/mercadopago/create-boleto-payment ---
+async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
+    const { amount, description, payer, invoiceId } = req.body;
+    if (!amount || !description || !payer || !payer.email || !payer.firstName || !payer.lastName || !payer.identificationType || !payer.identificationNumber || !payer.zipCode || !payer.streetName || !payer.streetNumber || !payer.neighborhood || !payer.city || !payer.federalUnit || !invoiceId) {
+        return res.status(400).json({ error: 'Dados do pagador, da fatura ou do pagamento estão incompletos.' });
+    }
+    if (!mpAccessToken) {
+        console.error('Mercado Pago Access Token não configurado.');
+        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
+    }
+    try {
+        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const payment = new Payment(client);
+        const paymentData = {
+            transaction_amount: Number(amount),
+            description: description,
+            payment_method_id: 'bolbradesco',
+            payer: {
+                email: payer.email, first_name: payer.firstName, last_name: payer.lastName,
+                identification: { type: payer.identificationType, number: payer.identificationNumber.replace(/\D/g, '') },
+                address:  { zip_code: payer.zipCode.replace(/\D/g, ''), street_name: payer.streetName, street_number: payer.streetNumber, neighborhood: payer.neighborhood, city: payer.city, federal_unit: payer.federalUnit }
+            },
+            external_reference: invoiceId,
+        };
+        const result = await payment.create({ body: paymentData });
+        const transactionData = result.point_of_interaction?.transaction_data as any;
+        if (transactionData && transactionData.ticket_url && transactionData.bar_code?.content) {
+            const { error: updateError } = await supabase.from('invoices').update({ status: 'Boleto Gerado', payment_id: String(result.id), boleto_url: transactionData.ticket_url, boleto_barcode: transactionData.bar_code.content, payment_method: 'Boleto' }).eq('id', invoiceId);
+            if (updateError) {
+                console.error('Falha ao salvar dados do boleto no Supabase:', updateError);
+                await payment.cancel({ id: result.id! });
+                throw new Error('Falha ao salvar os detalhes do boleto no banco de dados.');
+            }
+            res.status(200).json({ message: "Boleto gerado e salvo com sucesso!", paymentId: result.id, boletoUrl: transactionData.ticket_url, boletoBarcode: transactionData.bar_code.content });
+        } else {
+            console.error("Resposta inesperada do Mercado Pago:", result);
+            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
+        }
+    } catch (error: any) {
+        console.error('Erro ao criar boleto com Mercado Pago:', error);
+        res.status(500).json({ error: 'Falha ao gerar o boleto.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
+    }
+}
+
+// --- Handler para /api/mercadopago/create-pix-payment ---
+function formatDateForMP(date: Date): string {
+    const offset = -date.getTimezoneOffset();
+    const offsetSign = offset >= 0 ? '+' : '-';
+    const offsetHours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
+    const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    const milliseconds = date.getMilliseconds().toString().padStart(3, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}${offsetSign}${offsetHours}:${offsetMinutes}`;
+}
+async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
+    const { amount, description, payerEmail } = req.body;
+    if (!amount || !description || !payerEmail) {
+        return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
+    }
+    if (!mpAccessToken) {
+        console.error('Mercado Pago Access Token não configurado.');
+        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
+    }
+    try {
+        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const payment = new Payment(client);
+        const expirationDate = new Date();
+        expirationDate.setMinutes(expirationDate.getMinutes() + 30);
+        const paymentData = {
+            transaction_amount: Number(amount),
+            description: description,
+            payment_method_id: 'pix',
+            payer: { email: payerEmail },
+            date_of_expiration: formatDateForMP(expirationDate)
+        };
+        const result = await payment.create({ body: paymentData });
+        if (result.point_of_interaction?.transaction_data) {
+            res.status(200).json({ paymentId: result.id, qrCode: result.point_of_interaction.transaction_data.qr_code, qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64, expires: result.date_of_expiration });
+        } else {
+            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do PIX.');
+        }
+    } catch (error: any) {
+        console.error('Erro ao criar pagamento PIX com Mercado Pago:', error);
+        res.status(500).json({ error: 'Falha ao gerar o código PIX.', message: error?.cause?.message || 'Ocorreu um erro interno.' });
+    }
+}
+
+// --- Handler para /api/mercadopago/create-preference ---
+async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
+    const { amount, description, id, redirect, payerEmail } = req.body;
+    if (!amount || !description || !id) {
+        return res.status(400).json({ error: 'Faltam dados obrigatórios da fatura.' });
+    }
+    if (!mpAccessToken) {
+        console.error('Mercado Pago Access Token não configurado.');
+        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
+    }
+    try {
+        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const preference = new Preference(client);
+        const preferenceBody: any = {
+            items: [{ id: id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
+            payer: { email: payerEmail, first_name: "Test", last_name: "User", identification: { type: "CPF", number: "19119119100" } }
+        };
+        if (redirect) {
+            const origin = req.headers.origin || 'https://relpcell.com';
+            preferenceBody.back_urls = { success: `${origin}?payment_status=success`, failure: `${origin}?payment_status=failure`, pending: `${origin}?payment_status=pending` };
+            preferenceBody.auto_return = 'approved';
+        }
+        const result = await preference.create({ body: preferenceBody });
+        res.status(200).json({ id: result.id, init_point: result.init_point });
+    } catch (error: any) {
+        console.error('Erro ao criar preferência do Mercado Pago:', error);
+        res.status(500).json({ error: error?.cause?.error?.message || error?.message || 'Falha ao criar a preferência de pagamento.' });
+    }
+}
+
+// --- Handler para /api/mercadopago/generate-message ---
+async function handleGenerateMessage(req: VercelRequest, res: VercelResponse) {
+    const { customerName, amount } = req.body;
+    if (!customerName || !amount) {
+        return res.status(400).json({ error: 'Faltam os parâmetros customerName e amount.' });
+    }
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        console.error('Gemini API Key (API_KEY) não configurada.');
+        return res.status(500).json({ error: 'O serviço de IA não está configurado.' });
+    }
+    try {
+        const genAI = new GoogleGenAI({ apiKey });
+        const prompt = `Gere uma mensagem curta, amigável e profissional de confirmação de pagamento para um cliente chamado "${customerName}". O valor pago foi de R$ ${amount}. Agradeça ao cliente por sua pontualidade e por escolher a "Relp Cell". A mensagem deve ser em português do Brasil.`;
+        const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        res.status(200).json({ message: response.text });
+    } catch (error) {
+        console.error("Error generating message with Gemini:", error);
+        res.status(500).json({ error: 'Falha ao gerar a mensagem de confirmação.' });
+    }
+}
+
+// --- Handler para /api/mercadopago/process-payment ---
+async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
+    if (!mpAccessToken) {
+        console.error('Mercado Pago Access Token não configurado.');
+        return res.status(500).json({ error: 'O provedor de pagamento não está configurado.' });
+    }
+    try {
+        const paymentData = req.body;
+        if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
+            return res.status(400).json({ message: 'Dados de pagamento incompletos.' });
+        }
+        const client = new MercadoPagoConfig({ accessToken: mpAccessToken });
+        const payment = new Payment(client);
+        const result = await payment.create({ body: paymentData });
+        if (result.status === 'approved' || result.status === 'in_process') {
+            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento processado com sucesso.' });
+        } else {
+            res.status(400).json({ status: result.status, message: result.status_detail || 'Pagamento recusado.' });
+        }
+    } catch (error: any) {
+        console.error('Erro ao processar pagamento com Mercado Pago:', error);
+        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || 'Ocorreu um erro interno.' });
+    }
+}
+
+// --- Handler para /api/mercadopago/webhook ---
+async function handleWebhook(req: VercelRequest, res: VercelResponse) {
+    try {
+        const { body } = req;
+        console.log('Webhook recebido:', JSON.stringify(body, null, 2));
+        if (body.type === 'payment' && body.data?.id) {
+            const paymentId = body.data.id;
+            const client = new MercadoPagoConfig({ accessToken: mpAccessToken! });
+            const payment = new Payment(client);
+            const paymentDetails = await payment.get({ id: paymentId });
+            console.log('Detalhes do pagamento obtidos do MP:', JSON.stringify(paymentDetails, null, 2));
+            if (!paymentDetails || !paymentDetails.id) {
+                console.warn(`Payment ID ${paymentId} não encontrado no Mercado Pago.`);
+                return res.status(200).send('OK. Pagamento não encontrado no MP.');
+            }
+            let newStatus: 'Paga' | 'Expirado' | 'Cancelado' | null = null;
+            switch(paymentDetails.status) {
+                case 'approved': newStatus = 'Paga'; break;
+                case 'cancelled': newStatus = paymentDetails.status_detail === 'expired' ? 'Expirado' : 'Cancelado'; break;
+            }
+            if (newStatus) {
+                const { data, error } = await supabase.from('invoices').update({ status: newStatus, payment_date: newStatus === 'Paga' ? new Date().toISOString() : null }).eq('payment_id', String(paymentId)).select();
+                if (error) {
+                    console.error(`Erro ao atualizar fatura para payment_id ${paymentId}:`, error);
+                    return res.status(500).json({ error: 'Falha ao atualizar o banco de dados.' });
+                }
+                console.log(`Fatura com payment_id ${paymentId} atualizada para ${newStatus}. Rows afetadas:`, data?.length);
+            }
+        }
+        res.status(200).send('OK');
+    } catch (error: any) {
+        console.error('Erro no processamento do webhook:', error);
+        res.status(500).json({ error: 'Erro interno no webhook.', message: error.message });
+    }
+}
+
+// --- Roteador Principal ---
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const url = new URL(req.url!, `http://${req.headers.host}`);
+  const path = url.pathname;
+
+  if (req.method !== 'POST') {
+    // Webhook é GET para verificação inicial, mas a notificação é POST.
+    // O status e test também podem ser GET. Vamos relaxar a verificação de método para o roteador.
+    if (path === '/api/mercadopago/webhook') {
+        return await handleWebhook(req, res);
+    }
+     if (req.method === 'GET') { // Adicionar rotas GET se necessário no futuro
+        return res.status(405).json({ error: 'Method Not Allowed for this path' });
+    }
+  }
+
+  // Rotas POST
+  switch (path) {
+    case '/api/mercadopago/create-boleto-payment':
+      return await handleCreateBoletoPayment(req, res);
+    case '/api/mercadopago/create-pix-payment':
+      return await handleCreatePixPayment(req, res);
+    case '/api/mercadopago/create-preference':
+      return await handleCreatePreference(req, res);
+    case '/api/mercadopago/generate-message':
+      return await handleGenerateMessage(req, res);
+    case '/api/mercadopago/process-payment':
+      return await handleProcessPayment(req, res);
+    case '/api/mercadopago/webhook': // Já tratado acima para GET, aqui para POST
+        return await handleWebhook(req, res);
+    default:
+      return res.status(404).json({ error: 'Mercado Pago route not found' });
+  }
+}
