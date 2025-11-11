@@ -1,14 +1,7 @@
 {
-  "functions": {
-    "api/admin.ts": {
-      "memory": 1024
-    },
-    "api/mercadopago.ts": {
-      "memory": 1024
-    }
-  },
   "rewrites": [
     { "source": "/api/admin/(.*)", "destination": "/api/admin" },
-    { "source": "/api/mercadopago/(.*)", "destination": "/api/mercadopago" }
+    { "source": "/api/mercadopago/(.*)", "destination": "/api/mercadopago" },
+    { "source": "/((?!api/|_next/|assets/|static/).*)", "destination": "/index.html" }
   ]
 }
