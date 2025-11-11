@@ -21,14 +21,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Cria a tabela se ela não existir, garantindo a estrutura correta.
 CREATE TABLE IF NOT EXISTS public.invoices ( id uuid NOT NULL DEFAULT gen_random_uuid(), user_id uuid NOT NULL, month text NOT NULL, due_date date NOT NULL, amount numeric(10,2) NOT NULL, status text NOT NULL DEFAULT 'Em aberto'::text, payment_method text NULL, payment_date timestamptz NULL, payment_id text NULL, boleto_url text NULL, boleto_barcode text NULL, notes text NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL, CONSTRAINT invoices_pkey PRIMARY KEY (id), CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
--- TABELA DE TESTE PARA VERIFICAÇÃO VISUAL
--- Cria uma tabela de teste simples para que o admin possa confirmar que o script rodou.
-CREATE TABLE IF NOT EXISTS public.teste (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT teste_pkey PRIMARY KEY (id)
-);
-
 -- 2. TABELA DE PERFIS (PROFILES)
 -- Cria a tabela de perfis para armazenar dados adicionais dos usuários.
 CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );

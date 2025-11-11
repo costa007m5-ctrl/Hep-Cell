@@ -4,7 +4,7 @@ import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import DeveloperTab from './DeveloperTab';
-import StatusTab from './StatusTab'; // Importa a nova aba
+import StatusTab from './StatusTab';
 import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface AdminDashboardProps {
@@ -21,7 +21,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
-  const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status'>('invoices'); // Adiciona 'status'
+  const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status'>('invoices');
   
   // States para o formulário de criação
   const [showCreateForm, setShowCreateForm] = useState(false);
