@@ -27,6 +27,7 @@ export interface Invoice {
   boleto_url?: string | null; // URL para visualizar o boleto
   boleto_barcode?: string | null; // Código de barras do boleto
   notes?: string | null;
+  created_at: string;
 }
 
 export interface Profile {
@@ -42,6 +43,9 @@ export interface Profile {
   neighborhood?: string | null;
   city?: string | null;
   federal_unit?: string | null;
+  credit_score?: number | null;
+  credit_limit?: number | null;
+  credit_status?: string | null;
 }
 
 export interface Product {

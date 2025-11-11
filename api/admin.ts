@@ -48,7 +48,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.invoices ( id uuid NOT NULL DEFAULT gen_random_uuid(), user_id uuid NOT NULL, month text NOT NULL, due_date date NOT NULL, amount numeric(10,2) NOT NULL, status text NOT NULL DEFAULT 'Em aberto'::text, payment_method text NULL, payment_date timestamptz NULL, payment_id text NULL, boleto_url text NULL, boleto_barcode text NULL, notes text NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL, CONSTRAINT invoices_pkey PRIMARY KEY (id), CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
 -- 2. TABELA DE PERFIS (PROFILES)
-CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );
+CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, credit_score integer NULL DEFAULT 500, credit_limit numeric(10,2) NULL DEFAULT 500.00, credit_status text NULL DEFAULT 'Não Analisado'::text, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
 -- 3. TABELA DE PRODUTOS (PRODUCTS)
 CREATE TABLE IF NOT EXISTS public.products ( id uuid NOT NULL DEFAULT gen_random_uuid(), name text NOT NULL, description text NULL, price numeric(10, 2) NOT NULL, stock integer NOT NULL DEFAULT 0, image_url text NULL, created_at timestamptz NOT NULL DEFAULT now(), CONSTRAINT products_pkey PRIMARY KEY (id) );
@@ -168,6 +168,81 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+
+// --- Handler de Análise de Crédito ---
+async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: "ID do usuário é obrigatório." });
+
+        // 1. Análise de Histórico de Pagamento Interno
+        const { data: invoices, error: invoiceError } = await supabase
+            .from('invoices')
+            .select('status, due_date, payment_date')
+            .eq('user_id', userId)
+            .eq('status', 'Paga');
+        if (invoiceError) throw new Error(`Erro ao buscar faturas: ${invoiceError.message}`);
+        
+        let onTimePayments = 0;
+        const paidInvoicesCount = invoices?.length || 0;
+        if (paidInvoicesCount > 0) {
+            invoices.forEach(inv => {
+                if (inv.payment_date && inv.due_date) {
+                    if (new Date(inv.payment_date) <= new Date(inv.due_date + 'T23:59:59')) {
+                        onTimePayments++;
+                    }
+                }
+            });
+        }
+        const punctualityScore = paidInvoicesCount > 0 ? (onTimePayments / paidInvoicesCount) * 100 : 100; // Começa com 100% se não houver histórico
+
+        // 2. Simulação de Consulta de Crédito Externa (Serasa/SPC)
+        // Em um app real, aqui seria a chamada para uma API externa.
+        const mockExternalScore = Math.floor(Math.random() * (950 - 300 + 1)) + 300; // Score de 300 a 950
+        const isNegative = mockExternalScore < 450; // Simula "nome sujo"
+
+        // 3. Cálculo do Score e Limite
+        let creditScore = (punctualityScore * 0.4) + (mockExternalScore * 0.06); // Ponderação simples
+        creditScore = Math.round(creditScore * 10); // Normaliza para uma escala de 0 a 1000
+
+        let creditLimit = 500; // Limite base
+        if (isNegative) {
+            creditLimit = 100; // Limite baixo para negativados
+        } else {
+            creditLimit += (creditScore - 500) * 1.5; // Aumenta/diminui com base no score
+            creditLimit += onTimePayments * 25; // Bônus por pagamento em dia
+        }
+        creditLimit = Math.max(100, Math.min(creditLimit, 5000)); // Garante que o limite fique entre 100 e 5000
+
+        let creditStatus = 'Bom';
+        if (isNegative) creditStatus = 'Negativado';
+        else if (creditScore < 600) creditStatus = 'Regular';
+        else if (creditScore > 850) creditStatus = 'Excelente';
+
+        // 4. Salvar no Perfil do Usuário
+        const { data: updatedProfile, error: updateError } = await supabase
+            .from('profiles')
+            .update({
+                credit_score: creditScore,
+                credit_limit: creditLimit,
+                credit_status: creditStatus
+            })
+            .eq('id', userId)
+            .select()
+            .single();
+        
+        if (updateError) throw new Error(`Erro ao salvar análise: ${updateError.message}`);
+
+        await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Análise de crédito para user ${userId} concluída.`);
+        res.status(200).json({ message: 'Análise de crédito concluída com sucesso!', profile: updatedProfile });
+
+    } catch (error: any) {
+         await logAction(supabase, 'CREDIT_ANALYSIS', 'FAILURE', `Falha na análise de crédito.`, { error: error.message });
+         res.status(500).json({ error: error.message });
+    }
+}
+
 // --- Outros Handlers (Setup, Diagnóstico, Testes) ---
 async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -219,6 +294,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     switch (path) {
         case '/api/admin/create-sale': return await handleCreateSale(req, res);
+        case '/api/admin/analyze-credit': return await handleAnalyzeCredit(req, res);
         case '/api/admin/setup-database': return await handleSetupDatabase(req, res);
         case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
         case '/api/admin/test-supabase': return await handleTestSupabase(req, res);

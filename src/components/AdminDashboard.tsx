@@ -7,8 +7,9 @@ import DeveloperTab from './DeveloperTab';
 import StatusTab from './StatusTab';
 import ActionLogTab from './ActionLogTab';
 import FinancialDashboard from './FinancialDashboard';
-import ProductsTab from './ProductsTab'; // Nova aba de Produtos
-import CreditAnalysisTab from './CreditAnalysisTab'; // Nova aba de Clientes e Vendas
+import ProductsTab from './ProductsTab';
+import ClientsTab from './ClientsTab'; // Nova aba de Clientes
+import NewSaleTab from './NewSaleTab'; // Nova aba de Vendas
 import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface AdminDashboardProps {
@@ -21,13 +22,13 @@ interface ErrorInfo {
     isDiagnosing: boolean;
 }
 
-type AdminView = 'clients_invoices' | 'products' | 'financials' | 'dev' | 'status' | 'logs';
+type AdminView = 'clients' | 'new_sale' | 'products' | 'financials' | 'dev' | 'status' | 'logs';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
-  const [adminView, setAdminView] = useState<AdminView>('clients_invoices');
+  const [adminView, setAdminView] = useState<AdminView>('clients');
   
   const fetchData = useCallback(async () => {
       setIsLoading(true);
@@ -56,15 +57,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   useEffect(() => {
     // Carrega dados de faturas apenas se a visão for financeira ou de clientes
-    if (adminView === 'financials' || adminView === 'clients_invoices') {
+    if (adminView === 'financials' || adminView === 'clients') {
         fetchData();
     }
   }, [adminView, fetchData]);
   
   const renderContent = () => {
     switch(adminView) {
-        case 'clients_invoices':
-            return <CreditAnalysisTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} refreshInvoices={fetchData} />;
+        case 'clients':
+            return <ClientsTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} />;
+        case 'new_sale':
+            return <NewSaleTab onSaleCreated={fetchData} />;
         case 'products':
             return <ProductsTab />;
         case 'financials':
@@ -76,7 +79,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         case 'logs':
             return <ActionLogTab />;
         default:
-            return <CreditAnalysisTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} refreshInvoices={fetchData} />;
+             return <ClientsTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} />;
     }
   }
   
@@ -94,7 +97,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         </header>
 
         <nav className="flex space-x-2 sm:space-x-4 mb-6 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
-            <TabButton label="Clientes & Vendas" view="clients_invoices" currentView={adminView} setView={setAdminView} />
+            <TabButton label="Clientes" view="clients" currentView={adminView} setView={setAdminView} />
+            <TabButton label="Nova Venda" view="new_sale" currentView={adminView} setView={setAdminView} />
             <TabButton label="Produtos" view="products" currentView={adminView} setView={setAdminView} />
             <TabButton label="Finanças" view="financials" currentView={adminView} setView={setAdminView} />
             <TabButton label="Desenvolvedor" view="dev" currentView={adminView} setView={setAdminView} />
