@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
 import { supabase } from '../services/clients';
+import { getProfile, updateProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import InputField from './InputField';
@@ -40,6 +41,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFetchingCep, setIsFetchingCep] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
+  const [saveData, setSaveData] = useState(true); // Checkbox para salvar dados
   
   // States do Mercado Pago
   const [installments, setInstallments] = useState<any[]>([]);
@@ -53,6 +55,34 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   useEffect(() => {
     onPaymentSuccessRef.current = onPaymentSuccess;
   }, [onPaymentSuccess]);
+  
+  // Efeito para buscar e preencher dados do perfil
+  useEffect(() => {
+    const fetchAndSetProfile = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const profile = await getProfile(user.id);
+            if (profile) {
+                setFormData(prev => ({
+                    ...prev,
+                    firstName: profile.first_name || '',
+                    lastName: profile.last_name || '',
+                    identificationNumber: profile.identification_number || '',
+                    zipCode: profile.zip_code || '',
+                    streetName: profile.street_name || '',
+                    streetNumber: profile.street_number || '',
+                    neighborhood: profile.neighborhood || '',
+                    city: profile.city || '',
+                    federalUnit: profile.federal_unit || '',
+                }));
+            }
+        } catch (error) {
+            console.error("Falha ao buscar perfil do usuário:", error);
+        }
+    };
+    fetchAndSetProfile();
+  }, []);
 
   // Efeito para inicializar o Card Form do Mercado Pago
   useEffect(() => {
@@ -200,6 +230,22 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         if (!response.ok) {
             throw new Error(result.message || 'O pagamento foi recusado.');
         }
+        
+        // Salva os dados do usuário se o checkbox estiver marcado
+        if (saveData) {
+            await updateProfile({
+                id: user.id,
+                first_name: formData.firstName,
+                last_name: formData.lastName,
+                identification_number: formData.identificationNumber,
+                zip_code: formData.zipCode,
+                street_name: formData.streetName,
+                street_number: formData.streetNumber,
+                neighborhood: formData.neighborhood,
+                city: formData.city,
+                federal_unit: formData.federalUnit,
+            });
+        }
 
         const successMsg = await generateSuccessMessage(formData.firstName, String(invoice.amount));
         setMessage(successMsg);
@@ -242,14 +288,12 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       </div>
 
       <form id="form-checkout" onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4 relative min-h-[500px]">
-        {/* CORREÇÃO: Overlay de carregamento que não remove o formulário do DOM */}
         {!isSDKReady && status !== PaymentStatus.ERROR && (
              <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 space-y-4 z-10">
                 <LoadingSpinner />
                 <p className="text-slate-500 dark:text-slate-400">Carregando formulário seguro...</p>
             </div>
         )}
-        {/* CORREÇÃO: O conteúdo do formulário está sempre presente, mas com opacidade controlada */}
         <div className={`space-y-4 transition-opacity duration-300 ${isSDKReady ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Detalhes do Titular</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -295,6 +339,19 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                     </select>
                 </div>
             )}
+             <div className="flex items-center pt-2">
+                <input
+                    id="save-data"
+                    name="save-data"
+                    type="checkbox"
+                    checked={saveData}
+                    onChange={(e) => setSaveData(e.target.checked)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+                />
+                <label htmlFor="save-data" className="ml-2 block text-sm text-slate-900 dark:text-slate-300">
+                    Salvar meus dados para pagamentos futuros
+                </label>
+            </div>
             <button type="submit" disabled={isSubmitting || !isSDKReady} className="w-full mt-4 flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
                 {isSubmitting ? <LoadingSpinner /> : `Pagar ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
             </button>

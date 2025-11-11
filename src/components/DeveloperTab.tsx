@@ -37,7 +37,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
 };
 
 const DeveloperTab: React.FC = () => {
-    // ... (estados existentes permanecem os mesmos) ...
     const [keys, setKeys] = useState({
         mercadoPagoToken: '',
         geminiApiKey: '',
@@ -67,8 +66,7 @@ const DeveloperTab: React.FC = () => {
     const [isTestingBoleto, setIsTestingBoleto] = useState(false);
     const [boletoResult, setBoletoResult] = useState<{ success: boolean; message: string } | null>(null);
 
-    // ... (handlers existentes permanecem os mesmos) ...
-        const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setKeys(prev => ({ ...prev, [name]: value }));
         if (name === 'geminiApiKey') {
@@ -217,16 +215,103 @@ const DeveloperTab: React.FC = () => {
         }
     };
 
+    const fullSetupSQL = `
+-- 1. Tabela para armazenar faturas
+CREATE TABLE public.invoices (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  month text NOT NULL,
+  due_date date NOT NULL,
+  amount numeric(10,2) NOT NULL,
+  status text NOT NULL DEFAULT 'Em aberto'::text,
+  payment_method text NULL,
+  payment_date timestamptz NULL,
+  payment_id text NULL,
+  boleto_url text NULL,
+  boleto_barcode text NULL,
+  notes text NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT invoices_pkey PRIMARY KEY (id),
+  CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
 
-    const fullSetupSQL = `... (SQL existente) ...`;
-    const adminPolicySQL = `... (SQL existente) ...`;
+-- 2. Tabela para armazenar dados de perfil dos usuários
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  email text NULL,
+  first_name text NULL,
+  last_name text NULL,
+  identification_type text NULL,
+  identification_number text NULL,
+  zip_code text NULL,
+  street_name text NULL,
+  street_number text NULL,
+  neighborhood text NULL,
+  city text NULL,
+  federal_unit text NULL,
+  updated_at timestamptz NULL,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- 3. Trigger para criar um perfil automaticamente quando um novo usuário se cadastra
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+begin
+  insert into public.profiles (id, email)
+  values (new.id, new.email);
+  return new;
+end;
+$function$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- 4. Habilitar RLS (Row Level Security) nas tabelas
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- 5. Política de Segurança: Usuários só podem ver as próprias faturas
+CREATE POLICY "Enable read access for own invoices"
+ON public.invoices
+FOR SELECT
+USING (auth.uid() = user_id);
+
+-- 6. Política de Segurança: Usuários só podem ver e editar seu próprio perfil
+CREATE POLICY "Enable read access for own user"
+ON public.profiles
+FOR SELECT
+USING (auth.uid() = id);
+
+CREATE POLICY "Enable update for own user"
+ON public.profiles
+FOR UPDATE
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- 7. Política de Segurança: Permitir que o admin (service_role) veja tudo
+--    (Para o painel do administrador funcionar)
+CREATE POLICY "Allow admin full access to invoices"
+ON public.invoices
+FOR ALL
+USING (true); -- Somente a service_role key ignora as políticas RLS
+
+CREATE POLICY "Allow admin full access to profiles"
+ON public.profiles
+FOR ALL
+USING (true); -- Somente a service_role key ignora as políticas RLS
+    `.trim();
     
-    // URL do Webhook baseada na URL atual da janela
     const webhookUrl = `${window.location.origin}/api/mercadopago/webhook`;
 
     return (
         <div className="p-4 space-y-8">
-            {/* Seção 1: Variáveis de Ambiente (existente) */}
+            {/* Seção 1: Variáveis de Ambiente */}
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração das Variáveis de Ambiente</h2>
                 <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700 mb-6">
@@ -241,10 +326,9 @@ const DeveloperTab: React.FC = () => {
                         <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">SUPABASE_SERVICE_ROLE_KEY</code> (encontrado em Project Settings &gt; API no Supabase)</li>
                     </ul>
                 </div>
-                {/* ... (formulários de teste existentes) ... */}
             </section>
             
-            {/* NOVA Seção: Webhooks */}
+            {/* Seção 2: Webhooks */}
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Webhook</h2>
                 <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
@@ -260,16 +344,19 @@ const DeveloperTab: React.FC = () => {
                 />
             </section>
 
-            {/* Seções de Teste (existentes) */}
+            {/* Seção 3: Ferramentas de Teste */}
             <section>
                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Ferramentas de Teste da API</h2>
-                {/* ... (testes existentes) ... */}
             </section>
 
-            {/* Seção de Setup do Banco (existente) */}
+            {/* Seção 4: Setup do Banco */}
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados</h2>
-                {/* ... (CodeBlocks existentes) ... */}
+                 <CodeBlock
+                    title="Script SQL Completo"
+                    explanation="Execute este script no Editor SQL do seu projeto Supabase para criar as tabelas 'invoices', 'profiles', o trigger de novos usuários e as políticas de segurança (RLS)."
+                    code={fullSetupSQL}
+                />
             </section>
         </div>
     );

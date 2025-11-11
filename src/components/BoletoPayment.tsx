@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients';
+import { getProfile, updateProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import InputField from './InputField';
@@ -11,9 +12,8 @@ interface BoletoPaymentProps {
   onBoletoGenerated: (updatedInvoice: Invoice) => void;
 }
 
-
 // Componente para o formulário de dados do boleto
-const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
+const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -28,7 +28,36 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
   });
   const [isFetchingCep, setIsFetchingCep] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
+  const [saveData, setSaveData] = useState(true); // Checkbox para salvar dados
   const streetNumberRef = useRef<HTMLInputElement>(null);
+
+  // Efeito para buscar e preencher dados do perfil
+  useEffect(() => {
+    const fetchAndSetProfile = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const profile = await getProfile(user.id);
+            if (profile) {
+                setFormData(prev => ({
+                    ...prev,
+                    firstName: profile.first_name || '',
+                    lastName: profile.last_name || '',
+                    identificationNumber: profile.identification_number || '',
+                    zipCode: profile.zip_code || '',
+                    streetName: profile.street_name || '',
+                    streetNumber: profile.street_number || '',
+                    neighborhood: profile.neighborhood || '',
+                    city: profile.city || '',
+                    federalUnit: profile.federal_unit || '',
+                }));
+            }
+        } catch (error) {
+            console.error("Falha ao buscar perfil do usuário:", error);
+        }
+    };
+    fetchAndSetProfile();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     let { name, value } = e.target;
@@ -82,7 +111,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    onSubmit(formData, saveData);
   };
 
   const selectClasses = "mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
@@ -116,6 +145,20 @@ const BoletoForm: React.FC<{ onSubmit: (data: any) => void; isSubmitting: boolea
             <InputField label="Cidade" name="city" value={formData.city} onChange={handleChange} required />
             <InputField label="Estado (UF)" name="federalUnit" value={formData.federalUnit} onChange={handleChange} required maxLength={2} placeholder="SP" />
         </div>
+        
+         <div className="flex items-center pt-2">
+            <input
+                id="save-data-boleto"
+                name="save-data-boleto"
+                type="checkbox"
+                checked={saveData}
+                onChange={(e) => setSaveData(e.target.checked)}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
+            />
+            <label htmlFor="save-data-boleto" className="ml-2 block text-sm text-slate-900 dark:text-slate-300">
+                Salvar meus dados para pagamentos futuros
+            </label>
+        </div>
 
         <button type="submit" disabled={isSubmitting} className="w-full mt-4 flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
             {isSubmitting ? <LoadingSpinner /> : 'Gerar Boleto'}
@@ -129,7 +172,7 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
   const [step, setStep] = useState<'form' | 'loading' | 'error'>('form');
   const [error, setError] = useState<string | null>(null);
   
-  const handleFormSubmit = async (formData: any) => {
+  const handleFormSubmit = async (formData: any, saveData: boolean) => {
     setStep('loading');
     setError(null);
     try {
@@ -157,6 +200,22 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || data.message || 'Falha ao gerar o boleto.');
+        }
+
+        // Salva os dados do usuário se o checkbox estiver marcado
+        if (saveData) {
+            await updateProfile({
+                id: user.id,
+                first_name: formData.firstName,
+                last_name: formData.lastName,
+                identification_number: formData.identificationNumber,
+                zip_code: formData.zipCode,
+                street_name: formData.streetName,
+                street_number: formData.streetNumber,
+                neighborhood: formData.neighborhood,
+                city: formData.city,
+                federal_unit: formData.federalUnit,
+            });
         }
         
         const updatedInvoice: Invoice = {

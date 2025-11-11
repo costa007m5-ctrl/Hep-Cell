@@ -1,3 +1,5 @@
+import { VercelRequest, VercelResponse } from '@vercel/node';
+
 export enum PaymentStatus {
   IDLE,
   PENDING,
@@ -28,6 +30,16 @@ export interface Invoice {
 }
 
 export interface Profile {
-  id: string;
+  id: string; // Corresponde a auth.users.id
   email?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  identification_type?: string | null;
+  identification_number?: string | null;
+  zip_code?: string | null;
+  street_name?: string | null;
+  street_number?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  federal_unit?: string | null;
 }
