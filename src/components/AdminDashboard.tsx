@@ -5,6 +5,7 @@ import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import DeveloperTab from './DeveloperTab';
 import StatusTab from './StatusTab';
+import ActionLogTab from './ActionLogTab'; // Importa a nova aba
 import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface AdminDashboardProps {
@@ -21,7 +22,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
-  const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status'>('invoices');
+  const [adminView, setAdminView] = useState<'invoices' | 'dev' | 'status' | 'logs'>('invoices'); // Adiciona 'logs'
   
   // States para o formulário de criação
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -249,6 +250,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             return <DeveloperTab />;
         case 'status':
             return <StatusTab />;
+        case 'logs':
+            return <ActionLogTab />;
         default:
             return renderInvoicesView();
     }
@@ -276,6 +279,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </button>
             <button onClick={() => setAdminView('status')} className={`py-2 px-4 rounded-t-md text-sm font-medium transition-colors ${adminView === 'status' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
                 Status & Verificação
+            </button>
+             <button onClick={() => setAdminView('logs')} className={`py-2 px-4 rounded-t-md text-sm font-medium transition-colors ${adminView === 'logs' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                Histórico
             </button>
         </div>
 

@@ -18,15 +18,15 @@ const fullSetupSQL = `
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1. TABELA DE FATURAS (INVOICES)
--- Cria a tabela se ela não existir, garantindo a estrutura correta.
 CREATE TABLE IF NOT EXISTS public.invoices ( id uuid NOT NULL DEFAULT gen_random_uuid(), user_id uuid NOT NULL, month text NOT NULL, due_date date NOT NULL, amount numeric(10,2) NOT NULL, status text NOT NULL DEFAULT 'Em aberto'::text, payment_method text NULL, payment_date timestamptz NULL, payment_id text NULL, boleto_url text NULL, boleto_barcode text NULL, notes text NULL, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NULL, CONSTRAINT invoices_pkey PRIMARY KEY (id), CONSTRAINT invoices_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
 -- 2. TABELA DE PERFIS (PROFILES)
--- Cria a tabela de perfis para armazenar dados adicionais dos usuários.
 CREATE TABLE IF NOT EXISTS public.profiles ( id uuid NOT NULL, email text NULL, first_name text NULL, last_name text NULL, identification_type text NULL, identification_number text NULL, zip_code text NULL, street_name text NULL, street_number text NULL, neighborhood text NULL, city text NULL, federal_unit text NULL, updated_at timestamptz NULL, CONSTRAINT profiles_pkey PRIMARY KEY (id), CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE );
 
--- 3. FUNÇÃO PARA CRIAR PERFIL (VIA RPC/WEBHOOK)
--- Esta função será chamada pelo endpoint do webhook para criar o perfil de um novo usuário.
+-- 3. TABELA DE LOGS DE AÇÕES (ACTION_LOGS)
+CREATE TABLE IF NOT EXISTS public.action_logs ( id uuid NOT NULL DEFAULT gen_random_uuid(), created_at timestamptz NOT NULL DEFAULT now(), action_type text NOT NULL, status text NOT NULL, description text NULL, details jsonb NULL, CONSTRAINT action_logs_pkey PRIMARY KEY (id) );
+
+-- 4. FUNÇÃO PARA CRIAR PERFIL (VIA RPC/WEBHOOK)
 CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
 RETURNS void AS $$
 BEGIN
@@ -37,48 +37,45 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 4. FUNÇÃO E GATILHOS PARA ATUALIZAR 'updated_at'
--- Mantém o campo 'updated_at' atualizado automaticamente em cada modificação.
+-- 5. FUNÇÃO E GATILHOS PARA ATUALIZAR 'updated_at'
 CREATE OR REPLACE FUNCTION public.moddatetime() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END; $$ language 'plpgsql';
 DROP TRIGGER IF EXISTS handle_updated_at ON public.invoices;
 CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.invoices FOR EACH ROW EXECUTE PROCEDURE public.moddatetime();
 DROP TRIGGER IF EXISTS handle_updated_at ON public.profiles;
 CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE PROCEDURE public.moddatetime();
 
--- 5. HABILITAR ROW LEVEL SECURITY (RLS)
--- Ativa a segurança a nível de linha para ambas as tabelas.
+-- 6. HABILITAR ROW LEVEL SECURITY (RLS)
 ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.action_logs ENABLE ROW LEVEL SECURITY;
 
--- 6. POLÍTICAS DE SEGURANÇA PARA 'INVOICES'
--- Remove as políticas antigas para evitar conflitos.
+-- 7. POLÍTICAS DE SEGURANÇA PARA 'INVOICES'
 DROP POLICY IF EXISTS "Allow service_role full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Allow admin full access on invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Enable read access for own invoices" ON public.invoices;
 DROP POLICY IF EXISTS "Enable update for own invoices" ON public.invoices;
--- 6.1. Permite que o backend (service_role) tenha acesso total para operações automáticas.
 CREATE POLICY "Allow service_role full access on invoices" ON public.invoices FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
--- 6.2. Permite que o usuário admin (pelo UID) tenha acesso total no painel.
 CREATE POLICY "Allow admin full access on invoices" ON public.invoices FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
--- 6.3. Permite que usuários leiam e atualizem suas próprias faturas.
 CREATE POLICY "Enable read access for own invoices" ON public.invoices FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Enable update for own invoices" ON public.invoices FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 7. POLÍTICAS DE SEGURANÇA PARA 'PROFILES'
--- Remove as políticas antigas para evitar conflitos.
+-- 8. POLÍTICAS DE SEGURANÇA PARA 'PROFILES'
 DROP POLICY IF EXISTS "Allow service_role full access on profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Allow admin full access on profiles" ON public.profiles;
 DROP POLICY IF EXISTS "Enable read access for own user" ON public.profiles;
 DROP POLICY IF EXISTS "Enable update for own user" ON public.profiles;
 DROP POLICY IF EXISTS "Enable insert for own user" ON public.profiles;
--- 7.1. Permite que o backend (service_role) tenha acesso total.
 CREATE POLICY "Allow service_role full access on profiles" ON public.profiles FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
--- 7.2. Permite que o usuário admin (pelo UID) tenha acesso total.
 CREATE POLICY "Allow admin full access on profiles" ON public.profiles FOR ALL USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062') WITH CHECK (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
--- 7.3. Permite que usuários gerenciem seu próprio perfil.
 CREATE POLICY "Enable read access for own user" ON public.profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Enable update for own user" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 CREATE POLICY "Enable insert for own user" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- 9. POLÍTICAS DE SEGURANÇA PARA 'ACTION_LOGS'
+DROP POLICY IF EXISTS "Allow service_role full access on action_logs" ON public.action_logs;
+DROP POLICY IF EXISTS "Allow admin read access on action_logs" ON public.action_logs;
+CREATE POLICY "Allow service_role full access on action_logs" ON public.action_logs FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "Allow admin read access on action_logs" ON public.action_logs FOR SELECT USING (auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062');
 `;
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -87,22 +84,33 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     console.error('Supabase environment variables are not set.');
     return res.status(500).json({ error: 'Configuração do servidor Supabase incompleta.' });
   }
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+  const logAction = async (status: 'SUCCESS' | 'FAILURE', description: string, details?: object) => {
+    await supabaseAdmin.from('action_logs').insert({
+        action_type: 'DATABASE_SETUP',
+        status,
+        description,
+        details: details || {},
+    });
+  };
+
   try {
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     const { error } = await supabaseAdmin.rpc('execute_admin_sql', { sql_query: fullSetupSQL });
     if (error) {
       console.error('Supabase RPC error:', error);
-      if (error.message.includes('function execute_admin_sql() does not exist')) {
-        return res.status(500).json({ 
-          error: "A função de setup 'execute_admin_sql' não foi encontrada.",
-          message: "Por favor, execute o 'Passo 1' na aba Desenvolvedor do painel de admin para criar a função necessária e tente novamente."
-        });
-      }
-      throw error;
+      const errorMessage = error.message.includes('function execute_admin_sql() does not exist')
+        ? "A função de setup 'execute_admin_sql' não foi encontrada. Por favor, execute o 'Passo 1' na aba Desenvolvedor e tente novamente."
+        : error.message;
+
+      await logAction('FAILURE', 'Falha ao executar o setup do banco de dados.', { error: errorMessage });
+      return res.status(500).json({ error: "Erro na execução do setup", message: errorMessage });
     }
+    
+    await logAction('SUCCESS', 'Tabelas, funções e políticas de segurança foram criadas/atualizadas com sucesso.');
     res.status(200).json({ success: true, message: 'Setup completo! O banco de dados foi preparado. Siga para o próximo passo para configurar a automação.' });
   } catch (error: any) {
     console.error('Error setting up database:', error);
+    await logAction('FAILURE', 'Erro crítico ao tentar executar o setup do banco.', { error: error.message });
     res.status(500).json({ error: 'Falha ao executar o setup do banco de dados.', message: error.message });
   }
 }
@@ -227,28 +235,59 @@ async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// --- Handler para /api/admin/get-logs ---
+async function handleGetLogs(_req: VercelRequest, res: VercelResponse) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(500).json({ error: 'Configuração do Supabase no servidor incompleta.' });
+    }
+    try {
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+        const { data, error } = await supabaseAdmin
+            .from('action_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50);
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Falha ao buscar logs.', message: error.message });
+    }
+}
+
+
 // --- Roteador Principal ---
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url!, `http://${req.headers.host}`);
   const path = url.pathname;
 
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method Not Allowed' });
+  if (req.method === 'POST') {
+     switch (path) {
+        case '/api/admin/setup-database':
+            return await handleSetupDatabase(req, res);
+        case '/api/admin/diagnose-error':
+            return await handleDiagnoseError(req, res);
+        case '/api/admin/test-gemini':
+            return await handleTestGemini(req, res);
+        case '/api/admin/test-mercadopago':
+            return await handleTestMercadoPago(req, res);
+        case '/api/admin/test-supabase':
+            return await handleTestSupabase(req, res);
+        default:
+            return res.status(404).json({ error: 'Admin POST route not found' });
+    }
   }
 
-  switch (path) {
-    case '/api/admin/setup-database':
-      return await handleSetupDatabase(req, res);
-    case '/api/admin/test-gemini':
-      return await handleTestGemini(req, res);
-    case '/api/admin/test-mercadopago':
-      return await handleTestMercadoPago(req, res);
-    case '/api/admin/test-supabase':
-      return await handleTestSupabase(req, res);
-    case '/api/admin/diagnose-error':
-        return await handleDiagnoseError(req, res);
-    default:
-      return res.status(404).json({ error: 'Admin route not found' });
+  if (req.method === 'GET') {
+     switch (path) {
+        case '/api/admin/get-logs':
+            return await handleGetLogs(req, res);
+        default:
+            return res.status(404).json({ error: 'Admin GET route not found' });
+    }
   }
+
+  res.setHeader('Allow', 'POST, GET');
+  return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
 }
