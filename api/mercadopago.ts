@@ -120,9 +120,9 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         const supabase = getSupabaseAdminClient();
         const client = getMercadoPagoClient();
 
-        const { amount, description, payerEmail, invoiceId, userId } = req.body;
+        const { amount, description, payerEmail, invoiceId, userId, firstName, lastName, identificationNumber } = req.body;
         if (!amount || !description || !payerEmail || !invoiceId || !userId) {
-            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX (userId, invoiceId são necessários).' });
+            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
         }
         
         const { data: profile, error: profileError } = await supabase
@@ -131,15 +131,33 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             .eq('id', userId)
             .single();
 
-        if (profileError || !profile) {
+        if (profileError && profileError.code !== 'PGRST116') { // Ignora erro "No rows found"
             console.error('Erro ao buscar perfil para PIX:', profileError);
-            return res.status(404).json({ message: 'Perfil do usuário não foi encontrado para gerar o PIX.' });
+            return res.status(500).json({ message: 'Erro ao consultar dados do usuário.' });
         }
 
-        if (!profile.first_name || !profile.last_name || !profile.identification_number) {
+        const finalPayerInfo = {
+            firstName: profile?.first_name || firstName,
+            lastName: profile?.last_name || lastName,
+            identificationNumber: profile?.identification_number || identificationNumber
+        };
+
+        if (!finalPayerInfo.firstName || !finalPayerInfo.lastName || !finalPayerInfo.identificationNumber) {
             return res.status(400).json({ 
-                error: 'Dados de perfil incompletos.',
-                message: 'Para gerar um PIX, por favor, preencha seu nome, sobrenome e CPF na aba "Perfil".' 
+                code: 'INCOMPLETE_PROFILE',
+                message: 'Para gerar um PIX, por favor, preencha seu nome completo e CPF.' 
+            });
+        }
+        
+        if ((firstName || lastName || identificationNumber) && userId) {
+            supabase.from('profiles').update({
+                first_name: finalPayerInfo.firstName,
+                last_name: finalPayerInfo.lastName,
+                identification_number: finalPayerInfo.identificationNumber,
+                updated_at: new Date().toISOString()
+            }).eq('id', userId).then(({ error: updateError }) => {
+                if (updateError) console.error("Falha ao atualizar o perfil em segundo plano:", updateError);
+                else console.log(`Perfil do usuário ${userId} atualizado em segundo plano.`);
             });
         }
         
@@ -152,11 +170,11 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             payment_method_id: 'pix',
             payer: {
                 email: payerEmail,
-                first_name: profile.first_name,
-                last_name: profile.last_name,
+                first_name: finalPayerInfo.firstName,
+                last_name: finalPayerInfo.lastName,
                 identification: {
                     type: "CPF",
-                    number: profile.identification_number.replace(/\D/g, '')
+                    number: finalPayerInfo.identificationNumber.replace(/\D/g, '')
                 }
             },
             date_of_expiration: formatDateForMP(expirationDate),
