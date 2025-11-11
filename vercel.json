@@ -1,11 +1,7 @@
 {
   "functions": {
-    "api/admin.ts": {
-      "runtime": "@vercel/node@3.0.20"
-    },
-    "api/mercadopago.ts": {
-      "runtime": "@vercel/node@3.0.20"
-    }
+    "api/admin.ts": {},
+    "api/mercadopago.ts": {}
   },
   "rewrites": [
     { "source": "/api/admin/(.*)", "destination": "/api/admin" },
