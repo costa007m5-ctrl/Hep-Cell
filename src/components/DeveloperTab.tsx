@@ -53,16 +53,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
-    const triggerSQL = `
--- Remove o gatilho antigo, se existir, para evitar erros
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-
--- Cria o novo gatilho
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-    `.trim();
-
     const handleSetupDatabase = async () => {
         setIsLoading(true);
         setMessage(null);
@@ -104,7 +94,7 @@ CREATE TRIGGER on_auth_user_created
             </section>
 
              <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados com 1 Clique</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup Completo do Banco de Dados</h2>
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
@@ -119,8 +109,8 @@ CREATE TRIGGER on_auth_user_created
                 />
                 
                 <div className="mt-6">
-                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2: Executar o Setup Automático</h3>
-                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique no botão abaixo para criar e configurar todas as tabelas e políticas de segurança (exceto o gatilho de usuário).</p>
+                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Final): Executar Setup Completo</h3>
+                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Após executar o Passo 1, clique no botão abaixo para criar e configurar todas as tabelas, políticas de segurança e automações (como o gatilho de criação de perfil).</p>
                      
                      {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
 
@@ -134,15 +124,9 @@ CREATE TRIGGER on_auth_user_created
                                 <LoadingSpinner />
                                 <span className="ml-2">Configurando...</span>
                             </>
-                        ) : 'Executar Setup Automático do Banco'}
+                        ) : 'Executar Setup Completo do Banco'}
                      </button>
                 </div>
-
-                 <CodeBlock
-                    title="Passo 3 (Passo Final Manual): Criar o Gatilho de Sincronização"
-                    explanation="Para corrigir o erro de permissão, esta etapa final deve ser feita manualmente. Copie o código abaixo e execute-o no seu Editor SQL do Supabase. Isso garante que cada novo usuário cadastrado tenha um perfil criado automaticamente."
-                    code={triggerSQL}
-                />
             </section>
             
             <section>
