@@ -56,8 +56,14 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
           throw new Error(data.message || data.error || 'Falha ao gerar o código PIX.');
         }
       } else {
-        setPixData(data);
-        setStep('display_pix');
+        // Validação extra no frontend para garantir que os dados do PIX foram recebidos
+        if (data && data.qrCode && data.qrCodeBase64) {
+          setPixData(data);
+          setStep('display_pix');
+        } else {
+          console.error("Resposta da API bem-sucedida, mas sem dados do PIX:", data);
+          throw new Error("O servidor respondeu com sucesso, mas não retornou os dados do PIX. Tente novamente.");
+        }
       }
     } catch (err: any) {
       setError(err.message);

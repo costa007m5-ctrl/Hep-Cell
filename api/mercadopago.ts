@@ -116,10 +116,12 @@ function formatDateForMP(date: Date): string {
 }
 
 async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
+    const client = getMercadoPagoClient();
+    const payment = new Payment(client);
+    let paymentIdToCancel: number | undefined;
+
     try {
         const supabase = getSupabaseAdminClient();
-        const client = getMercadoPagoClient();
-
         const { amount, description, payerEmail, invoiceId, userId, firstName, lastName, identificationNumber } = req.body;
         if (!amount || !description || !payerEmail || !invoiceId || !userId) {
             return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
@@ -131,7 +133,7 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             .eq('id', userId)
             .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { // Ignora erro "No rows found"
+        if (profileError && profileError.code !== 'PGRST116') {
             console.error('Erro ao buscar perfil para PIX:', profileError);
             return res.status(500).json({ message: 'Erro ao consultar dados do usuário.' });
         }
@@ -161,7 +163,6 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             });
         }
         
-        const payment = new Payment(client);
         const expirationDate = new Date();
         expirationDate.setMinutes(expirationDate.getMinutes() + 30);
         const paymentData = {
@@ -172,31 +173,36 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
                 email: payerEmail,
                 first_name: finalPayerInfo.firstName,
                 last_name: finalPayerInfo.lastName,
-                identification: {
-                    type: "CPF",
-                    number: finalPayerInfo.identificationNumber.replace(/\D/g, '')
-                }
+                identification: { type: "CPF", number: finalPayerInfo.identificationNumber.replace(/\D/g, '') }
             },
             date_of_expiration: formatDateForMP(expirationDate),
             external_reference: invoiceId,
         };
         const result = await payment.create({ body: paymentData });
+        paymentIdToCancel = result.id;
 
-        if (result.id && result.point_of_interaction?.transaction_data) {
+        const transactionData = result.point_of_interaction?.transaction_data as any;
+
+        if (result.id && transactionData?.qr_code && transactionData?.qr_code_base64) {
             const { error: updateError } = await supabase.from('invoices').update({ payment_id: String(result.id), payment_method: 'PIX' }).eq('id', invoiceId);
             if (updateError) {
                 console.error('Falha ao salvar o ID do pagamento PIX no Supabase:', updateError);
-                await payment.cancel({ id: result.id! });
                 throw new Error('Falha ao vincular o pagamento PIX à fatura no banco de dados.');
             }
             
-            res.status(200).json({ paymentId: result.id, qrCode: result.point_of_interaction.transaction_data.qr_code, qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64, expires: result.date_of_expiration });
+            res.status(200).json({ paymentId: result.id, qrCode: transactionData.qr_code, qrCodeBase64: transactionData.qr_code_base64, expires: result.date_of_expiration });
         } else {
-            console.error("Resposta inesperada do Mercado Pago ao criar PIX:", result);
-            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do PIX.');
+            console.error("Resposta inesperada do Mercado Pago ao criar PIX (sem dados de QR):", result);
+            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do QR Code.');
         }
     } catch (error: any) {
         console.error('Erro ao criar pagamento PIX com Mercado Pago:', error);
+        if (paymentIdToCancel) {
+            console.log(`Tentando cancelar o pagamento ${paymentIdToCancel} devido a um erro...`);
+            await payment.cancel({ id: paymentIdToCancel }).catch(cancelError => 
+                console.error(`Falha ao tentar cancelar o pagamento ${paymentIdToCancel}:`, cancelError)
+            );
+        }
         res.status(500).json({ error: 'Falha ao gerar o código PIX.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
 }
