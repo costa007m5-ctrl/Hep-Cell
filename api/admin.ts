@@ -20,7 +20,6 @@ function getGeminiClient() {
     if (!apiKey) {
         throw new Error('Gemini API key (API_KEY) is not set.');
     }
-    // Fix: Initialize GoogleGenAI with a named apiKey parameter.
     return new GoogleGenAI({ apiKey });
 }
 
@@ -41,14 +40,48 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
 
 const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
-    CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_type" "text", "identification_number" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "credit_score" integer, "credit_limit" numeric(10, 2), "credit_status" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") );
+    
+    -- Tabela de Perfis (Profiles)
+    -- Cria a tabela base se não existir
+    CREATE TABLE IF NOT EXISTS "public"."profiles" (
+        "id" "uuid" NOT NULL,
+        "email" "text",
+        "first_name" "text",
+        "last_name" "text",
+        "identification_type" "text",
+        "identification_number" "text",
+        "zip_code" "text",
+        "street_name" "text",
+        "street_number" "text",
+        "neighborhood" "text",
+        "city" "text",
+        "federal_unit" "text",
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        "updated_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE,
+        CONSTRAINT "profiles_email_key" UNIQUE ("email")
+    );
+
+    -- Garante que as colunas de análise de crédito existam, adicionando-as se necessário
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_score" integer;
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_limit" numeric(10, 2);
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_status" "text";
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Produtos (Products)
     CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Faturas (Invoices)
     CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto'::"text", "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
     ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Logs de Ação (Action Logs)
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY;
+
+    -- Políticas de Segurança (Row Level Security)
     DROP POLICY IF EXISTS "Allow users to read their own profile" ON "public"."profiles";
     CREATE POLICY "Allow users to read their own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
     DROP POLICY IF EXISTS "Allow users to update their own profile" ON "public"."profiles";
@@ -57,6 +90,8 @@ const SETUP_SQL = `
     CREATE POLICY "Allow public read access to products" ON "public"."products" FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Allow users to view their own invoices" ON "public"."invoices";
     CREATE POLICY "Allow users to view their own invoices" ON "public"."invoices" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+    -- Função para criar perfil ao registrar novo usuário
     CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
     RETURNS void AS $$
     BEGIN
@@ -140,7 +175,6 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) {
         const prompt = `Analyze the credit of a client with the following data: - Profile: ${JSON.stringify(profile)} - Invoices: ${JSON.stringify(invoices)}. Based on this data, provide a credit score (0-1000), a credit limit (in BRL, e.g., 1500.00), and a credit status ('Excelente', 'Bom', 'Regular', 'Negativado'). Return the response ONLY as a valid JSON object like this: {"credit_score": 850, "credit_limit": 5000.00, "credit_status": "Excelente"}. Do not add any other text.`;
 
         const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
-        // Fix: Safely access text property from Gemini response.
         const analysis = JSON.parse(response.text.trim());
 
         const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
