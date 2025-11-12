@@ -138,6 +138,46 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) {
+    const { code, redirectUri } = req.body;
+    const appId = process.env.MERCADO_LIVRE_APP_ID;
+    const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
+
+    if (!code || !redirectUri) {
+        return res.status(400).json({ error: 'Authorization code and redirect URI are required.' });
+    }
+     if (!appId || !clientSecret) {
+        return res.status(500).json({ error: 'Mercado Livre App ID or Client Secret not configured on the server.' });
+    }
+
+    try {
+        const response = await fetch('https://api.mercadopago.com/oauth/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json'
+            },
+            body: new URLSearchParams({
+                client_id: appId,
+                client_secret: clientSecret,
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: redirectUri,
+            }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to exchange authorization code for token.');
+        }
+
+        res.status(200).json({ accessToken: data.access_token });
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to generate Mercado Pago token.', message: error.message });
+    }
+}
+
+
 async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
@@ -363,6 +403,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (req.method === 'POST') {
             switch (path) {
                 case '/api/admin/setup-database': return await handleSetupDatabase(req, res);
+                case '/api/admin/generate-mercadopago-token': return await handleGenerateMercadoPagoToken(req, res);
                 case '/api/admin/test-supabase': return await handleTestSupabase(req, res);
                 case '/api/admin/test-gemini': return await handleTestGemini(req, res);
                 case '/api/admin/test-mercadopago': return await handleTestMercadoPago(req, res);
