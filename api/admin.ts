@@ -139,12 +139,12 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) {
-    const { code, redirectUri } = req.body;
+    const { code, redirectUri, codeVerifier } = req.body;
     const appId = process.env.ML_CLIENT_ID;
     const clientSecret = process.env.ML_CLIENT_SECRET;
 
-    if (!code || !redirectUri) {
-        return res.status(400).json({ error: 'Authorization code and redirect URI are required.' });
+    if (!code || !redirectUri || !codeVerifier) {
+        return res.status(400).json({ error: 'Authorization code, redirect URI, and code verifier are required.' });
     }
      if (!appId || !clientSecret) {
         return res.status(500).json({ error: 'Mercado Livre App ID or Client Secret not configured on the server.' });
@@ -163,6 +163,7 @@ async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelRes
                 grant_type: 'authorization_code',
                 code: code,
                 redirect_uri: redirectUri,
+                code_verifier: codeVerifier,
             }),
         });
 
@@ -406,8 +407,13 @@ async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) {
     if (!mlClientId) {
         return res.status(500).json({ error: 'ML_CLIENT_ID não está configurado no servidor.' });
     }
+    const { code_challenge } = req.body;
+    if (!code_challenge) {
+        return res.status(400).json({ error: 'code_challenge is required for PKCE flow.' });
+    }
     const redirectUri = req.headers.referer || `https://${req.headers.host}`;
-    const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mlClientId}&response_type=code&platform=mp&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    let authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mlClientId}&response_type=code&platform=mp&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    authUrl += `&code_challenge=${code_challenge}&code_challenge_method=S256`;
     return res.status(200).json({ authUrl });
 }
 
@@ -425,7 +431,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             switch (path) {
                 case '/api/admin/get-logs': return await handleGetLogs(req, res);
                 case '/api/admin/profiles': return await handleGetProfiles(req, res);
-                case '/api/admin/get-mp-auth-url': return await handleGetMpAuthUrl(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -433,6 +438,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             switch (path) {
                 case '/api/admin/setup-database': return await handleSetupDatabase(req, res);
                 case '/api/admin/generate-mercadopago-token': return await handleGenerateMercadoPagoToken(req, res);
+                case '/api/admin/get-mp-auth-url': return await handleGetMpAuthUrl(req, res);
                 case '/api/admin/test-supabase': return await handleTestSupabase(req, res);
                 case '/api/admin/test-gemini': return await handleTestGemini(req, res);
                 case '/api/admin/test-mercadopago': return await handleTestMercadoPago(req, res);

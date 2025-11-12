@@ -2,7 +2,26 @@ import React, { useState, useEffect } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
-// Componente auxiliar para blocos de código
+// --- Funções de Criptografia para PKCE (Proof Key for Code Exchange) ---
+
+// Converte um buffer de dados para uma string no formato Base64URL
+function base64URLEncode(str: ArrayBuffer): string {
+    return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(str))))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+}
+
+// Gera o "desafio" a partir do "verificador", usando hash SHA-256
+async function generateCodeChallenge(verifier: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    return base64URLEncode(digest);
+}
+
+// --- Componentes ---
+
 interface CodeBlockProps {
     title: string;
     code: string;
@@ -37,44 +56,70 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
     );
 };
 
-// Componente para a integração do Mercado Pago
 const MercadoPagoIntegration: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [accessToken, setAccessToken] = useState<string | null>(null);
+    const [mpConnected, setMpConnected] = useState<boolean | null>(null); // null = verificando, true = conectado, false = desconectado
 
+    // Verifica o status da conexão ao carregar a página
+    useEffect(() => {
+        fetch('/api/admin/test-mercadopago', { method: 'POST' })
+            .then(res => setMpConnected(res.ok));
+    }, []);
+
+    // Processa o retorno do Mercado Pago após a autorização
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
 
         if (code) {
+            const codeVerifier = sessionStorage.getItem('mp_code_verifier');
+            if (!codeVerifier) {
+                setError("Erro de segurança: o verificador de código não foi encontrado. Tente conectar novamente.");
+                sessionStorage.removeItem('mp_code_verifier');
+                return;
+            }
+
             setIsLoading(true);
             const redirectUri = window.location.origin + window.location.pathname;
             
             fetch('/api/admin/generate-mercadopago-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, redirectUri }),
+                body: JSON.stringify({ code, redirectUri, codeVerifier }),
             })
             .then(res => res.json())
             .then(data => {
                 if (data.error) throw new Error(data.message || data.error);
                 setAccessToken(data.accessToken);
+                setMpConnected(true); // Atualiza o status para conectado
             })
             .catch(err => setError(err.message))
             .finally(() => {
                 setIsLoading(false);
+                sessionStorage.removeItem('mp_code_verifier');
                 window.history.replaceState(null, '', redirectUri);
             });
         }
     }, []);
     
+    // Inicia o processo de conexão
     const handleConnect = async () => {
         setIsConnecting(true);
         setError(null);
         try {
-            const response = await fetch('/api/admin/get-mp-auth-url');
+            // Gera e armazena o verificador para o fluxo PKCE
+            const verifier = base64URLEncode(window.crypto.getRandomValues(new Uint8Array(32)));
+            const challenge = await generateCodeChallenge(verifier);
+            sessionStorage.setItem('mp_code_verifier', verifier);
+
+            const response = await fetch('/api/admin/get-mp-auth-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code_challenge: challenge })
+            });
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.error || 'Falha ao obter URL de autorização.');
@@ -88,10 +133,10 @@ const MercadoPagoIntegration: React.FC = () => {
 
     return (
         <section>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Pago</h2>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Livre / Mercado Pago</h2>
             <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-4">
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Siga os passos abaixo para conectar sua conta do Mercado Pago de forma segura e gerar o token de acesso para pagamentos.
+                    Siga os passos abaixo para conectar sua conta de forma segura e gerar o token de acesso para pagamentos e produtos.
                 </p>
                 <div>
                     <h3 className="font-bold">Passo 1: Configure as Variáveis de Ambiente</h3>
@@ -104,10 +149,28 @@ const MercadoPagoIntegration: React.FC = () => {
                 </div>
                  <div>
                     <h3 className="font-bold">Passo 2: Gere seu Access Token</h3>
-                    <p className="text-xs text-slate-500 mt-1 mb-2">Clique no botão abaixo para autorizar o aplicativo. Você será redirecionado para o Mercado Pago e depois voltará para esta tela.</p>
-                    <button onClick={handleConnect} disabled={isLoading || isConnecting} className="py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">
-                        {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar com Mercado Pago e Gerar Token'}
-                    </button>
+                    <p className="text-xs text-slate-500 mt-1 mb-2">Clique no botão abaixo para autorizar o aplicativo. Você será redirecionado e depois voltará para esta tela.</p>
+                    
+                    {mpConnected === null && (
+                         <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <LoadingSpinner /> Verificando conexão...
+                        </div>
+                    )}
+                    
+                    {mpConnected === true && (
+                        <div className="flex items-center gap-2 p-3 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-md text-sm font-medium">
+                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span>Conexão Ativa! O Access Token está configurado no servidor.</span>
+                        </div>
+                    )}
+                    
+                    {mpConnected === false && (
+                         <button onClick={handleConnect} disabled={isLoading || isConnecting} className="py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">
+                            {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar com Mercado Pago e Gerar Token'}
+                        </button>
+                    )}
                 </div>
                  {error && <Alert message={error} type="error" />}
                  {accessToken && (
