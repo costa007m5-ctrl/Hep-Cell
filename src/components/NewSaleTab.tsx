@@ -99,6 +99,18 @@ const NewSaleTab: React.FC = () => {
         p.name.toLowerCase().includes(productSearch.toLowerCase())
     ) : [], [productSearch, allProducts]);
 
+    const installmentValue = useMemo(() => {
+        if (!selectedProduct || installments < 1) return 0;
+        return selectedProduct.price / installments;
+    }, [selectedProduct, installments]);
+
+    const exceedsLimit = useMemo(() => {
+        if (!selectedProfile || !selectedProduct) return false;
+        const limit = selectedProfile.credit_limit ?? 0;
+        return installmentValue > limit;
+    }, [selectedProfile, selectedProduct, installmentValue]);
+
+
     // --- Action Handlers ---
     const resetFlow = () => {
         setStep('customer');
@@ -158,7 +170,7 @@ const NewSaleTab: React.FC = () => {
     };
 
     const handleFinalizeSale = async () => {
-        if (!selectedProfile || !selectedProduct) return;
+        if (!selectedProfile || !selectedProduct || exceedsLimit) return;
         setIsProcessing(true);
         setMessage(null);
         try {
@@ -210,6 +222,7 @@ const NewSaleTab: React.FC = () => {
         // Add Image
         if (selectedProduct.image_url) {
             try {
+                // Use a proxy if CORS is an issue, or ensure images are served with correct headers.
                 const imgResponse = await fetch(selectedProduct.image_url);
                 const blob = await imgResponse.blob();
                 const reader = new FileReader();
@@ -299,7 +312,7 @@ const NewSaleTab: React.FC = () => {
                     <p className="font-bold text-lg">{selectedProfile?.first_name} {selectedProfile?.last_name}</p>
                 </div>
                  <div>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Limite Aprovado</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Limite por Parcela</p>
                     <p className="font-bold text-lg text-green-600 dark:text-green-400">{(selectedProfile?.credit_limit ?? 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
                 </div>
             </div>
@@ -331,19 +344,21 @@ const NewSaleTab: React.FC = () => {
                         <div>
                             <p><strong>Produto:</strong> {selectedProduct.name}</p>
                             <p><strong>Valor Total:</strong> {selectedProduct.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                            {selectedProduct.price > (selectedProfile?.credit_limit ?? 0) &&
-                                <p className="text-xs text-red-500 mt-1">Atenção: Valor excede o limite de crédito.</p>
-                            }
                         </div>
                     </div>
                     <InputField 
                         label="Número de Parcelas" type="number" value={String(installments)} 
                         onChange={e => setInstallments(Math.max(1, parseInt(e.target.value, 10)))} min="1" max="12" required
                     />
-                    {installments > 0 && (
-                        <p className="font-semibold text-indigo-600 dark:text-indigo-400">
-                            {installments}x de {(selectedProduct.price / installments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </p>
+                     {installments > 0 && (
+                        <div className={`text-sm p-2 rounded-md ${exceedsLimit ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' : 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'}`}>
+                           <p className="font-semibold">
+                                {installments}x de {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </p>
+                            <p className="text-xs">
+                                Limite por parcela: {(selectedProfile?.credit_limit ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </p>
+                        </div>
                     )}
                 </div>
             )}
@@ -355,7 +370,7 @@ const NewSaleTab: React.FC = () => {
                 <button type="button" onClick={generatePDF} disabled={!selectedProduct || isProcessing} className="w-full sm:w-auto py-3 px-6 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium disabled:opacity-50">
                     Gerar Orçamento PDF
                 </button>
-                <button type="button" onClick={handleFinalizeSale} disabled={!selectedProduct || isProcessing || (selectedProduct != null && selectedProfile != null && selectedProduct.price > (selectedProfile.credit_limit ?? 0))} className="w-full sm:w-auto py-3 px-6 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                <button type="button" onClick={handleFinalizeSale} disabled={!selectedProduct || isProcessing || exceedsLimit} className="w-full sm:w-auto py-3 px-6 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
                     {isProcessing ? <LoadingSpinner/> : 'Finalizar Venda'}
                 </button>
             </div>

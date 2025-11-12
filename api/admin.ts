@@ -3,6 +3,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
+// FIX: Import Buffer to resolve 'Cannot find name 'Buffer'' error.
+import { Buffer } from 'buffer';
 
 // --- Helper Functions ---
 
@@ -45,7 +47,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, u
     const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date').eq('user_id', userId);
     if (invoicesError) throw invoicesError;
 
-    const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 5000.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
+    const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
 
     const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
     const analysis = JSON.parse(response.text.trim());
@@ -194,7 +196,6 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// NOVO: Endpoint para criar cliente e analisar crédito
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const genAI = getGeminiClient();
@@ -204,28 +205,20 @@ async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelRes
     }
 
     try {
-        // 1. Criar o usuário na autenticação do Supabase
         const { data: { user }, error: userError } = await supabase.auth.admin.createUser({
-            email: email,
-            password: password,
-            email_confirm: true, // Auto-confirma o email, já que é um cadastro de admin
+            email: email, password: password, email_confirm: true,
         });
         if (userError) throw new Error(`Supabase Auth Error: ${userError.message}`);
         if (!user) throw new Error("Failed to create user in Supabase Auth.");
 
-        // 2. Inserir os dados no perfil
-        const { data: profileData, error: profileError } = await supabase
+        const { error: profileError } = await supabase
             .from('profiles')
-            .insert({ id: user.id, email, first_name, last_name })
-            .select()
-            .single();
+            .insert({ id: user.id, email, first_name, last_name });
         if (profileError) {
-             // Tenta deletar o usuário criado na auth para não deixar lixo
             await supabase.auth.admin.deleteUser(user.id);
             throw new Error(`Supabase Profile Error: ${profileError.message}`);
         }
 
-        // 3. Rodar a análise de crédito para o novo perfil
         const analyzedProfile = await runCreditAnalysis(supabase, genAI, user.id);
 
         await logAction(supabase, 'CUSTOMER_CREATED', 'SUCCESS', `New customer ${email} created and analyzed via admin panel.`);
@@ -246,7 +239,27 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json(data);
         }
         if (req.method === 'POST') {
-            const { error } = await supabase.from('products').insert([req.body]);
+            const { image_base64, ...productData } = req.body;
+            let imageUrl = productData.image_url;
+
+            if (image_base64) {
+                const bucket = 'product-images';
+                const fileExt = image_base64.substring(image_base64.indexOf('/') + 1, image_base64.indexOf(';base64'));
+                const filePath = `product-${Date.now()}.${fileExt}`;
+                const base64Data = image_base64.replace(/^data:image\/\w+;base64,/, "");
+                const buffer = Buffer.from(base64Data, 'base64');
+
+                const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, buffer, {
+                    contentType: `image/${fileExt}`,
+                    upsert: true
+                });
+                if (uploadError) throw new Error(`Supabase Storage Error: ${uploadError.message}`);
+
+                const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+                imageUrl = publicUrlData.publicUrl;
+            }
+
+            const { error } = await supabase.from('products').insert([{ ...productData, image_url: imageUrl }]);
             if (error) throw error;
             return res.status(201).json({ message: "Product created." });
         }
@@ -254,6 +267,41 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
+    }
+}
+
+async function handleScrapeProduct(req: VercelRequest, res: VercelResponse) {
+    const { url } = req.body;
+    if (!url) {
+        return res.status(400).json({ error: 'URL is required.' });
+    }
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch URL, status: ${response.status}`);
+        }
+        const html = await response.text();
+
+        const nameMatch = html.match(/<h1 class="ui-pdp-title"[^>]*>([^<]+)<\/h1>/);
+        const priceMatch = html.match(/<meta itemprop="price" content="([^"]+)"\/>/);
+        const imageMatch = html.match(/<img[^>]+class="ui-pdp-image__figure__image"[^>]+src="([^"]+)"/);
+        const descriptionMatch = html.match(/<p class="ui-pdp-description__content"[^>]*>([^<]+)<\/p>/);
+        
+        const data = {
+            name: nameMatch ? nameMatch[1].trim() : '',
+            price: priceMatch ? parseFloat(priceMatch[1]) : 0,
+            imageUrl: imageMatch ? imageMatch[1] : '',
+            description: descriptionMatch ? descriptionMatch[1].replace(/<br\s*\/?>/gi, "\n").trim() : '',
+        };
+
+        if(!data.name || !data.price || !data.imageUrl) {
+            return res.status(404).json({error: "Não foi possível extrair os dados do produto. A estrutura da página do Mercado Livre pode ter mudado."})
+        }
+
+        res.status(200).json(data);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to scrape product data.', message: error.message });
     }
 }
 
@@ -341,6 +389,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
+                case '/api/admin/scrape-product': return await handleScrapeProduct(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

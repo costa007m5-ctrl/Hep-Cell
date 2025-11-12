@@ -18,7 +18,8 @@
     "@vitejs/plugin-react": "^5.1.0",
     "@vercel/node": "^5.5.5",
     "url": "^0.11.4",
-    "jspdf": "^2.5.1"
+    "jspdf": "^2.5.1",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -17,8 +17,12 @@ const ProductsTab: React.FC = () => {
         stock: '',
         image_url: '',
     });
+    const [imageBase64, setImageBase64] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitMessage, setSubmitMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+    const [scrapeUrl, setScrapeUrl] = useState('');
+    const [isScraping, setIsScraping] = useState(false);
 
     const fetchProducts = useCallback(async () => {
         setIsLoading(true);
@@ -44,19 +48,63 @@ const ProductsTab: React.FC = () => {
         setFormState(prev => ({ ...prev, [name]: value }));
     };
 
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImageBase64(reader.result as string);
+                setFormState(prev => ({ ...prev, image_url: '' })); // Limpa a URL se um arquivo for selecionado
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+    
+    const handleScrape = async () => {
+        if (!scrapeUrl) return;
+        setIsScraping(true);
+        setSubmitMessage(null);
+        try {
+            const response = await fetch('/api/admin/scrape-product', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: scrapeUrl }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error);
+            setFormState({
+                name: data.name,
+                description: data.description,
+                price: String(data.price),
+                stock: formState.stock || '1',
+                image_url: data.imageUrl,
+            });
+            setImageBase64(null); // Limpa imagem local se a busca for bem-sucedida
+        } catch (err: any) {
+             setSubmitMessage({ text: err.message, type: 'error' });
+        } finally {
+            setIsScraping(false);
+        }
+    };
+
     const handleCreateProduct = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         setSubmitMessage(null);
         try {
+            const payload: any = {
+                ...formState,
+                price: parseFloat(formState.price),
+                stock: parseInt(formState.stock, 10),
+            };
+            if (imageBase64) {
+                payload.image_base64 = imageBase64;
+            }
+            
             const response = await fetch('/api/admin/products', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...formState,
-                    price: parseFloat(formState.price),
-                    stock: parseInt(formState.stock, 10)
-                }),
+                body: JSON.stringify(payload),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Erro ao criar produto.');
@@ -64,6 +112,7 @@ const ProductsTab: React.FC = () => {
             setSubmitMessage({ text: 'Produto criado com sucesso!', type: 'success' });
             setShowCreateForm(false);
             setFormState({ name: '', description: '', price: '', stock: '', image_url: '' });
+            setImageBase64(null);
             fetchProducts();
         } catch (err: any) {
             setSubmitMessage({ text: err.message, type: 'error' });
@@ -95,7 +144,14 @@ const ProductsTab: React.FC = () => {
 
             {showCreateForm && (
                 <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in">
-                    <form onSubmit={handleCreateProduct} className="space-y-4">
+                    <div className="flex items-center gap-4 mb-4">
+                        <InputField label="URL do Mercado Livre" name="scrape_url" value={scrapeUrl} onChange={e => setScrapeUrl(e.target.value)} placeholder="Cole o link do produto aqui..." className="flex-grow" />
+                        <button type="button" onClick={handleScrape} disabled={isScraping} className="self-end py-2 px-4 text-sm font-medium bg-slate-200 dark:bg-slate-700 rounded-md hover:bg-slate-300 disabled:opacity-50">
+                            {isScraping ? <LoadingSpinner /> : 'Buscar Dados'}
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleCreateProduct} className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-4">
                         {submitMessage && <Alert message={submitMessage.text} type={submitMessage.type} />}
                         <InputField label="Nome do Produto" name="name" value={formState.name} onChange={handleInputChange} required />
                         <div>
@@ -106,7 +162,15 @@ const ProductsTab: React.FC = () => {
                              <InputField label="Preço (R$)" name="price" type="number" step="0.01" value={formState.price} onChange={handleInputChange} required />
                              <InputField label="Estoque (Unidades)" name="stock" type="number" value={formState.stock} onChange={handleInputChange} required />
                         </div>
-                        <InputField label="URL da Imagem" name="image_url" value={formState.image_url} onChange={handleInputChange} placeholder="https://..." />
+                        <div>
+                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Imagem do Produto</label>
+                             <input type="file" accept="image/*" onChange={handleFileChange} className="mt-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
+                        </div>
+                        {(imageBase64 || formState.image_url) && (
+                            <div>
+                                <img src={imageBase64 || formState.image_url} alt="Preview" className="w-32 h-32 rounded-lg object-cover" />
+                            </div>
+                        )}
                         <div className="flex justify-end pt-2">
                              <button type="submit" disabled={isSubmitting} className="py-2 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
                                 {isSubmitting ? <LoadingSpinner /> : 'Salvar Produto'}
@@ -128,7 +192,10 @@ const ProductsTab: React.FC = () => {
                     <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                         {products.length > 0 ? products.map(product => (
                             <tr key={product.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white">{product.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white flex items-center gap-4">
+                                    <img src={product.image_url || 'https://via.placeholder.com/40'} alt={product.name} className="w-10 h-10 rounded-md object-cover" />
+                                    {product.name}
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 dark:text-slate-300">{product.stock} unidades</td>
                             </tr>

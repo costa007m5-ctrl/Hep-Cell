@@ -2,27 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
+import CreditScoreGauge from './CreditScoreGauge'; // Novo componente visual
 
 const PageInicio: React.FC = () => {
-  const [creditLimit, setCreditLimit] = useState<number | null>(null);
+  const [profileData, setProfileData] = useState<{ limit: number | null, score: number | null }>({ limit: null, score: null });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchCreditLimit = async () => {
+    const fetchCreditData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           const profile = await getProfile(user.id);
-          setCreditLimit(profile?.credit_limit ?? 0);
+          setProfileData({
+            limit: profile?.credit_limit ?? 0,
+            score: profile?.credit_score ?? 0,
+          });
         }
       } catch (error) {
-        console.error("Erro ao buscar limite de crédito:", error);
-        setCreditLimit(0); // Define 0 em caso de erro
+        console.error("Erro ao buscar dados de crédito:", error);
+        setProfileData({ limit: 0, score: 0 }); // Define 0 em caso de erro
       } finally {
         setIsLoading(false);
       }
     };
-    fetchCreditLimit();
+    fetchCreditData();
   }, []);
 
   return (
@@ -44,17 +48,21 @@ const PageInicio: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-6 text-center animate-fade-in-up" style={{ animationDelay: '150ms' }}>
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Seu Limite Aprovado</p>
+        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Seu Crédito na Loja</h3>
         {isLoading ? (
-          <div className="mt-2"><LoadingSpinner /></div>
+          <div className="mt-4 flex justify-center"><LoadingSpinner /></div>
         ) : (
-          <p className="text-4xl font-bold text-indigo-600 dark:text-indigo-400 mt-2">
-            {(creditLimit ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-          </p>
+          <>
+            <CreditScoreGauge score={profileData.score ?? 0} />
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 -mt-4">Limite por Parcela</p>
+            <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+              {(profileData.limit ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </p>
+             <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+              Use seu limite para financiar compras em nossa loja.
+            </p>
+          </>
         )}
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-          Use seu limite para financiar compras em nossa loja.
-        </p>
       </div>
     </div>
   );
