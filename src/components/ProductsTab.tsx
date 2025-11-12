@@ -106,26 +106,39 @@ const ProductsTab: React.FC = () => {
             setMlError('URL ou código inválido. Insira um link ou código como "MLB123456789".');
             return;
         }
-        const productId = match[0];
+        const productId = match[0].toUpperCase();
 
         setIsFetchingML(true);
         try {
-            const response = await fetch(`https://api.mercadolibre.com/items/${productId}`);
-            if (!response.ok) {
-                if (response.status === 404) {
+            // Busca os dados principais e a descrição em paralelo para mais eficiência
+            const [itemResponse, descriptionResponse] = await Promise.all([
+                fetch(`https://api.mercadolibre.com/items/${productId}`),
+                fetch(`https://api.mercadolibre.com/items/${productId}/description`)
+            ]);
+
+            if (!itemResponse.ok) {
+                if (itemResponse.status === 404) {
                     throw new Error('Produto não encontrado. Verifique se o código (MLB) está correto e tente novamente.');
                 }
-                throw new Error('A API do Mercado Livre retornou um erro. Tente novamente mais tarde.');
+                throw new Error('A API do Mercado Livre retornou um erro ao buscar os dados do produto.');
             }
-            const data = await response.json();
+            const itemData = await itemResponse.json();
+            
+            let description = '';
+            if (descriptionResponse.ok) {
+                const descriptionData = await descriptionResponse.json();
+                description = descriptionData.plain_text || '';
+            } else {
+                 console.warn(`Não foi possível buscar a descrição para o produto ${productId}. Status: ${descriptionResponse.status}`);
+            }
 
-            // Popula o formulário com os dados da API
+            // Popula o formulário com os dados da API, incluindo a descrição
             setFormState({
-                name: data.title || '',
-                description: '', // O endpoint principal não tem uma boa descrição
-                price: String(data.price || ''),
-                stock: String(data.available_quantity || '1'),
-                image_url: data.pictures?.[0]?.secure_url || data.thumbnail || '',
+                name: itemData.title || '',
+                description: description,
+                price: String(itemData.price || ''),
+                stock: String(itemData.available_quantity || '1'),
+                image_url: itemData.pictures?.[0]?.secure_url || itemData.thumbnail || '',
             });
             setImageBase64(null); // Limpa qualquer imagem que tenha sido feito upload manual
             setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
