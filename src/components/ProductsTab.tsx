@@ -101,12 +101,14 @@ const ProductsTab: React.FC = () => {
     
     const handleFetchMercadoLivreProduct = async () => {
         setMlError(null);
-        const match = mercadoLivreUrl.match(/MLB\d+/i);
-        if (!match) {
-            setMlError('URL ou código inválido. Insira um link ou código como "MLB123456789".');
+        // Encontra todas as ocorrências de MLB + números na URL
+        const matches = mercadoLivreUrl.match(/MLB\d+/gi);
+        if (!matches) {
+            setMlError('URL ou código inválido. Não foi possível encontrar um código de produto (ex: MLB123456789).');
             return;
         }
-        const productId = match[0].toUpperCase();
+        // Pega a última ocorrência, que geralmente é o ID do anúncio específico (item).
+        const productId = matches[matches.length - 1].toUpperCase();
 
         setIsFetchingML(true);
         try {
