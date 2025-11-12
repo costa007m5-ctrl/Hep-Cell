@@ -140,8 +140,8 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
 
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) {
     const { code, redirectUri } = req.body;
-    const appId = process.env.MERCADO_LIVRE_APP_ID;
-    const clientSecret = process.env.MERCADO_LIVRE_CLIENT_SECRET;
+    const appId = process.env.ML_CLIENT_ID;
+    const clientSecret = process.env.ML_CLIENT_SECRET;
 
     if (!code || !redirectUri) {
         return res.status(400).json({ error: 'Authorization code and redirect URI are required.' });
@@ -211,18 +211,36 @@ async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleTestMercadoLivre(req: VercelRequest, res: VercelResponse) {
+    const clientId = process.env.ML_CLIENT_ID;
+    const clientSecret = process.env.ML_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+        return res.status(500).json({ message: 'ML_CLIENT_ID ou ML_CLIENT_SECRET não estão configurados nas variáveis de ambiente.' });
+    }
+
     try {
-        const response = await fetch(`https://api.mercadolibre.com/sites/MLB`);
-        if (!response.ok) {
-            throw new Error(`A API retornou um status inesperado: ${response.status}`);
-        }
+        const response = await fetch("https://api.mercadolibre.com/oauth/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                grant_type: "client_credentials",
+                client_id: clientId,
+                client_secret: clientSecret,
+            }),
+        });
+
         const data = await response.json();
-        if (data.id !== 'MLB') {
-            throw new Error('A resposta da API não foi a esperada.');
+        if (!response.ok) {
+            throw new Error(data.message || 'Credenciais inválidas.');
         }
-        res.status(200).json({ message: 'API de busca de produtos (Mercado Livre) está respondendo.' });
+
+        if (!data.access_token) {
+            throw new Error('Resposta de autenticação não continha um access_token.');
+        }
+
+        res.status(200).json({ message: 'Credenciais do Mercado Livre são válidas e a autenticação foi bem-sucedida.' });
     } catch (error: any) {
-        res.status(500).json({ message: `Falha na conexão com Mercado Livre: ${error.message}` });
+        res.status(500).json({ message: `Falha na autenticação com Mercado Livre: ${error.message}` });
     }
 }
 
@@ -383,6 +401,16 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) {
+    const mlClientId = process.env.ML_CLIENT_ID;
+    if (!mlClientId) {
+        return res.status(500).json({ error: 'ML_CLIENT_ID não está configurado no servidor.' });
+    }
+    const redirectUri = req.headers.referer || `https://${req.headers.host}`;
+    const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${mlClientId}&response_type=code&platform=mp&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    return res.status(200).json({ authUrl });
+}
+
 // --- Main Router ---
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -397,6 +425,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             switch (path) {
                 case '/api/admin/get-logs': return await handleGetLogs(req, res);
                 case '/api/admin/profiles': return await handleGetProfiles(req, res);
+                case '/api/admin/get-mp-auth-url': return await handleGetMpAuthUrl(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }

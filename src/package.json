@@ -1,25 +1,4 @@
 {
-  "name": "relp-cell-pagamentos-api",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@google/genai": "^0.14.0",
-    "@supabase/supabase-js": "^2.43.5",
-    "@vercel/node": "^3.2.0",
-    "mercadopago": "^2.0.10",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.79",
-    "@types/react-dom": "^18.2.25",
-    "@vitejs/plugin-react": "^4.2.1",
-    "typescript": "^5.4.5",
-    "vite": "^5.2.10"
-  },
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build"
-  }
+  "name": "relp-cell-pagamentos-api-obsolete",
+  "version": "1.0.0"
 }

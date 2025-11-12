@@ -95,7 +95,7 @@ const StatusTab: React.FC = () => {
           />
           <ServiceStatusCard
             title="API de Produtos (Mercado Livre)"
-            description="Verifica se o servidor consegue se comunicar com a API pública do Mercado Livre para busca de produtos."
+            description="Verifica se as credenciais (ML_CLIENT_ID, ML_CLIENT_SECRET) são válidas para autenticar com a API do Mercado Livre."
             endpoint="/api/admin/test-mercadolivre"
           />
         </div>

@@ -9,12 +9,16 @@
     },
     "api/products.ts": {
       "memory": 1024
+    },
+    "api/ml-item.ts": {
+      "memory": 1024
     }
   },
   "rewrites": [
     { "source": "/api/admin/(.*)", "destination": "/api/admin" },
     { "source": "/api/mercadopago/(.*)", "destination": "/api/mercadopago" },
     { "source": "/api/products", "destination": "/api/products" },
+    { "source": "/api/ml-item", "destination": "/api/ml-item" },
     { "source": "/((?!api/|_next/|assets/|static/).*)", "destination": "/index.html" }
   ]
 }

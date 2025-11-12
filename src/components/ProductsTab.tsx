@@ -112,32 +112,21 @@ const ProductsTab: React.FC = () => {
 
         setIsFetchingML(true);
         try {
-            // Busca os dados principais e a descrição em paralelo para mais eficiência
-            const [itemResponse, descriptionResponse] = await Promise.all([
-                fetch(`https://api.mercadolibre.com/items/${productId}`),
-                fetch(`https://api.mercadolibre.com/items/${productId}/description`)
-            ]);
+            const response = await fetch(`/api/ml-item?id=${productId}`);
 
-            if (!itemResponse.ok) {
-                if (itemResponse.status === 404) {
+            if (!response.ok) {
+                if (response.status === 404) {
                     throw new Error('Produto não encontrado. Verifique se o código (MLB) está correto e tente novamente.');
                 }
-                throw new Error('A API do Mercado Livre retornou um erro ao buscar os dados do produto.');
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'A API retornou um erro ao buscar os dados do produto.');
             }
-            const itemData = await itemResponse.json();
+            const itemData = await response.json();
             
-            let description = '';
-            if (descriptionResponse.ok) {
-                const descriptionData = await descriptionResponse.json();
-                description = descriptionData.plain_text || '';
-            } else {
-                 console.warn(`Não foi possível buscar a descrição para o produto ${productId}. Status: ${descriptionResponse.status}`);
-            }
-
             // Popula o formulário com os dados da API, incluindo a descrição
             setFormState({
                 name: itemData.title || '',
-                description: description,
+                description: itemData.description || '',
                 price: String(itemData.price || ''),
                 stock: String(itemData.available_quantity || '1'),
                 image_url: itemData.pictures?.[0]?.secure_url || itemData.thumbnail || '',

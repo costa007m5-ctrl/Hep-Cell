@@ -40,6 +40,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
 // Componente para a integração do Mercado Pago
 const MercadoPagoIntegration: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [accessToken, setAccessToken] = useState<string | null>(null);
 
@@ -69,12 +70,20 @@ const MercadoPagoIntegration: React.FC = () => {
         }
     }, []);
     
-    const handleConnect = () => {
-        // Você DEVE substituir este APP_ID pelo ID da sua aplicação do Mercado Livre
-        const MERCADO_LIVRE_APP_ID = "SEU_APP_ID_AQUI"; 
-        const redirectUri = window.location.origin + window.location.pathname;
-        const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${MERCADO_LIVRE_APP_ID}&response_type=code&platform=mp&redirect_uri=${encodeURIComponent(redirectUri)}`;
-        window.location.href = authUrl;
+    const handleConnect = async () => {
+        setIsConnecting(true);
+        setError(null);
+        try {
+            const response = await fetch('/api/admin/get-mp-auth-url');
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Falha ao obter URL de autorização.');
+            }
+            window.location.href = data.authUrl;
+        } catch (err: any) {
+            setError(err.message);
+            setIsConnecting(false);
+        }
     };
 
     return (
@@ -82,22 +91,22 @@ const MercadoPagoIntegration: React.FC = () => {
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Pago</h2>
             <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-4">
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Siga os passos abaixo para conectar sua conta do Mercado Pago de forma segura.
+                    Siga os passos abaixo para conectar sua conta do Mercado Pago de forma segura e gerar o token de acesso para pagamentos.
                 </p>
                 <div>
                     <h3 className="font-bold">Passo 1: Configure as Variáveis de Ambiente</h3>
                     <p className="text-xs text-slate-500 mt-1 mb-2">Adicione as seguintes chaves no painel do seu projeto na Vercel:</p>
                      <ul className="list-disc list-inside text-sm font-mono space-y-1">
-                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">MERCADO_LIVRE_APP_ID</code></li>
-                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">MERCADO_LIVRE_CLIENT_SECRET</code></li>
+                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">ML_CLIENT_ID</code></li>
+                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">ML_CLIENT_SECRET</code></li>
                     </ul>
                      <p className="text-xs text-slate-500 mt-2">Você pode encontrar essas chaves nas <strong>Credenciais</strong> da sua aplicação no <a href="https://www.mercadopago.com.br/developers" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">painel de desenvolvedor do Mercado Pago</a>.</p>
                 </div>
                  <div>
                     <h3 className="font-bold">Passo 2: Gere seu Access Token</h3>
                     <p className="text-xs text-slate-500 mt-1 mb-2">Clique no botão abaixo para autorizar o aplicativo. Você será redirecionado para o Mercado Pago e depois voltará para esta tela.</p>
-                    <button onClick={handleConnect} disabled={isLoading} className="py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">
-                        {isLoading ? <LoadingSpinner /> : 'Conectar com Mercado Pago e Gerar Token'}
+                    <button onClick={handleConnect} disabled={isLoading || isConnecting} className="py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">
+                        {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar com Mercado Pago e Gerar Token'}
                     </button>
                 </div>
                  {error && <Alert message={error} type="error" />}
@@ -158,8 +167,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                     </p>
                     <ul className="list-disc list-inside text-sm text-indigo-700 dark:text-indigo-300 mt-2 space-y-2 font-mono">
                         <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">API_KEY</code> (sua chave da API do Gemini)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">MERCADO_LIVRE_APP_ID</code> (ID da sua aplicação no Mercado Livre)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">MERCADO_LIVRE_CLIENT_SECRET</code> (Chave secreta da sua aplicação)</li>
+                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">ML_CLIENT_ID</code> (ID da sua aplicação no Mercado Livre)</li>
+                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">ML_CLIENT_SECRET</code> (Chave secreta da sua aplicação)</li>
                         <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">MERCADO_PAGO_ACCESS_TOKEN</code> (Será gerado abaixo)</li>
                         <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> (URL do seu projeto Supabase)</li>
                         <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> (Chave anônima pública do Supabase)</li>
