@@ -112,7 +112,10 @@ const ProductsTab: React.FC = () => {
         try {
             const response = await fetch(`https://api.mercadolibre.com/items/${productId}`);
             if (!response.ok) {
-                throw new Error('Produto não encontrado ou API do Mercado Livre indisponível.');
+                if (response.status === 404) {
+                    throw new Error('Produto não encontrado. Verifique se o código (MLB) está correto e tente novamente.');
+                }
+                throw new Error('A API do Mercado Livre retornou um erro. Tente novamente mais tarde.');
             }
             const data = await response.json();
 
