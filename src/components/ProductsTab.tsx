@@ -10,6 +10,7 @@ const ProductsTab: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [showCreateForm, setShowCreateForm] = useState(false);
     
+    // States do formulário principal
     const [formState, setFormState] = useState({
         name: '',
         description: '',
@@ -21,8 +22,11 @@ const ProductsTab: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitMessage, setSubmitMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-    const [scrapeUrl, setScrapeUrl] = useState('');
-    const [isScraping, setIsScraping] = useState(false);
+    // States para importação do Mercado Livre
+    const [mercadoLivreUrl, setMercadoLivreUrl] = useState('');
+    const [isFetchingML, setIsFetchingML] = useState(false);
+    const [mlError, setMlError] = useState<string | null>(null);
+
 
     const fetchProducts = useCallback(async () => {
         setIsLoading(true);
@@ -59,33 +63,6 @@ const ProductsTab: React.FC = () => {
             reader.readAsDataURL(file);
         }
     };
-    
-    const handleScrape = async () => {
-        if (!scrapeUrl) return;
-        setIsScraping(true);
-        setSubmitMessage(null);
-        try {
-            const response = await fetch('/api/admin/scrape-product', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: scrapeUrl }),
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error);
-            setFormState({
-                name: data.name,
-                description: data.description,
-                price: String(data.price),
-                stock: formState.stock || '1',
-                image_url: data.imageUrl,
-            });
-            setImageBase64(null); // Limpa imagem local se a busca for bem-sucedida
-        } catch (err: any) {
-             setSubmitMessage({ text: err.message, type: 'error' });
-        } finally {
-            setIsScraping(false);
-        }
-    };
 
     const handleCreateProduct = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -113,11 +90,47 @@ const ProductsTab: React.FC = () => {
             setShowCreateForm(false);
             setFormState({ name: '', description: '', price: '', stock: '', image_url: '' });
             setImageBase64(null);
+            setMercadoLivreUrl('');
             fetchProducts();
         } catch (err: any) {
             setSubmitMessage({ text: err.message, type: 'error' });
         } finally {
             setIsSubmitting(false);
+        }
+    };
+    
+    const handleFetchMercadoLivreProduct = async () => {
+        setMlError(null);
+        const match = mercadoLivreUrl.match(/MLB\d+/i);
+        if (!match) {
+            setMlError('URL inválida ou não contém um ID de produto do Mercado Livre (ex: MLB123456789).');
+            return;
+        }
+        const productId = match[0];
+
+        setIsFetchingML(true);
+        try {
+            const response = await fetch(`https://api.mercadolibre.com/items/${productId}`);
+            if (!response.ok) {
+                throw new Error('Produto não encontrado ou API do Mercado Livre indisponível.');
+            }
+            const data = await response.json();
+
+            // Popula o formulário com os dados da API
+            setFormState({
+                name: data.title || '',
+                description: '', // O endpoint principal não tem uma boa descrição
+                price: String(data.price || ''),
+                stock: String(data.available_quantity || '1'),
+                image_url: data.pictures?.[0]?.secure_url || data.thumbnail || '',
+            });
+            setImageBase64(null); // Limpa qualquer imagem que tenha sido feito upload manual
+            setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
+
+        } catch (err: any) {
+            setMlError(err.message);
+        } finally {
+            setIsFetchingML(false);
         }
     };
     
@@ -144,26 +157,50 @@ const ProductsTab: React.FC = () => {
 
             {showCreateForm && (
                 <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in">
-                    <div className="flex items-center gap-4 mb-4">
-                        <InputField label="URL do Mercado Livre" name="scrape_url" value={scrapeUrl} onChange={e => setScrapeUrl(e.target.value)} placeholder="Cole o link do produto aqui..." className="flex-grow" />
-                        <button type="button" onClick={handleScrape} disabled={isScraping} className="self-end py-2 px-4 text-sm font-medium bg-slate-200 dark:bg-slate-700 rounded-md hover:bg-slate-300 disabled:opacity-50">
-                            {isScraping ? <LoadingSpinner /> : 'Buscar Dados'}
-                        </button>
+                    
+                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 space-y-3 mb-6">
+                        <h4 className="font-semibold text-slate-700 dark:text-slate-300">Importar do Mercado Livre</h4>
+                        <p className="text-xs text-slate-500">Cole o link do produto abaixo e clique em "Buscar" para preencher os campos automaticamente.</p>
+                        <div className="flex flex-col sm:flex-row gap-2 items-end">
+                            <div className="flex-grow w-full">
+                                <InputField
+                                    label="URL do Produto no Mercado Livre"
+                                    name="mercadoLivreUrl"
+                                    value={mercadoLivreUrl}
+                                    onChange={(e) => setMercadoLivreUrl(e.target.value)}
+                                    placeholder="https://produto.mercadolivre.com.br/MLB..."
+                                    error={mlError}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleFetchMercadoLivreProduct}
+                                disabled={isFetchingML}
+                                className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-600 hover:bg-slate-700 disabled:opacity-50"
+                            >
+                                {isFetchingML ? <LoadingSpinner /> : 'Buscar'}
+                            </button>
+                        </div>
                     </div>
 
-                    <form onSubmit={handleCreateProduct} className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+                    <form onSubmit={handleCreateProduct} className="space-y-4">
                         {submitMessage && <Alert message={submitMessage.text} type={submitMessage.type} />}
                         <InputField label="Nome do Produto" name="name" value={formState.name} onChange={handleInputChange} required />
                         <div>
                             <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Descrição</label>
-                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={3} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={3} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-white border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                              <InputField label="Preço (R$)" name="price" type="number" step="0.01" value={formState.price} onChange={handleInputChange} required />
                              <InputField label="Estoque (Unidades)" name="stock" type="number" value={formState.stock} onChange={handleInputChange} required />
                         </div>
+                        
+                         <InputField label="URL da Imagem (opcional)" name="image_url" value={formState.image_url} onChange={handleInputChange} placeholder="https://exemplo.com/imagem.png"/>
+
+                        <div className="text-center text-xs text-slate-500">ou</div>
+
                         <div>
-                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Imagem do Produto</label>
+                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Enviar Imagem</label>
                              <input type="file" accept="image/*" onChange={handleFileChange} className="mt-1 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"/>
                         </div>
                         {(imageBase64 || formState.image_url) && (

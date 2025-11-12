@@ -270,41 +270,6 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleScrapeProduct(req: VercelRequest, res: VercelResponse) {
-    const { url } = req.body;
-    if (!url) {
-        return res.status(400).json({ error: 'URL is required.' });
-    }
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch URL, status: ${response.status}`);
-        }
-        const html = await response.text();
-
-        const nameMatch = html.match(/<h1 class="ui-pdp-title"[^>]*>([^<]+)<\/h1>/);
-        const priceMatch = html.match(/<meta itemprop="price" content="([^"]+)"\/>/);
-        const imageMatch = html.match(/<img[^>]+class="ui-pdp-image__figure__image"[^>]+src="([^"]+)"/);
-        const descriptionMatch = html.match(/<p class="ui-pdp-description__content"[^>]*>([^<]+)<\/p>/);
-        
-        const data = {
-            name: nameMatch ? nameMatch[1].trim() : '',
-            price: priceMatch ? parseFloat(priceMatch[1]) : 0,
-            imageUrl: imageMatch ? imageMatch[1] : '',
-            description: descriptionMatch ? descriptionMatch[1].replace(/<br\s*\/?>/gi, "\n").trim() : '',
-        };
-
-        if(!data.name || !data.price || !data.imageUrl) {
-            return res.status(404).json({error: "Não foi possível extrair os dados do produto. A estrutura da página do Mercado Livre pode ter mudado."})
-        }
-
-        res.status(200).json(data);
-    } catch (error: any) {
-        res.status(500).json({ error: 'Failed to scrape product data.', message: error.message });
-    }
-}
-
 async function handleGetProfiles(req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
@@ -389,7 +354,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
-                case '/api/admin/scrape-product': return await handleScrapeProduct(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }
