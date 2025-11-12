@@ -38,6 +38,25 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
     }
 }
 
+// Função de análise de crédito reutilizável
+async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, userId: string) {
+    const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (profileError) throw profileError;
+    const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date').eq('user_id', userId);
+    if (invoicesError) throw invoicesError;
+
+    const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 5000.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
+
+    const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+    const analysis = JSON.parse(response.text.trim());
+
+    const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
+    if (updateError) throw updateError;
+    
+    await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Análise de crédito para ${profile.email}. Status: ${analysis.credit_status}, Limite: ${analysis.credit_limit}`);
+    return updatedProfile;
+}
+
 const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
     
@@ -167,24 +186,54 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) {
     if (!userId) return res.status(400).json({ error: 'User ID is required.' });
 
     try {
-        const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        if (profileError) throw profileError;
-        const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date').eq('user_id', userId);
-        if (invoicesError) throw invoicesError;
-
-        const prompt = `Analyze the credit of a client with the following data: - Profile: ${JSON.stringify(profile)} - Invoices: ${JSON.stringify(invoices)}. Based on this data, provide a credit score (0-1000), a credit limit (in BRL, e.g., 1500.00), and a credit status ('Excelente', 'Bom', 'Regular', 'Negativado'). Return the response ONLY as a valid JSON object like this: {"credit_score": 850, "credit_limit": 5000.00, "credit_status": "Excelente"}. Do not add any other text.`;
-
-        const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
-        const analysis = JSON.parse(response.text.trim());
-
-        const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
-        if (updateError) throw updateError;
-        
-        await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Credit analysis performed for user ${profile.email}. Status: ${analysis.credit_status}, Limit: ${analysis.credit_limit}`);
+        const updatedProfile = await runCreditAnalysis(supabase, genAI, userId);
         res.status(200).json({ message: 'Análise de crédito concluída com sucesso!', profile: updatedProfile });
     } catch (error: any) {
         await logAction(supabase, 'CREDIT_ANALYSIS', 'FAILURE', `Failed credit analysis for user ${userId}.`, { error: error.message });
         res.status(500).json({ error: 'Falha na análise de crédito.', message: error.message });
+    }
+}
+
+// NOVO: Endpoint para criar cliente e analisar crédito
+async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const genAI = getGeminiClient();
+    const { email, password, first_name, last_name } = req.body;
+    if (!email || !password || !first_name) {
+        return res.status(400).json({ error: 'Email, password, and first_name are required.' });
+    }
+
+    try {
+        // 1. Criar o usuário na autenticação do Supabase
+        const { data: { user }, error: userError } = await supabase.auth.admin.createUser({
+            email: email,
+            password: password,
+            email_confirm: true, // Auto-confirma o email, já que é um cadastro de admin
+        });
+        if (userError) throw new Error(`Supabase Auth Error: ${userError.message}`);
+        if (!user) throw new Error("Failed to create user in Supabase Auth.");
+
+        // 2. Inserir os dados no perfil
+        const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .insert({ id: user.id, email, first_name, last_name })
+            .select()
+            .single();
+        if (profileError) {
+             // Tenta deletar o usuário criado na auth para não deixar lixo
+            await supabase.auth.admin.deleteUser(user.id);
+            throw new Error(`Supabase Profile Error: ${profileError.message}`);
+        }
+
+        // 3. Rodar a análise de crédito para o novo perfil
+        const analyzedProfile = await runCreditAnalysis(supabase, genAI, user.id);
+
+        await logAction(supabase, 'CUSTOMER_CREATED', 'SUCCESS', `New customer ${email} created and analyzed via admin panel.`);
+        res.status(201).json({ message: 'Cliente criado e analisado com sucesso!', profile: analyzedProfile });
+
+    } catch (error: any) {
+        await logAction(supabase, 'CUSTOMER_CREATED', 'FAILURE', `Failed to create new customer ${email}.`, { error: error.message });
+        res.status(500).json({ error: 'Falha ao criar e analisar o cliente.', message: error.message });
     }
 }
 
@@ -222,8 +271,8 @@ async function handleGetProfiles(req: VercelRequest, res: VercelResponse) {
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, totalAmount, installments } = req.body;
-        if (!userId || !totalAmount || !installments) {
+        const { userId, totalAmount, installments, productName } = req.body;
+        if (!userId || !totalAmount || !installments || !productName) {
             return res.status(400).json({ error: 'Missing required sale data.' });
         }
         
@@ -234,14 +283,14 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         for (let i = 1; i <= installments; i++) {
             const dueDate = new Date(today);
             dueDate.setMonth(today.getMonth() + i);
-            newInvoices.push({ user_id: userId, month: `Parcela ${i}/${installments}`, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: 'Em aberto', notes: `Referente a compra parcelada em ${installments}x.` });
+            newInvoices.push({ user_id: userId, month: `${productName} (${i}/${installments})`, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: 'Em aberto', notes: `Referente a compra de ${productName} parcelada em ${installments}x.` });
         }
 
         const { error } = await supabase.from('invoices').insert(newInvoices);
         if (error) throw error;
 
         await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Sale created for user ${userId} in ${installments} installments.`);
-        res.status(201).json({ message: 'Sale created and invoices generated.' });
+        res.status(201).json({ message: 'Venda criada e faturas geradas.' });
     } catch (error: any) {
         await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Failed to create sale.', { error: error.message, body: req.body });
         res.status(500).json({ error: error.message });
@@ -289,6 +338,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/test-gemini': return await handleTestGemini(req, res);
                 case '/api/admin/test-mercadopago': return await handleTestMercadoPago(req, res);
                 case '/api/admin/analyze-credit': return await handleAnalyzeCredit(req, res);
+                case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
