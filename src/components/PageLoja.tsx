@@ -6,6 +6,7 @@ import SearchBar from './store/SearchBar';
 import StoreCarousel from './store/StoreCarousel';
 import CategoryIcons from './store/CategoryIcons';
 import ProductCarousel from './store/ProductCarousel';
+import BrandLogos from './store/BrandLogos'; // Import the new component
 
 const PageLoja: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -63,6 +64,7 @@ const PageLoja: React.FC = () => {
             <main className="space-y-8 pb-8">
                 <StoreCarousel />
                 <CategoryIcons />
+                <BrandLogos /> {/* Add the new brand logos carousel */}
 
                 {products.length > 0 ? (
                     <>

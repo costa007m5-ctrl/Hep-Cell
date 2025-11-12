@@ -16,14 +16,17 @@ const categories = [
     { name: 'Capinhas', icon: <CaseIcon /> },
     { name: 'Carregadores', icon: <ChargerIcon /> },
     { name: 'Ofertas', icon: <OfferIcon /> },
+    { name: 'Tablets', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10 21h4a2 2 0 002-2V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg> },
+    { name: 'Smartwatch', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
 ];
 
 const CategoryIcons: React.FC = () => {
     return (
-        <div className="px-4">
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 text-center">
+        <section className="space-y-4">
+             <h2 className="text-2xl font-bold text-slate-900 dark:text-white px-4">Categorias</h2>
+            <div className="flex space-x-4 overflow-x-auto pb-4 px-4 scrollbar-hide">
                 {categories.map(category => (
-                    <button key={category.name} className="flex flex-col items-center p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700/50 transition-colors group">
+                    <button key={category.name} className="flex-shrink-0 flex flex-col items-center justify-start w-24 p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700/50 transition-colors group text-center">
                         <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
                             {category.icon}
                         </div>
@@ -31,7 +34,7 @@ const CategoryIcons: React.FC = () => {
                     </button>
                 ))}
             </div>
-        </div>
+        </section>
     );
 };
 
