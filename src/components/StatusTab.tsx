@@ -93,6 +93,11 @@ const StatusTab: React.FC = () => {
             description="Confirma se o Access Token do Mercado Pago é válido e consegue autenticar com a API."
             endpoint="/api/admin/test-mercadopago"
           />
+          <ServiceStatusCard
+            title="API de Produtos (Mercado Livre)"
+            description="Verifica se o servidor consegue se comunicar com a API pública do Mercado Livre para busca de produtos."
+            endpoint="/api/admin/test-mercadolivre"
+          />
         </div>
       </section>
     </div>

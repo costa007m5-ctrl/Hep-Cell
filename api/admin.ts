@@ -170,6 +170,22 @@ async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleTestMercadoLivre(req: VercelRequest, res: VercelResponse) {
+    try {
+        const response = await fetch(`https://api.mercadolibre.com/sites/MLB`);
+        if (!response.ok) {
+            throw new Error(`A API retornou um status inesperado: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.id !== 'MLB') {
+            throw new Error('A resposta da API não foi a esperada.');
+        }
+        res.status(200).json({ message: 'API de busca de produtos (Mercado Livre) está respondendo.' });
+    } catch (error: any) {
+        res.status(500).json({ message: `Falha na conexão com Mercado Livre: ${error.message}` });
+    }
+}
+
 async function handleGetLogs(req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
@@ -350,6 +366,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/test-supabase': return await handleTestSupabase(req, res);
                 case '/api/admin/test-gemini': return await handleTestGemini(req, res);
                 case '/api/admin/test-mercadopago': return await handleTestMercadoPago(req, res);
+                case '/api/admin/test-mercadolivre': return await handleTestMercadoLivre(req, res);
                 case '/api/admin/analyze-credit': return await handleAnalyzeCredit(req, res);
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
