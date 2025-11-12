@@ -112,7 +112,7 @@ const ProductsTab: React.FC = () => {
 
         setIsFetchingML(true);
         try {
-            const response = await fetch(`/api/ml-item?id=${productId}`);
+            const response = await fetch(`https://helpcellcom.vercel.app/api/ml-item?id=${productId}`);
 
             if (!response.ok) {
                 if (response.status === 404) {
