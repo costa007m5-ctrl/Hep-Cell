@@ -103,7 +103,7 @@ const ProductsTab: React.FC = () => {
         setMlError(null);
         const match = mercadoLivreUrl.match(/MLB\d+/i);
         if (!match) {
-            setMlError('URL inválida ou não contém um ID de produto do Mercado Livre (ex: MLB123456789).');
+            setMlError('URL ou código inválido. Insira um link ou código como "MLB123456789".');
             return;
         }
         const productId = match[0];
@@ -164,11 +164,11 @@ const ProductsTab: React.FC = () => {
                         <div className="flex flex-col sm:flex-row gap-2 items-end">
                             <div className="flex-grow w-full">
                                 <InputField
-                                    label="URL do Produto no Mercado Livre"
+                                    label="URL ou Código do Produto (Mercado Livre)"
                                     name="mercadoLivreUrl"
                                     value={mercadoLivreUrl}
                                     onChange={(e) => setMercadoLivreUrl(e.target.value)}
-                                    placeholder="https://produto.mercadolivre.com.br/MLB..."
+                                    placeholder="Cole o link ou o código (ex: MLB123456789)"
                                     error={mlError}
                                 />
                             </div>
