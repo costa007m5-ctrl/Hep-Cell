@@ -137,7 +137,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200">
+    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-gradient-to-b dark:from-slate-900 dark:to-black">
       <Header />
        {paymentNotification && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-md p-4 z-50 animate-fade-in-up">
