@@ -50,7 +50,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, u
     const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
 
     const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
-    const analysis = JSON.parse(response.text.trim());
+    const analysis = JSON.parse((response.text || '{}').trim());
 
     const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
     if (updateError) throw updateError;
@@ -365,7 +365,14 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         }
         
         const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
-        const newInvoices = [];
+        const newInvoices: Array<{
+            user_id: string;
+            month: string;
+            due_date: string;
+            amount: number;
+            status: string;
+            notes: string;
+        }> = [];
         const today = new Date();
 
         for (let i = 1; i <= installments; i++) {
