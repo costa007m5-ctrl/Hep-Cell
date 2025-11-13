@@ -238,12 +238,13 @@ async function loadMercadoPagoHandlers() {
     return module;
 }
 
-app.all('/api/admin/*', async (req: Request, res: Response) => {
+app.use('/api/admin', async (req: Request, res: Response) => {
     try {
         const adminModule = await loadAdminHandlers();
+        const fullUrl = req.originalUrl || req.url;
         const vercelReq = {
             ...req,
-            url: req.url,
+            url: fullUrl,
             method: req.method,
             headers: req.headers,
             body: req.body,
@@ -271,12 +272,13 @@ app.all('/api/admin/*', async (req: Request, res: Response) => {
     }
 });
 
-app.all('/api/mercadopago/*', async (req: Request, res: Response) => {
+app.use('/api/mercadopago', async (req: Request, res: Response) => {
     try {
         const mpModule = await loadMercadoPagoHandlers();
+        const fullUrl = req.originalUrl || req.url;
         const vercelReq = {
             ...req,
-            url: req.url,
+            url: fullUrl,
             method: req.method,
             headers: req.headers,
             body: req.body,
