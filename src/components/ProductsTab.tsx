@@ -163,15 +163,9 @@ const ProductsTab: React.FC = () => {
                 throw new Error(data.error || 'A API retornou um erro ao buscar os dados do produto.');
             }
             
-            let detailedDescription = `--- DETALHES TÉCNICOS ---\n`;
-            if (data.category) detailedDescription += `Categoria: ${data.category}\n`;
-            if (data.brand) detailedDescription += `Marca: ${data.brand}\n`;
-            if (data.model) detailedDescription += `Modelo: ${data.model}\n`;
-            if (data.color) detailedDescription += `Cor: ${data.color}\n`;
-
             setFormState({
                 name: data.nome || '',
-                description: detailedDescription.trim(),
+                description: data.descricao || '',
                 price: String(data.preco || ''),
                 stock: String(data.estoque || '1'),
                 image_url: data.imagens?.[0] || '',
