@@ -7,6 +7,8 @@
     "@google/genai": "^1.29.0",
     "@supabase/supabase-js": "^2.80.0",
     "@vercel/node": "^5.5.5",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "jspdf": "^2.5.1",
     "mercadopago": "^2.10.0",
     "react": "^19.2.0",
@@ -20,7 +22,10 @@
     "vite": "^7.2.2"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "npm run dev:server & npm run dev:client",
+    "dev:server": "tsx watch server.ts",
+    "dev:client": "vite --host 0.0.0.0 --port 5000",
+    "build": "vite build",
+    "start": "node server.js"
   }
 }
