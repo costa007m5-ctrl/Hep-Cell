@@ -2,7 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
-import CreditScoreGauge from './CreditScoreGauge'; // Novo componente visual
+import CreditScoreGauge from './CreditScoreGauge';
+import InfoCarousel from './InfoCarousel'; // Novo carrossel de informações
+
+const CreditCardIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h5M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+    </svg>
+);
 
 const PageInicio: React.FC = () => {
   const [profileData, setProfileData] = useState<{
@@ -26,7 +33,7 @@ const PageInicio: React.FC = () => {
         }
       } catch (error) {
         console.error("Erro ao buscar dados de crédito:", error);
-        setProfileData({ name: null, limit: 0, score: 0 }); // Define 0 em caso de erro
+        setProfileData({ name: null, limit: 0, score: 0 });
       } finally {
         setIsLoading(false);
       }
@@ -35,41 +42,56 @@ const PageInicio: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-md space-y-8">
-      {/* Modern Welcome Card */}
-      <div className="text-center p-6 animate-fade-in">
-        <div className="flex justify-center mb-4">
-          <div className="w-16 h-16 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full flex items-center justify-center ring-8 ring-indigo-500/5 dark:ring-indigo-500/10">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-8 w-8 text-indigo-500 dark:text-indigo-400"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-          </div>
-        </div>
+    <div className="w-full max-w-md space-y-6 animate-fade-in">
+      {/* Mensagem de boas-vindas */}
+      <div>
         <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">
           Olá, {profileData.name || 'Cliente'}!
         </h2>
-        <p className="text-slate-500 dark:text-slate-400 mt-2">
-          Bem-vindo(a) ao seu painel de pagamentos.
+        <p className="text-slate-500 dark:text-slate-400 mt-1">
+          Confira suas informações e novidades.
         </p>
       </div>
 
-      {/* Modern Credit Card */}
-      <div 
-        className="bg-white dark:bg-slate-800/50 rounded-2xl shadow-lg dark:shadow-blue-500/10 p-6 text-center animate-fade-in-up border border-slate-200 dark:border-slate-700" 
-        style={{ animationDelay: '200ms' }}
-      >
-        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">Seu Crédito na Loja</h3>
+      {/* Carrossel de Informações */}
+      <InfoCarousel />
+
+      {/* Cartão de Limite de Crédito */}
+      <div className="bg-white dark:bg-slate-800/50 rounded-2xl shadow-lg dark:shadow-blue-500/10 p-6 border border-slate-200 dark:border-slate-700">
         {isLoading ? (
-          <div className="mt-4 flex justify-center h-32 items-center"><LoadingSpinner /></div>
+          <div className="h-24 flex justify-center items-center"><LoadingSpinner /></div>
         ) : (
-          <>
-            <CreditScoreGauge score={profileData.score ?? 0} />
-            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 -mt-4">Limite por Parcela</p>
-            <p className="text-4xl font-bold text-indigo-500 dark:text-indigo-400 mt-1">
+          <div className="animate-fade-in-up">
+            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+              <span className="font-medium">Limite de Crédito</span>
+              <CreditCardIcon />
+            </div>
+            <p className="text-4xl font-bold text-slate-800 dark:text-white mt-2">
               {(profileData.limit ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
             </p>
-             <div className="mt-4 text-xs text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700/50 py-2 px-3 rounded-full inline-block">
-              Use seu limite para financiar compras em nossa loja.
-            </div>
-          </>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+              Disponível para compras parceladas na loja.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Cartão de Score de Crédito */}
+      <div className="bg-white dark:bg-slate-800/50 rounded-2xl shadow-lg dark:shadow-blue-500/10 p-6 border border-slate-200 dark:border-slate-700">
+        {isLoading ? (
+          <div className="h-40 flex justify-center items-center"><LoadingSpinner /></div>
+        ) : (
+           <div className="animate-fade-in-up" style={{ animationDelay: '200ms' }}>
+                <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 mb-2">
+                    <span className="font-medium">Seu Score</span>
+                </div>
+                <div className="flex justify-center">
+                     <CreditScoreGauge score={profileData.score ?? 0} />
+                </div>
+                <p className="text-xs text-center text-slate-400 dark:text-slate-500 -mt-2">
+                    Pague suas faturas em dia para aumentar seu score.
+                </p>
+           </div>
         )}
       </div>
     </div>
