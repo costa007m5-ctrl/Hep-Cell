@@ -1,9 +1,12 @@
-const CACHE_NAME = 'relp-cell-cache-v1';
+const CACHE_NAME = 'relp-cell-cache-v2'; // Versão do cache atualizada
 const urlsToCache = [
   '/',
   '/index.html',
+  '/index.tsx', // Adicionado o script principal ao cache
   '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  '/icons/icon-512x512.png',
+  '/icons/icon-maskable-192x192.png',
+  '/icons/icon-maskable-512x512.png'
 ];
 
 // Evento de instalação: abre um cache e adiciona os URLs do app shell a ele
@@ -11,14 +14,19 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('Cache aberto');
+        console.log('Cache aberto e arquivos do app shell adicionados');
         return cache.addAll(urlsToCache);
       })
   );
 });
 
-// Evento de fetch: serve conteúdo do cache se disponível, senão busca na rede e armazena em cache
+// Evento de fetch: serve conteúdo do cache primeiro (cache-first)
 self.addEventListener('fetch', (event) => {
+  // Ignora requisições que não são GET
+  if (event.request.method !== 'GET') {
+    return;
+  }
+  
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -27,22 +35,23 @@ self.addEventListener('fetch', (event) => {
           return response;
         }
 
-        // Clona a requisição, pois ela é um stream e só pode ser consumida uma vez.
-        const fetchRequest = event.request.clone();
-
-        return fetch(fetchRequest).then(
+        // Se não estiver no cache, busca na rede
+        return fetch(event.request).then(
           (response) => {
             // Verifica se recebemos uma resposta válida
             if (!response || response.status !== 200 || response.type !== 'basic') {
               return response;
             }
 
-            // Clona a resposta, pois ela também é um stream.
+            // Clona a resposta para poder armazená-la no cache
             const responseToCache = response.clone();
 
             caches.open(CACHE_NAME)
               .then((cache) => {
-                cache.put(event.request, responseToCache);
+                // Não armazena em cache as rotas de API
+                if (!event.request.url.includes('/api/')) {
+                   cache.put(event.request, responseToCache);
+                }
               });
 
             return response;
@@ -52,7 +61,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Evento de ativação: limpa caches antigos
+// Evento de ativação: limpa caches antigos para evitar conflitos
 self.addEventListener('activate', (event) => {
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
@@ -60,6 +69,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheWhitelist.indexOf(cacheName) === -1) {
+            console.log('Deletando cache antigo:', cacheName);
             return caches.delete(cacheName);
           }
         })

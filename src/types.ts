@@ -46,7 +46,17 @@ export interface Profile {
   credit_score?: number | null;
   credit_limit?: number | null;
   credit_status?: string | null;
+  last_limit_request_date?: string | null; // Data da última solicitação de aumento
 }
+
+export interface ScoreHistory {
+  id: number;
+  date: string;
+  reason: string;
+  change: number;
+  newScore: number;
+}
+
 
 export interface Product {
   id: string;
