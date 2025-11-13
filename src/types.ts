@@ -18,7 +18,7 @@ export interface Invoice {
   id: string;
   user_id: string; 
   month: string;
-  due_date: string;
+  due_date: string; // Corrigido de dueDate para due_date
   amount: number;
   status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado';
   payment_method?: string | null;

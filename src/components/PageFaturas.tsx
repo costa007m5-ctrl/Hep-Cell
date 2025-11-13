@@ -211,10 +211,36 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     };
 
     const handleMethodSelect = async (method: string) => {
+        if (!selectedInvoice) return;
+    
         if (method === 'brick') setPaymentStep('form');
         else if (method === 'pix') setPaymentStep('pix');
         else if (method === 'boleto') setPaymentStep('boleto');
-        else if (method === 'redirect') { /* ... (código de redirecionamento existente) ... */ }
+        else if (method === 'redirect') {
+            setIsRedirecting(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) throw new Error("Usuário não autenticado");
+
+                const response = await fetch('/api/mercadopago/create-preference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: selectedInvoice.id,
+                        description: `Fatura Relp Cell - ${selectedInvoice.month}`,
+                        amount: selectedInvoice.amount,
+                        payerEmail: user.email,
+                        redirect: true,
+                    }),
+                });
+                if (!response.ok) throw new Error('Falha ao criar preferência de pagamento.');
+                const data = await response.json();
+                window.location.href = data.init_point;
+            } catch (error: any) {
+                setErrorInfo({ message: error.message, isDiagnosing: false });
+                setIsRedirecting(false);
+            }
+        }
     };
 
     const handleBackToMethodSelection = () => setPaymentStep('select_method');
@@ -246,7 +272,14 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         setPaymentStep('view_boleto');
     };
     
-    if (isRedirecting) { /* ... (código de redirecionamento existente) ... */ }
+    if (isRedirecting) {
+      return (
+            <div className="w-full max-w-md flex flex-col items-center justify-center space-y-4 p-8">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Redirecionando para o pagamento seguro...</p>
+            </div>
+      );
+    }
 
     if (paymentStep === 'view_boleto' && selectedInvoice) {
         return <BoletoDetails invoice={selectedInvoice} onBack={handleBackToList} />;
