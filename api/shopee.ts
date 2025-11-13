@@ -9,14 +9,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Parâmetro ?url= é obrigatório' });
     }
 
-    // Extrai itemid e shopid do link da Shopee
-    const match = url.match(/i\.(\d+)\.(\d+)/);
-    if (!match) {
-      return res.status(400).json({ error: 'Link da Shopee inválido ou não contém os IDs necessários (i.shopid.itemid).' });
+    let shopid: string | undefined;
+    let itemid: string | undefined;
+
+    // Conforme a recomendação, podemos ignorar os parâmetros de consulta da URL para a extração
+    const mainUrlPart = url.split('?')[0];
+
+    // Tenta extrair IDs do formato: /{slug}-i.{shopid}.{itemid} (o mais comum, conforme exemplo)
+    // Ex: .../Smartphone-Samsung-A55-i.1085831546.40524374889
+    const matchLongFormat = mainUrlPart.match(/i\.(\d+)\.(\d+)/);
+    if (matchLongFormat) {
+      shopid = matchLongFormat[1];
+      itemid = matchLongFormat[2];
+    } else {
+      // Como uma melhoria para tornar o sistema mais inteligente, também suportamos o formato: /product/{shopid}/{itemid}
+      // Ex: .../product/123456/7891011
+      const matchShortFormat = mainUrlPart.match(/product\/(\d+)\/(\d+)/);
+      if (matchShortFormat) {
+        shopid = matchShortFormat[1];
+        itemid = matchShortFormat[2];
+      }
     }
 
-    const shopid = match[1];
-    const itemid = match[2];
+    if (!shopid || !itemid) {
+      return res.status(400).json({ error: 'Link da Shopee inválido ou formato não reconhecido. Use o link completo do produto que contenha os IDs (ex: ...i.shopid.itemid).' });
+    }
 
     // Faz requisição à API pública da Shopee
     const response = await fetch(
