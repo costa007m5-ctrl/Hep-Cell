@@ -51,7 +51,6 @@ app.get('/api/config', (req: Request, res: Response) => {
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
         supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
         mercadoPagoPublicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || '',
-        geminiApiKey: process.env.API_KEY || '',
     });
 });
 
@@ -229,12 +228,12 @@ app.get('/api/shopee', async (req: Request, res: Response) => {
 });
 
 async function loadAdminHandlers() {
-    const module = await import('./api/admin.js');
+    const module = await import('./api/admin.ts');
     return module;
 }
 
 async function loadMercadoPagoHandlers() {
-    const module = await import('./api/mercadopago.js');
+    const module = await import('./api/mercadopago.ts');
     return module;
 }
 

@@ -31,6 +31,6 @@
     "dev:server": "tsx watch server.ts",
     "dev:client": "vite --host 0.0.0.0 --port 5000",
     "build": "vite build",
-    "start": "node server.js"
+    "start": "tsx server.ts"
   }
 }
