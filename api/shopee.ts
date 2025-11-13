@@ -34,17 +34,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: 'Produto não encontrado na Shopee. Verifique o link.' });
     }
 
-    const itemDetails = data.data;
-
     // Retorna dados principais
     const produto = {
-      nome: itemDetails.name,
-      preco: (itemDetails.price_min || itemDetails.price || 0) / 100000,
-      descricao: itemDetails.description,
-      imagens: itemDetails.images?.map(
+      nome: data.data.name,
+      preco: data.data.price_min / 100000,
+      descricao: data.data.description,
+      imagens: data.data.images?.map(
         (id: string) => `https://down-br.img.susercontent.com/file/${id}`
       ) || [],
-      estoque: itemDetails.stock,
+      estoque: data.data.stock,
       link_original: url,
     };
 
