@@ -1,12 +1,10 @@
-const CACHE_NAME = 'relp-cell-cache-v2'; // Versão do cache atualizada
+const CACHE_NAME = 'relp-cell-cache-v1';
 const urlsToCache = [
   '/',
   '/index.html',
   '/index.tsx', // Adicionado o script principal ao cache
   '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
-  '/icons/icon-maskable-192x192.png',
-  '/icons/icon-maskable-512x512.png'
+  '/icons/icon-512x512.png'
 ];
 
 // Evento de instalação: abre um cache e adiciona os URLs do app shell a ele
