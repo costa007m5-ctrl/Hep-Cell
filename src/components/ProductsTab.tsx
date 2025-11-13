@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -27,6 +28,10 @@ const ProductsTab: React.FC = () => {
     const [isFetchingML, setIsFetchingML] = useState(false);
     const [mlError, setMlError] = useState<string | null>(null);
 
+    // States para importação da Shopee
+    const [shopeeUrl, setShopeeUrl] = useState('');
+    const [isFetchingShopee, setIsFetchingShopee] = useState(false);
+    const [shopeeError, setShopeeError] = useState<string | null>(null);
 
     const fetchProducts = useCallback(async () => {
         setIsLoading(true);
@@ -91,6 +96,7 @@ const ProductsTab: React.FC = () => {
             setFormState({ name: '', description: '', price: '', stock: '', image_url: '' });
             setImageBase64(null);
             setMercadoLivreUrl('');
+            setShopeeUrl('');
             fetchProducts();
         } catch (err: any) {
             setSubmitMessage({ text: err.message, type: 'error' });
@@ -101,29 +107,22 @@ const ProductsTab: React.FC = () => {
     
     const handleFetchMercadoLivreProduct = async () => {
         setMlError(null);
-        // Encontra todas as ocorrências de MLB + números na URL
         const matches = mercadoLivreUrl.match(/MLB\d+/gi);
         if (!matches) {
             setMlError('URL ou código inválido. Não foi possível encontrar um código de produto (ex: MLB123456789).');
             return;
         }
-        // Pega a última ocorrência, que geralmente é o ID do anúncio específico (item).
         const productId = matches[matches.length - 1].toUpperCase();
 
         setIsFetchingML(true);
         try {
             const response = await fetch(`https://helpcellcom.vercel.app/api/ml-item?id=${productId}`);
-
             if (!response.ok) {
-                if (response.status === 404) {
-                    throw new Error('Produto não encontrado. Verifique se o código (MLB) está correto e tente novamente.');
-                }
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'A API retornou um erro ao buscar os dados do produto.');
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Erro ${response.status}: Falha ao buscar dados do Mercado Livre.`);
             }
             const itemData = await response.json();
             
-            // Popula o formulário com os dados da API, incluindo a descrição
             setFormState({
                 name: itemData.title || '',
                 description: itemData.description || '',
@@ -131,13 +130,46 @@ const ProductsTab: React.FC = () => {
                 stock: String(itemData.available_quantity || '1'),
                 image_url: itemData.pictures?.[0]?.secure_url || itemData.thumbnail || '',
             });
-            setImageBase64(null); // Limpa qualquer imagem que tenha sido feito upload manual
+            setImageBase64(null);
             setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
 
         } catch (err: any) {
             setMlError(err.message);
         } finally {
             setIsFetchingML(false);
+        }
+    };
+
+    const handleFetchShopeeProduct = async () => {
+        setShopeeError(null);
+        if (!shopeeUrl) {
+            setShopeeError('Por favor, insira uma URL de produto da Shopee.');
+            return;
+        }
+    
+        setIsFetchingShopee(true);
+        try {
+            const response = await fetch(`/api/shopee?url=${encodeURIComponent(shopeeUrl)}`);
+            const data = await response.json();
+    
+            if (!response.ok) {
+                throw new Error(data.error || 'A API retornou um erro ao buscar os dados do produto.');
+            }
+            
+            setFormState({
+                name: data.nome || '',
+                description: '', // API da Shopee não fornece descrição simples
+                price: String(data.preco || ''),
+                stock: String(data.estoque || '1'),
+                image_url: data.imagens?.[0] || '',
+            });
+            setImageBase64(null); // Limpa imagem manual
+            setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
+    
+        } catch (err: any) {
+            setShopeeError(err.message);
+        } finally {
+            setIsFetchingShopee(false);
         }
     };
     
@@ -165,28 +197,55 @@ const ProductsTab: React.FC = () => {
             {showCreateForm && (
                 <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in">
                     
-                    <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 space-y-3 mb-6">
-                        <h4 className="font-semibold text-slate-700 dark:text-slate-300">Importar do Mercado Livre</h4>
-                        <p className="text-xs text-slate-500">Cole o link do produto abaixo e clique em "Buscar" para preencher os campos automaticamente.</p>
-                        <div className="flex flex-col sm:flex-row gap-2 items-end">
-                            <div className="flex-grow w-full">
-                                <InputField
-                                    label="URL ou Código do Produto (Mercado Livre)"
-                                    name="mercadoLivreUrl"
-                                    value={mercadoLivreUrl}
-                                    onChange={(e) => setMercadoLivreUrl(e.target.value)}
-                                    placeholder="Cole o link ou o código (ex: MLB123456789)"
-                                    error={mlError}
-                                />
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 space-y-3">
+                            <h4 className="font-semibold text-slate-700 dark:text-slate-300">Importar do Mercado Livre</h4>
+                            <p className="text-xs text-slate-500">Cole o link do produto abaixo e clique em "Buscar" para preencher os campos automaticamente.</p>
+                            <div className="flex flex-col sm:flex-row gap-2 items-end">
+                                <div className="flex-grow w-full">
+                                    <InputField
+                                        label="URL ou Código do Produto (Mercado Livre)"
+                                        name="mercadoLivreUrl"
+                                        value={mercadoLivreUrl}
+                                        onChange={(e) => setMercadoLivreUrl(e.target.value)}
+                                        placeholder="Cole o link ou o código (ex: MLB123456789)"
+                                        error={mlError}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleFetchMercadoLivreProduct}
+                                    disabled={isFetchingML}
+                                    className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-600 hover:bg-slate-700 disabled:opacity-50"
+                                >
+                                    {isFetchingML ? <LoadingSpinner /> : 'Buscar'}
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleFetchMercadoLivreProduct}
-                                disabled={isFetchingML}
-                                className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-600 hover:bg-slate-700 disabled:opacity-50"
-                            >
-                                {isFetchingML ? <LoadingSpinner /> : 'Buscar'}
-                            </button>
+                        </div>
+
+                        <div className="p-4 bg-orange-50 dark:bg-orange-900/30 rounded-md border border-orange-200 dark:border-orange-700 space-y-3">
+                            <h4 className="font-semibold text-orange-800 dark:text-orange-200">Importar da Shopee</h4>
+                            <p className="text-xs text-orange-600 dark:text-orange-300">Cole o link do produto abaixo para preencher os campos.</p>
+                            <div className="flex flex-col sm:flex-row gap-2 items-end">
+                                <div className="flex-grow w-full">
+                                    <InputField
+                                        label="URL do Produto (Shopee)"
+                                        name="shopeeUrl"
+                                        value={shopeeUrl}
+                                        onChange={(e) => setShopeeUrl(e.target.value)}
+                                        placeholder="https://shopee.com.br/produto..."
+                                        error={shopeeError}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleFetchShopeeProduct}
+                                    disabled={isFetchingShopee}
+                                    className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50"
+                                >
+                                    {isFetchingShopee ? <LoadingSpinner /> : 'Buscar'}
+                                </button>
+                            </div>
                         </div>
                     </div>
 

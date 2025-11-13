@@ -12,6 +12,9 @@
     },
     "api/ml-item.ts": {
       "memory": 1024
+    },
+    "api/shopee.ts": {
+      "memory": 1024
     }
   },
   "rewrites": [
@@ -19,6 +22,7 @@
     { "source": "/api/mercadopago/(.*)", "destination": "/api/mercadopago" },
     { "source": "/api/products", "destination": "/api/products" },
     { "source": "/api/ml-item", "destination": "/api/ml-item" },
+    { "source": "/api/shopee", "destination": "/api/shopee" },
     { "source": "/((?!api/|_next/|assets/|static/).*)", "destination": "/index.html" }
   ]
 }
