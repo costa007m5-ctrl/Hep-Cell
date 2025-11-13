@@ -49,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         const accessToken = await getAccessToken(clientId, clientSecret);
 
-        // Fetch item details and description in parallel
+        // Fetch item details, description, and category in parallel
         const [itemResponse, descriptionResponse] = await Promise.all([
             fetch(`https://api.mercadolibre.com/items/${id}`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
@@ -69,6 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const itemData = await itemResponse.json();
         let description = '';
+        let categoryName = 'Não informado';
 
         if (descriptionResponse.ok) {
             const descriptionData = await descriptionResponse.json();
@@ -76,11 +77,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
             console.warn(`Could not fetch description for item ${id}. Status: ${descriptionResponse.status}`);
         }
+
+        if (itemData.category_id) {
+            const categoryResponse = await fetch(`https://api.mercadolibre.com/categories/${itemData.category_id}`);
+            if (categoryResponse.ok) {
+                const categoryData = await categoryResponse.json();
+                categoryName = categoryData.name || 'Não informado';
+            }
+        }
         
-        // Combine results and send back to client
+        // Helper function to extract attribute value
+        const getAttribute = (attrId: string) => {
+            const attribute = itemData.attributes?.find((attr: any) => attr.id === attrId);
+            return attribute?.value_name || null;
+        }
+
         const finalData = {
-            ...itemData,
+            title: itemData.title,
             description: description,
+            price: itemData.price,
+            available_quantity: itemData.available_quantity,
+            pictures: itemData.pictures, // Return all pictures
+            category: categoryName,
+            brand: getAttribute('BRAND'),
+            model: getAttribute('MODEL'),
+            color: getAttribute('COLOR'),
         };
 
         res.status(200).json(finalData);

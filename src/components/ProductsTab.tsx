@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -116,20 +115,28 @@ const ProductsTab: React.FC = () => {
 
         setIsFetchingML(true);
         try {
-            const response = await fetch(`https://helpcellcom.vercel.app/api/ml-item?id=${productId}`);
+            const response = await fetch(`/api/ml-item?id=${productId}`);
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.error || `Erro ${response.status}: Falha ao buscar dados do Mercado Livre.`);
             }
             const itemData = await response.json();
             
+            let detailedDescription = itemData.description || '';
+            detailedDescription += `\n\n--- DETALHES TÉCNICOS ---\n`;
+            if (itemData.category) detailedDescription += `Categoria: ${itemData.category}\n`;
+            if (itemData.brand) detailedDescription += `Marca: ${itemData.brand}\n`;
+            if (itemData.model) detailedDescription += `Modelo: ${itemData.model}\n`;
+            if (itemData.color) detailedDescription += `Cor: ${itemData.color}\n`;
+            
             setFormState({
                 name: itemData.title || '',
-                description: itemData.description || '',
+                description: detailedDescription.trim(),
                 price: String(itemData.price || ''),
                 stock: String(itemData.available_quantity || '1'),
-                image_url: itemData.pictures?.[0]?.secure_url || itemData.thumbnail || '',
+                image_url: itemData.pictures?.[0]?.secure_url || '',
             });
+
             setImageBase64(null);
             setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
 
@@ -156,13 +163,20 @@ const ProductsTab: React.FC = () => {
                 throw new Error(data.error || 'A API retornou um erro ao buscar os dados do produto.');
             }
             
+            let detailedDescription = `--- DETALHES TÉCNICOS ---\n`;
+            if (data.category) detailedDescription += `Categoria: ${data.category}\n`;
+            if (data.brand) detailedDescription += `Marca: ${data.brand}\n`;
+            if (data.model) detailedDescription += `Modelo: ${data.model}\n`;
+            if (data.color) detailedDescription += `Cor: ${data.color}\n`;
+
             setFormState({
                 name: data.nome || '',
-                description: '', // API da Shopee não fornece descrição simples
+                description: detailedDescription.trim(),
                 price: String(data.preco || ''),
                 stock: String(data.estoque || '1'),
                 image_url: data.imagens?.[0] || '',
             });
+
             setImageBase64(null); // Limpa imagem manual
             setSubmitMessage({ text: 'Dados do produto preenchidos! Verifique e salve.', type: 'success' });
     
@@ -254,7 +268,7 @@ const ProductsTab: React.FC = () => {
                         <InputField label="Nome do Produto" name="name" value={formState.name} onChange={handleInputChange} required />
                         <div>
                             <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Descrição</label>
-                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={3} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-white border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={5} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-white border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                              <InputField label="Preço (R$)" name="price" type="number" step="0.01" value={formState.price} onChange={handleInputChange} required />
