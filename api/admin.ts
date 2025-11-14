@@ -76,6 +76,7 @@ const SETUP_SQL = `
         CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE,
         CONSTRAINT "profiles_email_key" UNIQUE ("email")
     );
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "first_name" "text";
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "last_name" "text";
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_type" "text";
