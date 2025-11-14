@@ -71,11 +71,11 @@ const SETUP_SQL = `
         "id" "uuid" NOT NULL,
         "email" "text",
         "created_at" timestamp with time zone DEFAULT "now"(),
-        "updated_at" timestamp with time zone DEFAULT "now"(),
         CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"),
         CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE,
         CONSTRAINT "profiles_email_key" UNIQUE ("email")
     );
+    -- Adiciona colunas de forma idempotente para garantir que a tabela esteja completa
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "first_name" "text";
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "last_name" "text";
@@ -92,6 +92,14 @@ const SETUP_SQL = `
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_status" "text";
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "last_limit_request_date" timestamp with time zone;
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+
+    -- Gatilho (Trigger) para auto-atualizar 'updated_at' na tabela de perfis.
+    -- Isso garante que qualquer UPDATE na linha atualize o timestamp, corrigindo o erro.
+    DROP TRIGGER IF EXISTS handle_profile_updated_at ON public.profiles;
+    CREATE TRIGGER handle_profile_updated_at
+      BEFORE UPDATE ON public.profiles
+      FOR EACH ROW
+      EXECUTE PROCEDURE extensions.moddatetime('updated_at');
 
     -- Tabela de Produtos (Products)
     CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
@@ -170,7 +178,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SETUP_SQL });
         if (error) throw error;
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados configurado com sucesso! Tabelas e políticas de segurança foram aplicadas." });
+        res.status(200).json({ message: "Banco de dados configurado com sucesso! Tabelas, políticas de segurança e gatilhos foram aplicados." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
