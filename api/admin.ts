@@ -341,6 +341,7 @@ async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelRes
 
 async function handleProducts(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
+    const { image_base64, ...productData } = req.body; // Moved for logging on error
     try {
         if (req.method === 'GET') {
             const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
@@ -348,7 +349,6 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json(data);
         }
         if (req.method === 'POST') {
-            const { image_base64, ...productData } = req.body;
             let imageUrl = productData.image_url;
 
             if (image_base64) {
@@ -370,11 +370,17 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
 
             const { error } = await supabase.from('products').insert([{ ...productData, image_url: imageUrl }]);
             if (error) throw error;
+
+            await logAction(supabase, 'PRODUCT_CREATED', 'SUCCESS', `Produto '${productData.name}' foi criado.`);
+            
             return res.status(201).json({ message: "Product created." });
         }
         res.setHeader('Allow', ['GET', 'POST']);
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (error: any) {
+        if (req.method === 'POST') {
+            await logAction(supabase, 'PRODUCT_CREATED', 'FAILURE', 'Falha ao criar produto.', { error: error.message, productData });
+        }
         return res.status(500).json({ error: error.message });
     }
 }
@@ -411,10 +417,10 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { error } = await supabase.from('invoices').insert(newInvoices);
         if (error) throw error;
 
-        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Sale created for user ${userId} in ${installments} installments.`);
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas.`);
         res.status(201).json({ message: 'Venda criada e faturas geradas.' });
     } catch (error: any) {
-        await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Failed to create sale.', { error: error.message, body: req.body });
+        await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body });
         res.status(500).json({ error: error.message });
     }
 }

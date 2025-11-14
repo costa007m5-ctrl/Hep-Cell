@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { URL } from 'url';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 
 // --- Funções Auxiliares de Validação ---
@@ -29,6 +29,13 @@ function getGeminiClient() {
         throw new Error('A chave da API do Gemini (API_KEY) não está configurada no servidor.');
     }
     return new GoogleGenAI({ apiKey });
+}
+
+async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
+    const { error } = await supabase.from('action_logs').insert({ action_type, status, description, details });
+    if (error) {
+        console.error(`Failed to log action: ${action_type}`, error);
+    }
 }
 
 // --- Handler para o Webhook de Autenticação do Supabase ---
@@ -64,11 +71,12 @@ async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
 
 // --- Handler para /api/mercadopago/create-boleto-payment ---
 async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const { invoiceId } = req.body;
     try {
-        const supabase = getSupabaseAdminClient();
         const client = getMercadoPagoClient();
         
-        const { amount, description, payer, invoiceId } = req.body;
+        const { amount, description, payer } = req.body;
         if (!amount || !description || !payer || !payer.email || !payer.firstName || !payer.lastName || !payer.identificationType || !payer.identificationNumber || !payer.zipCode || !payer.streetName || !payer.streetNumber || !payer.neighborhood || !payer.city || !payer.federalUnit || !invoiceId) {
             return res.status(400).json({ error: 'Dados do pagador, da fatura ou do pagamento estão incompletos.' });
         }
@@ -95,6 +103,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                 await payment.cancel({ id: result.id! });
                 throw new Error('Falha ao salvar os detalhes do boleto no banco de dados.');
             }
+            await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto para fatura ${invoiceId} gerado com sucesso.`);
             res.status(200).json({ message: "Boleto gerado e salvo com sucesso!", paymentId: result.id, boletoUrl: transactionData.ticket_url, boletoBarcode: transactionData.bar_code.content });
         } else {
             console.error("Resposta inesperada do Mercado Pago:", result);
@@ -102,6 +111,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         }
     } catch (error: any) {
         console.error('Erro ao criar boleto com Mercado Pago:', error);
+        await logAction(supabase, 'BOLETO_GENERATED', 'FAILURE', `Falha ao gerar boleto para fatura ${invoiceId}.`, { error: error.message });
         res.status(500).json({ error: 'Falha ao gerar o boleto.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
 }
@@ -111,18 +121,19 @@ function formatDateForMP(date: Date): string {
     const offset = -date.getTimezoneOffset();
     const offsetSign = offset >= 0 ? '+' : '-';
     const offsetHours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
-    const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
+    const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(3, '0');
     return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}T${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}${offsetSign}${offsetHours}:${offsetMinutes}`;
 }
 
 async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
     const client = getMercadoPagoClient();
     const payment = new Payment(client);
+    const supabase = getSupabaseAdminClient();
+    const { invoiceId } = req.body;
     let paymentIdToCancel: number | undefined;
 
     try {
-        const supabase = getSupabaseAdminClient();
-        const { amount, description, payerEmail, invoiceId, userId, firstName, lastName, identificationNumber } = req.body;
+        const { amount, description, payerEmail, userId, firstName, lastName, identificationNumber } = req.body;
         if (!amount || !description || !payerEmail || !invoiceId || !userId) {
             return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
         }
@@ -190,6 +201,7 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
                 throw new Error('Falha ao vincular o pagamento PIX à fatura no banco de dados.');
             }
             
+            await logAction(supabase, 'PIX_GENERATED', 'SUCCESS', `PIX para fatura ${invoiceId} gerado com sucesso.`);
             res.status(200).json({ paymentId: result.id, qrCode: transactionData.qr_code, qrCodeBase64: transactionData.qr_code_base64, expires: result.date_of_expiration });
         } else {
             console.error("Resposta inesperada do Mercado Pago ao criar PIX (sem dados de QR):", result);
@@ -197,6 +209,7 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         }
     } catch (error: any) {
         console.error('Erro ao criar pagamento PIX com Mercado Pago:', error);
+        await logAction(supabase, 'PIX_GENERATED', 'FAILURE', `Falha ao gerar PIX para fatura ${invoiceId}.`, { error: error.message });
         if (paymentIdToCancel) {
             console.log(`Tentando cancelar o pagamento ${paymentIdToCancel} devido a um erro...`);
             await payment.cancel({ id: paymentIdToCancel }).catch(cancelError => 
@@ -279,8 +292,8 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
 
 // --- Handler para /api/mercadopago/webhook ---
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
     try {
-        const supabase = getSupabaseAdminClient();
         const client = getMercadoPagoClient();
 
         const { body } = req;
@@ -306,14 +319,17 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
             if (newStatus) {
                 const { data, error } = await supabase.from('invoices').update({ status: newStatus, payment_date: newStatus === 'Paga' ? new Date().toISOString() : null }).eq('payment_id', String(paymentId)).select();
                 if (error) {
+                    await logAction(supabase, 'INVOICE_STATUS_UPDATE', 'FAILURE', `Falha ao atualizar fatura para payment_id ${paymentId}.`, { error: error.message });
                     console.error(`Erro ao atualizar fatura para payment_id ${paymentId}:`, error);
                     return res.status(500).json({ error: 'Falha ao atualizar o banco de dados.' });
                 }
+                await logAction(supabase, 'INVOICE_STATUS_UPDATE', 'SUCCESS', `Fatura com payment_id ${paymentId} atualizada para ${newStatus}.`);
                 console.log(`Fatura com payment_id ${paymentId} atualizada para ${newStatus}. Rows afetadas:`, data?.length);
             }
         }
         res.status(200).send('OK');
     } catch (error: any) {
+        await logAction(supabase, 'WEBHOOK_PROCESSING', 'FAILURE', `Erro no processamento do webhook de pagamento.`, { error: error.message, body: req.body });
         console.error('Erro no processamento do webhook de pagamento:', error);
         res.status(500).json({ error: 'Erro interno no webhook.', message: error.message });
     }
