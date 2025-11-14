@@ -15,6 +15,9 @@
     },
     "api/shopee.ts": {
       "memory": 1024
+    },
+    "api/config.ts": {
+      "memory": 512
     }
   },
   "rewrites": [
@@ -23,6 +26,7 @@
     { "source": "/api/products", "destination": "/api/products" },
     { "source": "/api/ml-item", "destination": "/api/ml-item" },
     { "source": "/api/shopee", "destination": "/api/shopee" },
+    { "source": "/api/config", "destination": "/api/config" },
     { "source": "/((?!api/|_next/|assets/|static/|icons/|sw.js|manifest.json).*)", "destination": "/index.html" }
   ]
 }
