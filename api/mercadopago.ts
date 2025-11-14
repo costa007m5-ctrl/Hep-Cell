@@ -151,23 +151,16 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             });
         }
         
-        // Salvar os dados no perfil ANTES de gerar o pagamento (se foram fornecidos novos dados)
         if ((firstName || lastName || identificationNumber) && userId) {
-            const { error: updateError } = await supabase.from('profiles').update({
+            supabase.from('profiles').update({
                 first_name: finalPayerInfo.firstName,
                 last_name: finalPayerInfo.lastName,
                 identification_number: finalPayerInfo.identificationNumber,
                 updated_at: new Date().toISOString()
-            }).eq('id', userId);
-            
-            if (updateError) {
-                console.error("Falha ao atualizar o perfil:", updateError);
-                return res.status(500).json({ 
-                    error: 'Falha ao salvar seus dados.',
-                    message: 'Não foi possível atualizar seu perfil. Tente novamente.' 
-                });
-            }
-            console.log(`Perfil do usuário ${userId} atualizado com sucesso.`);
+            }).eq('id', userId).then(({ error: updateError }) => {
+                if (updateError) console.error("Falha ao atualizar o perfil em segundo plano:", updateError);
+                else console.log(`Perfil do usuário ${userId} atualizado em segundo plano.`);
+            });
         }
         
         const expirationDate = new Date();

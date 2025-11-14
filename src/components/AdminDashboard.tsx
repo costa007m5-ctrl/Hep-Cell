@@ -29,8 +29,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
   const [adminView, setAdminView] = useState<AdminView>('clients');
+  const [setupNeeded, setSetupNeeded] = useState(false);
   
+    // Check for setup on initial load
+    useEffect(() => {
+        const checkDbSetup = async () => {
+            // Check if 'action_logs' table exists by trying a simple query.
+            // PostgreSQL error code for "undefined_table" is 42P01.
+            const { error } = await supabase.from('action_logs').select('id', { count: 'exact', head: true });
+            if (error && error.code === '42P01') {
+                setSetupNeeded(true);
+                setIsLoading(false); // Stop main loading if setup is needed
+            }
+        };
+        checkDbSetup();
+    }, []);
+
   const fetchData = useCallback(async () => {
+      if (setupNeeded) return; // Don't fetch if setup is not complete
       setIsLoading(true);
       setErrorInfo(null);
       try {
@@ -53,7 +69,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       } finally {
         setIsLoading(false);
       }
-    }, []);
+    }, [setupNeeded]);
 
   useEffect(() => {
     // Carrega dados de faturas apenas se a visão for financeira ou de clientes
@@ -67,7 +83,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         case 'clients':
             return <ClientsTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} />;
         case 'new_sale':
-            return <NewSaleTab onSaleCreated={fetchData} />;
+            return <NewSaleTab />;
         case 'products':
             return <ProductsTab />;
         case 'financials':
@@ -81,6 +97,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         default:
              return <ClientsTab allInvoices={invoices} isLoading={isLoading} errorInfo={errorInfo} />;
     }
+  }
+
+  if (setupNeeded && adminView !== 'dev') {
+    return (
+        <div className="min-h-screen w-full bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4">
+            <div className="max-w-xl w-full bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 text-center animate-fade-in">
+                <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h1 className="mt-4 text-2xl font-bold text-slate-900 dark:text-white">Configuração Necessária</h1>
+                <p className="mt-2 text-slate-600 dark:text-slate-300">
+                    Parece que o banco de dados ainda não foi configurado. As tabelas necessárias para o aplicativo não existem.
+                </p>
+                <p className="mt-4 text-slate-600 dark:text-slate-300">
+                    Por favor, vá para a aba <strong>Desenvolvedor</strong> e execute o setup para criar as tabelas e políticas de segurança.
+                </p>
+                <div className="mt-6 flex justify-center gap-4">
+                    <button onClick={() => setAdminView('dev')} className="py-2 px-4 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm">
+                        Ir para a aba Desenvolvedor
+                    </button>
+                    <button onClick={onLogout} className="py-2 px-4 text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm">
+                        Sair
+                    </button>
+                </div>
+            </div>
+        </div>
+    )
   }
   
   return (

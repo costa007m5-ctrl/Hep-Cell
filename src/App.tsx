@@ -8,7 +8,6 @@ import PagePerfil from './components/PagePerfil';
 import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
-import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
@@ -149,7 +148,6 @@ const App: React.FC = () => {
         {renderContent()}
       </main>
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
-      <PWAInstallPrompt />
     </div>
   );
 };

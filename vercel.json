@@ -18,11 +18,11 @@
     }
   },
   "rewrites": [
-    { "source": "/api/admin/(.*)", "destination": "/api/admin" },
-    { "source": "/api/mercadopago/(.*)", "destination": "/api/mercadopago" },
+    { "source": "/api/admin/:path*", "destination": "/api/admin" },
+    { "source": "/api/mercadopago/:path*", "destination": "/api/mercadopago" },
     { "source": "/api/products", "destination": "/api/products" },
     { "source": "/api/ml-item", "destination": "/api/ml-item" },
     { "source": "/api/shopee", "destination": "/api/shopee" },
-    { "source": "/((?!api/|_next/|assets/|static/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|_next/|assets/|static/|icons/|sw.js|manifest.json).*)", "destination": "/index.html" }
   ]
 }
