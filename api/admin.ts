@@ -63,28 +63,7 @@ const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
     
     -- Tabela de Perfis (Profiles)
-    -- Cria a tabela base se não existir
-    CREATE TABLE IF NOT EXISTS "public"."profiles" (
-        "id" "uuid" NOT NULL,
-        "email" "text",
-        "first_name" "text",
-        "last_name" "text",
-        "identification_type" "text",
-        "identification_number" "text",
-        "zip_code" "text",
-        "street_name" "text",
-        "street_number" "text",
-        "neighborhood" "text",
-        "city" "text",
-        "federal_unit" "text",
-        "created_at" timestamp with time zone DEFAULT "now"(),
-        "updated_at" timestamp with time zone DEFAULT "now"(),
-        CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"),
-        CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE,
-        CONSTRAINT "profiles_email_key" UNIQUE ("email")
-    );
-
-    -- Garante que as colunas de análise de crédito existam, adicionando-as se necessário
+    CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_type" "text", "identification_number" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") );
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_score" integer;
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_limit" numeric(10, 2);
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_status" "text";
@@ -103,7 +82,7 @@ const SETUP_SQL = `
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY;
 
-    -- Políticas de Segurança (Row Level Security)
+    -- Políticas de Segurança para Clientes
     DROP POLICY IF EXISTS "Allow users to read their own profile" ON "public"."profiles";
     CREATE POLICY "Allow users to read their own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
     DROP POLICY IF EXISTS "Allow users to update their own profile" ON "public"."profiles";
@@ -112,6 +91,26 @@ const SETUP_SQL = `
     CREATE POLICY "Allow public read access to products" ON "public"."products" FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Allow users to view their own invoices" ON "public"."invoices";
     CREATE POLICY "Allow users to view their own invoices" ON "public"."invoices" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+    -- Políticas de Segurança para o Administrador (Acesso Total)
+    -- O ID do administrador está fixado no componente de login.
+    CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$
+    BEGIN
+      RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
+    END;
+    $$ LANGUAGE plpgsql SECURITY DEFINER;
+    
+    DROP POLICY IF EXISTS "Allow admin full access to profiles" ON "public"."profiles";
+    CREATE POLICY "Allow admin full access to profiles" ON "public"."profiles" FOR ALL USING (is_admin());
+    
+    DROP POLICY IF EXISTS "Allow admin full access to invoices" ON "public"."invoices";
+    CREATE POLICY "Allow admin full access to invoices" ON "public"."invoices" FOR ALL USING (is_admin());
+    
+    DROP POLICY IF EXISTS "Allow admin full access to products" ON "public"."products";
+    CREATE POLICY "Allow admin full access to products" ON "public"."products" FOR ALL USING (is_admin());
+
+    DROP POLICY IF EXISTS "Allow admin full access to action logs" ON "public"."action_logs";
+    CREATE POLICY "Allow admin full access to action logs" ON "public"."action_logs" FOR ALL USING (is_admin());
 
     -- Função para criar perfil ao registrar novo usuário
     CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
