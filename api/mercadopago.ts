@@ -151,12 +151,13 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         
         // Extrair dados do boleto - tentar diferentes formatos
         const transactionData = result.point_of_interaction?.transaction_data as any;
+        const resultAny = result as any; // Type assertion para acessar propriedades dinâmicas
         
         // Tentar diferentes caminhos para os dados do boleto
         let ticketUrl = transactionData?.ticket_url || result.transaction_details?.external_resource_url;
         let barcode = transactionData?.bar_code?.content || 
                       transactionData?.barcode?.content ||
-                      result.barcode?.content;
+                      resultAny.barcode?.content;
         
         console.log('Dados extraídos:', {
             ticketUrl,
