@@ -198,7 +198,8 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             const { error: updateError } = await supabase.from('invoices').update({ payment_id: String(result.id), payment_method: 'PIX' }).eq('id', invoiceId);
             if (updateError) {
                 console.error('Falha ao salvar o ID do pagamento PIX no Supabase:', updateError);
-                throw new Error('Falha ao vincular o pagamento PIX à fatura no banco de dados.');
+                // Adiciona a mensagem de erro original do Supabase para melhor depuração.
+                throw new Error(`Falha ao vincular o pagamento PIX à fatura no banco de dados. Detalhes: ${updateError.message}`);
             }
             
             await logAction(supabase, 'PIX_GENERATED', 'SUCCESS', `PIX para fatura ${invoiceId} gerado com sucesso.`);

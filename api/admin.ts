@@ -50,7 +50,11 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, u
     const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
 
     const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
-    const analysis = JSON.parse(response.text.trim());
+    const text = response.text;
+    if (!text) {
+        throw new Error("A resposta da IA para análise de crédito estava vazia.");
+    }
+    const analysis = JSON.parse(text.trim());
 
     const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
     if (updateError) throw updateError;
@@ -159,7 +163,7 @@ const SETUP_SQL = `
 
 // --- Route Handlers ---
 
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SETUP_SQL });
@@ -213,7 +217,7 @@ async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelRes
 }
 
 
-async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
+async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: 'SELECT 1;' });
@@ -224,7 +228,7 @@ async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
+async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
     try {
         const genAI = getGeminiClient();
         await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' });
@@ -234,7 +238,7 @@ async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
+async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
     try {
         const client = getMercadoPagoClient();
         const merchantOrder = new MerchantOrder(client);
@@ -245,7 +249,7 @@ async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleTestMercadoLivre(req: VercelRequest, res: VercelResponse) {
+async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) {
     const clientId = process.env.ML_CLIENT_ID;
     const clientSecret = process.env.ML_CLIENT_SECRET;
 
@@ -279,7 +283,7 @@ async function handleTestMercadoLivre(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleGetLogs(req: VercelRequest, res: VercelResponse) {
+async function handleGetLogs(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { data, error } = await supabase.from('action_logs').select('*').order('created_at', { ascending: false }).limit(50);
@@ -385,7 +389,7 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleGetProfiles(req: VercelRequest, res: VercelResponse) {
+async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { data, error } = await supabase.from('profiles').select('*').order('first_name');
