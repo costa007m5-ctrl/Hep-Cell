@@ -227,21 +227,39 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     setMessage('Gerando boleto...');
     
     try {
+      const requestBody = {
+        amount: invoice.amount,
+        description: `Fatura Relp Cell - ${invoice.month}`,
+        payer: {
+          email: payerInfo.email,
+          firstName: payerInfo.firstName,
+          lastName: payerInfo.lastName,
+          identificationType: payerInfo.identificationType,
+          identificationNumber: payerInfo.identificationNumber,
+          zipCode: payerInfo.zipCode,
+          streetName: payerInfo.streetName,
+          streetNumber: payerInfo.streetNumber,
+          neighborhood: payerInfo.neighborhood,
+          city: payerInfo.city,
+          federalUnit: payerInfo.federalUnit,
+        },
+        invoiceId: invoice.id,
+      };
+
+      console.log('Enviando dados do boleto:', requestBody);
+
       const response = await fetch('/api/mercadopago/create-boleto-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: invoice.amount,
-          description: `Fatura Relp Cell - ${invoice.month}`,
-          payer: payerInfo,
-          invoiceId: invoice.id,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
       
+      console.log('Resposta do servidor:', data);
+      
       if (!response.ok) {
-        throw new Error(data.message || 'Falha ao gerar boleto');
+        throw new Error(data.message || data.error || 'Falha ao gerar boleto');
       }
 
       setBoletoData({

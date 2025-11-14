@@ -73,13 +73,50 @@ async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
 async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { invoiceId } = req.body;
+    
     try {
         const client = getMercadoPagoClient();
         
         const { amount, description, payer } = req.body;
-        if (!amount || !description || !payer || !payer.email || !payer.firstName || !payer.lastName || !payer.identificationType || !payer.identificationNumber || !payer.zipCode || !payer.streetName || !payer.streetNumber || !payer.neighborhood || !payer.city || !payer.federalUnit || !invoiceId) {
-            return res.status(400).json({ error: 'Dados do pagador, da fatura ou do pagamento estão incompletos.' });
+        
+        // Validação detalhada
+        const missingFields = [];
+        if (!amount) missingFields.push('amount');
+        if (!description) missingFields.push('description');
+        if (!invoiceId) missingFields.push('invoiceId');
+        if (!payer) missingFields.push('payer');
+        if (payer) {
+            if (!payer.email) missingFields.push('payer.email');
+            if (!payer.firstName) missingFields.push('payer.firstName');
+            if (!payer.lastName) missingFields.push('payer.lastName');
+            if (!payer.identificationType) missingFields.push('payer.identificationType');
+            if (!payer.identificationNumber) missingFields.push('payer.identificationNumber');
+            if (!payer.zipCode) missingFields.push('payer.zipCode');
+            if (!payer.streetName) missingFields.push('payer.streetName');
+            if (!payer.streetNumber) missingFields.push('payer.streetNumber');
+            if (!payer.neighborhood) missingFields.push('payer.neighborhood');
+            if (!payer.city) missingFields.push('payer.city');
+            if (!payer.federalUnit) missingFields.push('payer.federalUnit');
         }
+        
+        if (missingFields.length > 0) {
+            console.error('Campos faltando:', missingFields);
+            return res.status(400).json({ 
+                error: 'Dados incompletos', 
+                message: `Campos obrigatórios faltando: ${missingFields.join(', ')}`,
+                missingFields 
+            });
+        }
+
+        console.log('Criando boleto com dados:', {
+            amount,
+            description,
+            payer: {
+                email: payer.email,
+                firstName: payer.firstName,
+                lastName: payer.lastName,
+            }
+        });
 
         const payment = new Payment(client);
         const paymentData = {
@@ -87,32 +124,75 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             description: description,
             payment_method_id: 'boleto',
             payer: {
-                email: payer.email, first_name: payer.firstName, last_name: payer.lastName,
-                identification: { type: payer.identificationType, number: payer.identificationNumber.replace(/\D/g, '') },
-                address:  { zip_code: payer.zipCode.replace(/\D/g, ''), street_name: payer.streetName, street_number: payer.streetNumber, neighborhood: payer.neighborhood, city: payer.city, federal_unit: payer.federalUnit }
+                email: payer.email, 
+                first_name: payer.firstName, 
+                last_name: payer.lastName,
+                identification: { 
+                    type: payer.identificationType, 
+                    number: payer.identificationNumber.replace(/\D/g, '') 
+                },
+                address: { 
+                    zip_code: payer.zipCode.replace(/\D/g, ''), 
+                    street_name: payer.streetName, 
+                    street_number: payer.streetNumber, 
+                    neighborhood: payer.neighborhood, 
+                    city: payer.city, 
+                    federal_unit: payer.federalUnit 
+                }
             },
             external_reference: invoiceId,
         };
+        
+        console.log('Enviando para Mercado Pago:', JSON.stringify(paymentData, null, 2));
+        
         const result = await payment.create({ body: paymentData });
+        
+        console.log('Resposta do Mercado Pago:', JSON.stringify(result, null, 2));
+        
         const transactionData = result.point_of_interaction?.transaction_data as any;
 
         if (transactionData && transactionData.ticket_url && transactionData.bar_code?.content) {
-            const { error: updateError } = await supabase.from('invoices').update({ status: 'Boleto Gerado', payment_id: String(result.id), boleto_url: transactionData.ticket_url, boleto_barcode: transactionData.bar_code.content, payment_method: 'Boleto' }).eq('id', invoiceId);
+            const { error: updateError } = await supabase.from('invoices').update({ 
+                status: 'Boleto Gerado', 
+                payment_id: String(result.id), 
+                boleto_url: transactionData.ticket_url, 
+                boleto_barcode: transactionData.bar_code.content, 
+                payment_method: 'Boleto' 
+            }).eq('id', invoiceId);
+            
             if (updateError) {
                 console.error('Falha ao salvar dados do boleto no Supabase:', updateError);
                 await payment.cancel({ id: result.id! });
                 throw new Error('Falha ao salvar os detalhes do boleto no banco de dados.');
             }
+            
             await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto para fatura ${invoiceId} gerado com sucesso.`);
-            res.status(200).json({ message: "Boleto gerado e salvo com sucesso!", paymentId: result.id, boletoUrl: transactionData.ticket_url, boletoBarcode: transactionData.bar_code.content });
+            
+            res.status(200).json({ 
+                message: "Boleto gerado e salvo com sucesso!", 
+                paymentId: result.id, 
+                boletoUrl: transactionData.ticket_url, 
+                boletoBarcode: transactionData.bar_code.content 
+            });
         } else {
-            console.error("Resposta inesperada do Mercado Pago:", result);
+            console.error("Resposta inesperada do Mercado Pago:", JSON.stringify(result, null, 2));
             throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
         }
     } catch (error: any) {
         console.error('Erro ao criar boleto com Mercado Pago:', error);
-        await logAction(supabase, 'BOLETO_GENERATED', 'FAILURE', `Falha ao gerar boleto para fatura ${invoiceId}.`, { error: error.message });
-        res.status(500).json({ error: 'Falha ao gerar o boleto.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
+        console.error('Stack trace:', error.stack);
+        
+        await logAction(supabase, 'BOLETO_GENERATED', 'FAILURE', `Falha ao gerar boleto para fatura ${invoiceId}.`, { 
+            error: error.message,
+            stack: error.stack,
+            cause: error.cause 
+        });
+        
+        res.status(500).json({ 
+            error: 'Falha ao gerar o boleto.', 
+            message: error?.cause?.message || error.message || 'Ocorreu um erro interno.',
+            details: error.cause || error
+        });
     }
 }
 
