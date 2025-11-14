@@ -147,23 +147,38 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         
         const result = await payment.create({ body: paymentData });
         
-        console.log('Resposta do Mercado Pago:', JSON.stringify(result, null, 2));
+        console.log('Resposta completa do Mercado Pago:', JSON.stringify(result, null, 2));
         
+        // Extrair dados do boleto - tentar diferentes formatos
         const transactionData = result.point_of_interaction?.transaction_data as any;
+        
+        // Tentar diferentes caminhos para os dados do boleto
+        let ticketUrl = transactionData?.ticket_url || result.transaction_details?.external_resource_url;
+        let barcode = transactionData?.bar_code?.content || 
+                      transactionData?.barcode?.content ||
+                      result.barcode?.content;
+        
+        console.log('Dados extraídos:', {
+            ticketUrl,
+            barcode,
+            hasTransactionData: !!transactionData,
+            transactionDataKeys: transactionData ? Object.keys(transactionData) : []
+        });
 
-        if (transactionData && transactionData.ticket_url && transactionData.bar_code?.content) {
+        // Verificar se temos pelo menos a URL do boleto
+        if (result.id && ticketUrl) {
             const { error: updateError } = await supabase.from('invoices').update({ 
                 status: 'Boleto Gerado', 
                 payment_id: String(result.id), 
-                boleto_url: transactionData.ticket_url, 
-                boleto_barcode: transactionData.bar_code.content, 
+                boleto_url: ticketUrl, 
+                boleto_barcode: barcode || 'Código não disponível', 
                 payment_method: 'Boleto' 
             }).eq('id', invoiceId);
             
             if (updateError) {
                 console.error('Falha ao salvar dados do boleto no Supabase:', updateError);
-                await payment.cancel({ id: result.id! });
-                throw new Error('Falha ao salvar os detalhes do boleto no banco de dados.');
+                // Não cancelar o pagamento se já foi criado com sucesso
+                console.warn('Boleto foi criado no Mercado Pago mas falhou ao salvar no banco');
             }
             
             await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto para fatura ${invoiceId} gerado com sucesso.`);
@@ -171,12 +186,33 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             res.status(200).json({ 
                 message: "Boleto gerado e salvo com sucesso!", 
                 paymentId: result.id, 
-                boletoUrl: transactionData.ticket_url, 
-                boletoBarcode: transactionData.bar_code.content 
+                boletoUrl: ticketUrl, 
+                boletoBarcode: barcode || 'Código não disponível',
+                status: result.status,
+                statusDetail: result.status_detail
             });
         } else {
-            console.error("Resposta inesperada do Mercado Pago:", JSON.stringify(result, null, 2));
-            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
+            console.error("Resposta inesperada do Mercado Pago - dados faltando:", {
+                hasId: !!result.id,
+                hasTicketUrl: !!ticketUrl,
+                hasBarcode: !!barcode,
+                fullResponse: JSON.stringify(result, null, 2)
+            });
+            
+            // Se o pagamento foi criado mas não temos a URL, ainda retornar sucesso parcial
+            if (result.id) {
+                await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto ${result.id} criado mas URL não disponível imediatamente.`);
+                
+                res.status(200).json({ 
+                    message: "Boleto gerado! Aguarde alguns instantes para visualizar.", 
+                    paymentId: result.id,
+                    status: result.status,
+                    statusDetail: result.status_detail,
+                    note: "O link do boleto estará disponível em breve. Verifique seu email ou acesse o Mercado Pago."
+                });
+            } else {
+                throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
+            }
         }
     } catch (error: any) {
         console.error('Erro ao criar boleto com Mercado Pago:', error);

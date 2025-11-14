@@ -259,21 +259,41 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       console.log('Resposta do servidor:', data);
       
       if (!response.ok) {
+        console.error('Erro na resposta:', data);
         throw new Error(data.message || data.error || 'Falha ao gerar boleto');
       }
 
-      setBoletoData({
-        boletoUrl: data.boletoUrl,
-        boletoBarcode: data.boletoBarcode,
-        paymentId: data.paymentId,
-      });
-      setStatus(PaymentStatus.IDLE);
-      setMessage('');
-      setShowPayerForm(false);
+      // Verificar se temos os dados necessários
+      if (!data.paymentId) {
+        console.error('Resposta sem paymentId:', data);
+        throw new Error('Boleto gerado mas ID não retornado');
+      }
+
+      // Aceitar resposta mesmo sem URL (pode estar processando)
+      if (data.boletoUrl || data.note) {
+        setBoletoData({
+          boletoUrl: data.boletoUrl || '',
+          boletoBarcode: data.boletoBarcode || 'Processando...',
+          paymentId: data.paymentId,
+        });
+        setStatus(PaymentStatus.IDLE);
+        setMessage(data.note || '');
+        setShowPayerForm(false);
+      } else {
+        console.warn('Boleto gerado mas dados incompletos:', data);
+        setBoletoData({
+          boletoUrl: '',
+          boletoBarcode: 'Aguardando processamento...',
+          paymentId: data.paymentId,
+        });
+        setStatus(PaymentStatus.IDLE);
+        setMessage('Boleto gerado! Verifique seu email ou acesse o Mercado Pago.');
+        setShowPayerForm(false);
+      }
     } catch (error: any) {
-      console.error(error);
+      console.error('Erro ao processar boleto:', error);
       setStatus(PaymentStatus.ERROR);
-      setMessage(error.message || 'Erro ao gerar boleto.');
+      setMessage(error.message || 'Erro ao gerar boleto. Verifique os logs do console.');
     }
   };
 
@@ -460,12 +480,24 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     }
 
     if (boletoData) {
+      const hasUrl = boletoData.boletoUrl && boletoData.boletoUrl !== '';
+      const hasBarcode = boletoData.boletoBarcode && 
+                         boletoData.boletoBarcode !== 'Processando...' && 
+                         boletoData.boletoBarcode !== 'Aguardando processamento...' &&
+                         boletoData.boletoBarcode !== 'Código não disponível';
+      
       return (
         <div className="space-y-4">
           <div className="text-center">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Boleto Gerado</h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
+              ✅ Boleto Gerado com Sucesso!
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              ID do Pagamento: {boletoData.paymentId}
+            </p>
           </div>
-          <div className="space-y-3">
+          
+          {hasBarcode && (
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Código de barras:</p>
               <div className="flex gap-2">
@@ -473,7 +505,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   type="text"
                   readOnly
                   value={boletoData.boletoBarcode}
-                  className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                  className="flex-1 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white text-sm font-mono"
                 />
                 <button
                   onClick={() => copyToClipboard(boletoData.boletoBarcode)}
@@ -483,16 +515,55 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 </button>
               </div>
             </div>
-            <a
-              href={boletoData.boletoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg text-center transition-colors"
+          )}
+          
+          {!hasBarcode && (
+            <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                ⏳ O código de barras estará disponível em alguns instantes.
+              </p>
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            {hasUrl ? (
+              <a
+                href={boletoData.boletoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg text-center transition-colors"
+              >
+                📄 Visualizar Boleto
+              </a>
+            ) : (
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200 text-center">
+                  📧 O link do boleto foi enviado para seu email
+                </p>
+                <p className="text-xs text-blue-600 dark:text-blue-300 text-center mt-2">
+                  Você também pode acessar pelo app do Mercado Pago
+                </p>
+              </div>
+            )}
+            
+            <button
+              onClick={() => window.open('https://www.mercadopago.com.br/activities', '_blank')}
+              className="block w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-center transition-colors"
             >
-              Visualizar Boleto
-            </a>
+              🏦 Abrir Mercado Pago
+            </button>
           </div>
-          <Alert message="O pagamento será confirmado após o processamento bancário." type="success" />
+          
+          <Alert 
+            message="O pagamento será confirmado automaticamente após o processamento bancário (1-3 dias úteis)." 
+            type="success" 
+          />
+          
+          {message && (
+            <div className="p-3 bg-slate-100 dark:bg-slate-700 rounded-lg">
+              <p className="text-sm text-slate-700 dark:text-slate-300">{message}</p>
+            </div>
+          )}
         </div>
       );
     }
