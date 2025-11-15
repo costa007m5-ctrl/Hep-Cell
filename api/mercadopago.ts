@@ -255,9 +255,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         // Extração robusta dos dados do boleto
         const transactionData = result.point_of_interaction?.transaction_data as any;
         const boletoUrl = transactionData?.ticket_url || result.transaction_details?.external_resource_url;
-        
-        const rawBarcode = transactionData?.bar_code;
-        const boletoBarcode = (typeof rawBarcode === 'object' && rawBarcode !== null) ? rawBarcode.content : rawBarcode;
+        const boletoBarcode = transactionData?.bar_code;
         
         if (!result.id || !boletoUrl || !boletoBarcode) {
             console.error("Não foi possível encontrar a URL ou o código de barras do boleto na resposta do Mercado Pago:", JSON.stringify(result, null, 2));
