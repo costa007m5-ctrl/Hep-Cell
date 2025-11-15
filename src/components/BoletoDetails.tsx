@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Invoice } from '../types';
-import jsPDF from 'jspdf';
 
 interface BoletoDetailsProps {
     invoice: Invoice;
@@ -31,48 +30,10 @@ const BoletoDetails: React.FC<BoletoDetailsProps> = ({ invoice, onBack }) => {
         }
     };
 
-    const handleDownloadPdf = () => {
-        const doc = new jsPDF();
-    
-        doc.setFontSize(22);
-        doc.setFont('helvetica', 'bold');
-        doc.text("Relp Cell", 20, 20);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'normal');
-        doc.text("Boleto de Pagamento", 20, 28);
-        doc.line(20, 32, 190, 32);
-    
-        doc.setFontSize(12);
-        doc.text(`Fatura referente a: ${invoice.month}`, 20, 45);
-        doc.text(`Valor: ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 20, 55);
-        doc.text(`Vencimento: ${new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}`, 20, 65);
-    
-        doc.line(20, 75, 190, 75); 
-    
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text("Código de Barras para Pagamento:", 20, 85);
-        
-        doc.setFont('courier', 'normal');
-        doc.setFontSize(12);
-        
-        const barcode = invoice.boleto_barcode || 'Código indisponível. Verifique o link do boleto online.';
-        const chunks = barcode.match(/.{1,55}/g) || [];
-        chunks.forEach((chunk, index) => {
-            doc.text(chunk, 20, 95 + (index * 7));
-        });
-        
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.text("Pague este boleto em qualquer banco, casa lotérica ou via internet banking.", 20, 130);
-        
+    const handleViewBoleto = () => {
         if (invoice.boleto_url) {
-            doc.text("Para visualizar o boleto completo, acesse:", 20, 140);
-            doc.setTextColor(0, 0, 255);
-            doc.textWithLink(invoice.boleto_url, 20, 147, { url: invoice.boleto_url });
+            window.open(invoice.boleto_url, '_blank', 'noopener,noreferrer');
         }
-        
-        doc.save(`boleto-relp-cell-${invoice.month.toLowerCase().replace(/ /g, '-')}.pdf`);
     };
     
     return (
@@ -99,7 +60,7 @@ const BoletoDetails: React.FC<BoletoDetailsProps> = ({ invoice, onBack }) => {
                         </div>
                     ) : (
                         <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-md text-center text-sm text-red-800 dark:text-red-300">
-                            Código de barras não disponível. Tente baixar o PDF.
+                            Código de barras não disponível. Tente visualizar o boleto.
                         </div>
                     )}
                 </div>
@@ -114,11 +75,12 @@ const BoletoDetails: React.FC<BoletoDetailsProps> = ({ invoice, onBack }) => {
                         {copyButtonText}
                     </button>
                     <button
-                        onClick={handleDownloadPdf}
-                        className="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                        onClick={handleViewBoleto}
+                        disabled={!invoice.boleto_url}
+                        className="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <PrintIcon />
-                        Baixar Boleto (PDF)
+                        Visualizar Boleto
                     </button>
                 </div>
             </div>
