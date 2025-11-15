@@ -29,12 +29,6 @@ const BoletoDetails: React.FC<BoletoDetailsProps> = ({ invoice, onBack }) => {
             setTimeout(() => setCopyButtonText('Copiar código'), 2000);
         }
     };
-
-    const handleViewBoleto = () => {
-        if (invoice.boleto_url) {
-            window.open(invoice.boleto_url, '_blank', 'noopener,noreferrer');
-        }
-    };
     
     return (
         <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in">
@@ -50,39 +44,41 @@ const BoletoDetails: React.FC<BoletoDetailsProps> = ({ invoice, onBack }) => {
                     A confirmação do pagamento pode levar até 2 dias úteis.
                 </p>
 
-                 <div className="w-full">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 text-center">Pague com o código de barras</label>
-                    {invoice.boleto_barcode ? (
+                <div className="text-center">
+                    <a
+                        href={invoice.boleto_url!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full inline-flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                    >
+                        <PrintIcon />
+                        Visualizar / Imprimir Boleto (PDF)
+                    </a>
+                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                        Ao abrir, use a função 'Imprimir' (Ctrl+P) do seu navegador para salvar como PDF.
+                    </p>
+                </div>
+                
+                 <div className="relative flex items-center justify-center">
+                    <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                    <span className="flex-shrink mx-4 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase">OU</span>
+                    <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                </div>
+
+                {invoice.boleto_barcode && (
+                     <div className="w-full">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 text-center">Pague com o código de barras</label>
                         <div className="p-3 bg-slate-100 dark:bg-slate-900/50 rounded-md">
                             <p className="text-sm text-center break-all text-slate-700 dark:text-slate-300 font-mono">
                                 {invoice.boleto_barcode}
                             </p>
                         </div>
-                    ) : (
-                        <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-md text-center text-sm text-red-800 dark:text-red-300">
-                            Código de barras não disponível. Tente visualizar o boleto.
-                        </div>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                     <button 
-                        onClick={handleCopy} 
-                        disabled={!invoice.boleto_barcode}
-                        className="w-full flex justify-center items-center py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                     >
-                        <CopyIcon />
-                        {copyButtonText}
-                    </button>
-                    <button
-                        onClick={handleViewBoleto}
-                        disabled={!invoice.boleto_url}
-                        className="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <PrintIcon />
-                        Visualizar Boleto
-                    </button>
-                </div>
+                        <button onClick={handleCopy} className="mt-3 w-full flex justify-center items-center py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+                            <CopyIcon />
+                            {copyButtonText}
+                        </button>
+                    </div>
+                )}
             </div>
             
             <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
