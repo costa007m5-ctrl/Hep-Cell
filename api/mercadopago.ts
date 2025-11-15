@@ -258,7 +258,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
 
         const transactionData = result.point_of_interaction.transaction_data as any;
         const boletoUrl = transactionData.ticket_url;
-        const boletoBarcode = transactionData.bar_code?.content;
+        const boletoBarcode = transactionData.bar_code;
 
         await supabase.from('invoices').update({
             payment_id: String(result.id),
