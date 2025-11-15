@@ -1,26 +1,28 @@
 {
   "name": "Relp Cell Pagamentos",
   "short_name": "Relp Cell",
-  "description": "Um aplicativo moderno para que os clientes da Relp Cell possam pagar suas faturas de forma rápida e segura.",
+  "description": "Aplicativo para pagamento de faturas da Relp Cell de forma rápida e segura",
   "icons": [
     {
-      "src": "/icons/icon-192x192.png",
+      "src": "https://images.unsplash.com/photo-1556656793-08538906a9f8?w=192&h=192&fit=crop&q=80",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icons/icon-512x512.png",
+      "src": "https://images.unsplash.com/photo-1556656793-08538906a9f8?w=512&h=512&fit=crop&q=80",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable-192x192.png",
+      "src": "https://images.unsplash.com/photo-1556656793-08538906a9f8?w=192&h=192&fit=crop&q=80",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icons/icon-maskable-512x512.png",
+      "src": "https://images.unsplash.com/photo-1556656793-08538906a9f8?w=512&h=512&fit=crop&q=80",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -30,5 +32,6 @@
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#4f46e5",
-  "scope": "/"
+  "scope": "/",
+  "orientation": "portrait"
 }

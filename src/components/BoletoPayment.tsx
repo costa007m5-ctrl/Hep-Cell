@@ -191,6 +191,8 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             }
         };
 
+        console.log('Enviando requisição de boleto:', payload);
+
         const response = await fetch('/api/mercadopago/create-boleto-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -198,24 +200,33 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
         });
 
         const data = await response.json();
+        console.log('Resposta do servidor:', data);
+
         if (!response.ok) {
             throw new Error(data.error || data.message || 'Falha ao gerar o boleto.');
         }
 
-        // Salva os dados do usuário se o checkbox estiver marcado
+        if (!data.boletoUrl || !data.boletoBarcode) {
+            throw new Error('O servidor não retornou os dados completos do boleto. Tente novamente.');
+        }
+
         if (saveData) {
-            await updateProfile({
-                id: user.id,
-                first_name: formData.firstName,
-                last_name: formData.lastName,
-                identification_number: formData.identificationNumber,
-                zip_code: formData.zipCode,
-                street_name: formData.streetName,
-                street_number: formData.streetNumber,
-                neighborhood: formData.neighborhood,
-                city: formData.city,
-                federal_unit: formData.federalUnit,
-            });
+            try {
+                await updateProfile({
+                    id: user.id,
+                    first_name: formData.firstName,
+                    last_name: formData.lastName,
+                    identification_number: formData.identificationNumber,
+                    zip_code: formData.zipCode,
+                    street_name: formData.streetName,
+                    street_number: formData.streetNumber,
+                    neighborhood: formData.neighborhood,
+                    city: formData.city,
+                    federal_unit: formData.federalUnit,
+                });
+            } catch (profileError) {
+                console.error('Erro ao salvar perfil:', profileError);
+            }
         }
         
         const updatedInvoice: Invoice = {
@@ -229,7 +240,8 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
         onBoletoGenerated(updatedInvoice);
 
     } catch (err: any) {
-        setError(err.message);
+        console.error('Erro ao gerar boleto:', err);
+        setError(err.message || 'Erro desconhecido ao gerar boleto.');
         setStep('error');
     }
   };
@@ -240,14 +252,18 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             return (
                 <div className="flex flex-col items-center justify-center p-8 space-y-4 h-full">
                     <LoadingSpinner />
-                    <p className="text-slate-500 dark:text-slate-400">Gerando e salvando seu boleto...</p>
+                    <p className="text-slate-500 dark:text-slate-400">Gerando seu boleto...</p>
+                    <p className="text-xs text-slate-400">Isso pode levar alguns segundos</p>
                 </div>
             );
         case 'error':
             return (
                 <div className="p-4 w-full text-center">
                     <Alert message={error!} type="error" />
-                     <button onClick={() => setStep('form')} className="mt-4 text-sm font-medium text-indigo-600 dark:text-indigo-400">
+                    <button 
+                        onClick={() => setStep('form')} 
+                        className="mt-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                    >
                         Tentar novamente
                     </button>
                 </div>
@@ -269,11 +285,17 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
         {renderContent()}
       </div>
 
-      <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
-        <button type="button" onClick={onBack} disabled={step === 'loading'} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50">
-          Voltar
-        </button>
-      </div>
+      {step !== 'loading' && (
+        <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
+          <button 
+            type="button" 
+            onClick={onBack} 
+            className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600"
+          >
+            Voltar
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,26 +1,24 @@
-const CACHE_NAME = 'relp-cell-cache-v1';
+const CACHE_NAME = 'relp-cell-cache-v2';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/index.tsx', // Adicionado o script principal ao cache
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  '/src/main.tsx'
 ];
 
-// Evento de instalação: abre um cache e adiciona os URLs do app shell a ele
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('Cache aberto e arquivos do app shell adicionados');
-        return cache.addAll(urlsToCache);
+        console.log('Cache aberto');
+        return cache.addAll(urlsToCache).catch(err => {
+          console.log('Erro ao adicionar ao cache:', err);
+        });
       })
   );
+  self.skipWaiting();
 });
 
-// Evento de fetch: serve conteúdo do cache primeiro (cache-first)
 self.addEventListener('fetch', (event) => {
-  // Ignora requisições que não são GET
   if (event.request.method !== 'GET') {
     return;
   }
@@ -28,38 +26,36 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Cache hit - retorna a resposta do cache
         if (response) {
           return response;
         }
 
-        // Se não estiver no cache, busca na rede
         return fetch(event.request).then(
           (response) => {
-            // Verifica se recebemos uma resposta válida
             if (!response || response.status !== 200 || response.type !== 'basic') {
               return response;
             }
 
-            // Clona a resposta para poder armazená-la no cache
             const responseToCache = response.clone();
 
             caches.open(CACHE_NAME)
               .then((cache) => {
-                // Não armazena em cache as rotas de API
-                if (!event.request.url.includes('/api/')) {
+                if (!event.request.url.includes('/api/') && 
+                    !event.request.url.includes('aistudiocdn.com') &&
+                    !event.request.url.includes('cdn.tailwindcss.com')) {
                    cache.put(event.request, responseToCache);
                 }
               });
 
             return response;
           }
-        );
+        ).catch(() => {
+          return caches.match('/index.html');
+        });
       })
   );
 });
 
-// Evento de ativação: limpa caches antigos para evitar conflitos
 self.addEventListener('activate', (event) => {
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
@@ -74,4 +70,5 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  return self.clients.claim();
 });

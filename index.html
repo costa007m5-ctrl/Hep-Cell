@@ -4,10 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Relp Cell - Pagamento de Faturas</title>
-    <!-- PWA Tags -->
+    
+    <!-- PWA Meta Tags -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#4f46e5" />
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <meta name="description" content="Aplicativo para pagamento de faturas da Relp Cell" />
+    
+    <!-- iOS PWA Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Relp Cell" />
+    <link rel="apple-touch-icon" href="https://images.unsplash.com/photo-1556656793-08538906a9f8?w=192&h=192&fit=crop&q=80" />
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -60,15 +67,14 @@
 </head>
   <body class="bg-slate-50 dark:bg-gradient-to-b dark:from-slate-900 dark:to-black">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-    <!-- PWA Service Worker Registration -->
+    <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then(registration => {
-            console.log('SW registered: ', registration);
-          }).catch(registrationError => {
-            console.log('SW registration failed: ', registrationError);
+            console.log('✅ Service Worker registrado:', registration);
+          }).catch(error => {
+            console.log('❌ Falha ao registrar Service Worker:', error);
           });
         });
       }
