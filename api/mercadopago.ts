@@ -3,7 +3,6 @@ import { URL } from 'url';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
-// FIX: Import the 'Invoice' type to resolve the 'Cannot find name 'Invoice'' error.
 import type { Invoice } from '../src/types';
 
 // --- Funções Auxiliares de Validação ---
@@ -34,11 +33,16 @@ function getGeminiClient() {
 }
 
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
-    const { error } = await supabase.from('action_logs').insert({ action_type, status, description, details });
-    if (error) {
-        console.error(`Failed to log action: ${action_type}`, error);
+    try {
+        const { error } = await supabase.from('action_logs').insert({ action_type, status, description, details });
+        if (error) {
+            console.error(`Failed to log action: ${action_type}`, error);
+        }
+    } catch (e) {
+        console.error('Logging action failed before it could be sent to Supabase.', e);
     }
 }
+
 
 // --- Handler para o Webhook de Autenticação do Supabase ---
 async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
@@ -84,6 +88,7 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
         const preference = new Preference(client);
         const preferenceBody: any = {
             items: [{ id: id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
+            external_reference: id,
         };
 
         if (payerEmail) {
@@ -122,7 +127,7 @@ async function handleGenerateMessage(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- Handler para /api/mercadopago/process-payment ---
+// --- Handler para /api/mercadopago/process-payment (Brick) ---
 async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
@@ -134,50 +139,19 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         }
         
         const payment = new Payment(client);
-        const result = await payment.create({ body: paymentData });
-
-        if (result.id && result.external_reference) {
-            const invoiceId = result.external_reference;
-            const updateData: Partial<Invoice> = {
-                payment_id: String(result.id),
-                payment_method: result.payment_method?.id,
-            };
-
-            switch (result.status) {
-                case 'approved':
-                    updateData.status = 'Paga';
-                    updateData.payment_date = new Date().toISOString();
-                    break;
-                case 'in_process':
-                case 'pending':
-                    updateData.status = result.payment_method?.id === 'boleto' ? 'Boleto Gerado' : 'Em aberto';
-                     if (result.payment_method?.id === 'boleto') {
-                        const transactionData = result.point_of_interaction?.transaction_data as any;
-                        updateData.boleto_url = transactionData?.ticket_url;
-                        updateData.boleto_barcode = transactionData?.bar_code?.content;
-                    }
-                    break;
-                case 'rejected':
-                case 'cancelled':
-                     updateData.status = 'Cancelado';
-                    break;
-            }
-
-            const { error: updateError } = await supabase.from('invoices')
-                .update(updateData)
-                .eq('id', invoiceId);
-            
-            if (updateError) {
-                console.error(`Falha ao atualizar fatura ${invoiceId} após pagamento`, updateError);
-                // Não falha a requisição, mas loga o erro
-            }
-        }
+        const result = await payment.create({ body: { ...paymentData, external_reference: paymentData.external_reference || null } });
         
-        if (result.status === 'approved' || result.status === 'in_process') {
-            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} processado para fatura ${result.external_reference}. Status: ${result.status}`);
-            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento processado com sucesso.' });
+        const invoiceId = result.external_reference;
+
+        if (result.status === 'approved') {
+            await supabase.from('invoices').update({ status: 'Paga', payment_id: String(result.id), payment_date: new Date().toISOString() }).eq('id', invoiceId);
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} APROVADO para fatura ${invoiceId}.`);
+            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento aprovado.' });
+        } else if (result.status === 'in_process' || result.status === 'pending') {
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} PENDENTE para fatura ${invoiceId}.`);
+            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento pendente de processamento.' });
         } else {
-            await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${result.external_reference} falhou. Status: ${result.status_detail}`, { result });
+             await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${invoiceId} falhou. Status: ${result.status_detail}`, { result });
             res.status(400).json({ status: result.status, message: result.status_detail || 'Pagamento recusado.' });
         }
     } catch (error: any) {
@@ -186,6 +160,122 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
 }
+
+// --- Handler para PIX ---
+async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const client = getMercadoPagoClient();
+        const { invoiceId, amount, description, payerEmail, userId, firstName, lastName, identificationNumber } = req.body;
+
+        if (!invoiceId || !amount || !description || !payerEmail || !userId) {
+            return res.status(400).json({ message: 'Dados da fatura e do usuário são obrigatórios.' });
+        }
+
+        let profile = { first_name: firstName, last_name: lastName, identification_number: identificationNumber };
+
+        if (!firstName || !lastName || !identificationNumber) {
+            const { data, error } = await supabase.from('profiles').select('first_name, last_name, identification_number').eq('id', userId).single();
+            if (error || !data || !data.first_name || !data.last_name || !data.identification_number) {
+                 return res.status(400).json({ code: 'INCOMPLETE_PROFILE', message: 'Seu perfil está incompleto. Por favor, preencha seu nome completo e CPF para continuar.' });
+            }
+            profile = data;
+        }
+
+        const payment = new Payment(client);
+        const result = await payment.create({
+            body: {
+                transaction_amount: amount,
+                description: description,
+                payment_method_id: 'pix',
+                external_reference: invoiceId,
+                payer: {
+                    email: payerEmail,
+                    first_name: profile.first_name,
+                    last_name: profile.last_name,
+                    identification: { type: 'CPF', number: profile.identification_number!.replace(/\D/g, '') }
+                }
+            }
+        });
+
+        if (!result.id || !result.point_of_interaction?.transaction_data) {
+            throw new Error('Resposta inválida da API do Mercado Pago ao criar PIX.');
+        }
+
+        await supabase.from('invoices').update({ payment_id: String(result.id), status: 'Em aberto' }).eq('id', invoiceId);
+        await logAction(supabase, 'PIX_CREATED', 'SUCCESS', `PIX gerado para fatura ${invoiceId}.`);
+
+        res.status(200).json({
+            paymentId: result.id,
+            qrCode: result.point_of_interaction.transaction_data.qr_code,
+            qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64,
+            expires: result.date_of_expiration,
+        });
+
+    } catch (error: any) {
+         await logAction(supabase, 'PIX_CREATED', 'FAILURE', `Falha ao gerar PIX.`, { error: error.message, body: req.body });
+        res.status(500).json({ message: error.message });
+    }
+}
+
+// --- Handler para Boleto ---
+async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const client = getMercadoPagoClient();
+    try {
+        const { invoiceId, amount, description, payer } = req.body;
+        if (!invoiceId || !amount || !description || !payer) {
+            return res.status(400).json({ error: 'Dados da fatura e do pagador são obrigatórios.' });
+        }
+        
+        const payment = new Payment(client);
+        const result = await payment.create({
+            body: {
+                transaction_amount: amount,
+                description: description,
+                payment_method_id: 'bolbradesco',
+                external_reference: invoiceId,
+                payer: {
+                    email: payer.email,
+                    first_name: payer.firstName,
+                    last_name: payer.lastName,
+                    identification: { type: 'CPF', number: payer.identificationNumber.replace(/\D/g, '') },
+                    address: {
+                        zip_code: payer.zipCode,
+                        street_name: payer.streetName,
+                        street_number: payer.streetNumber,
+                        neighborhood: payer.neighborhood,
+                        city: payer.city,
+                        federal_unit: payer.federalUnit,
+                    },
+                },
+            },
+        });
+
+        if (!result.id || !result.point_of_interaction?.transaction_data) {
+            throw new Error('Resposta inválida da API ao gerar boleto.');
+        }
+
+        const transactionData = result.point_of_interaction.transaction_data as any;
+        const boletoUrl = transactionData.ticket_url;
+        const boletoBarcode = transactionData.bar_code?.content;
+
+        await supabase.from('invoices').update({
+            payment_id: String(result.id),
+            status: 'Boleto Gerado',
+            boleto_url: boletoUrl,
+            boleto_barcode: boletoBarcode,
+        }).eq('id', invoiceId);
+
+        await logAction(supabase, 'BOLETO_CREATED', 'SUCCESS', `Boleto gerado para fatura ${invoiceId}.`);
+        res.status(200).json({ paymentId: result.id, boletoUrl, boletoBarcode });
+
+    } catch (error: any) {
+        await logAction(supabase, 'BOLETO_CREATED', 'FAILURE', `Falha ao gerar boleto.`, { error: error.message, body: req.body });
+        res.status(500).json({ error: 'Falha ao gerar boleto.', message: error.message });
+    }
+}
+
 
 // --- Handler para /api/mercadopago/webhook ---
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
@@ -207,7 +297,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                 return res.status(200).send('OK. Pagamento não encontrado no MP.');
             }
 
-            let newStatus: 'Paga' | 'Expirado' | 'Cancelado' | null = null;
+            let newStatus: Invoice['status'] | null = null;
             switch(paymentDetails.status) {
                 case 'approved': newStatus = 'Paga'; break;
                 case 'cancelled': newStatus = paymentDetails.status_detail === 'expired' ? 'Expirado' : 'Cancelado'; break;
@@ -237,22 +327,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const url = new URL(req.url!, `http://${req.headers.host}`);
   const path = url.pathname;
 
-  // Rota de webhook aceita GET para verificação de URL pelo MP
   if (path === '/api/mercadopago/webhook') {
     return await handleWebhook(req, res);
   }
 
-  // A rota do Auth Hook do Supabase deve ser POST
   if (path === '/api/mercadopago/auth-hook') {
-      if (req.method === 'POST') {
-          return await handleAuthHook(req, res);
-      } else {
-          res.setHeader('Allow', 'POST');
-          return res.status(405).json({ error: `Method ${req.method} Not Allowed for Auth Hook` });
-      }
+      if (req.method === 'POST') return await handleAuthHook(req, res);
+      res.setHeader('Allow', 'POST');
+      return res.status(405).json({ error: `Method ${req.method} Not Allowed for Auth Hook` });
   }
 
-  // Demais rotas devem ser POST
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
@@ -265,6 +349,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await handleGenerateMessage(req, res);
     case '/api/mercadopago/process-payment':
       return await handleProcessPayment(req, res);
+    case '/api/mercadopago/create-pix-payment':
+      return await handleCreatePixPayment(req, res);
+    case '/api/mercadopago/create-boleto-payment':
+      return await handleCreateBoletoPayment(req, res);
     default:
       return res.status(404).json({ error: 'Mercado Pago route not found' });
   }
