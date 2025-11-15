@@ -92,7 +92,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
             } else {
                 setFormData(prev => ({
                     ...prev,
-                    streetName: data.logradouro,
+                    streetName: data.logouro,
                     neighborhood: data.bairro,
                     city: data.localidade,
                     federalUnit: data.uf,

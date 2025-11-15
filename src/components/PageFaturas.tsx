@@ -4,17 +4,11 @@ import { Invoice } from '../types';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import PaymentMethodSelector from './PaymentMethodSelector';
-import PixPayment from './PixPayment';
-import BoletoPayment from './BoletoPayment';
-import BoletoDetails from './BoletoDetails';
 import { diagnoseDatabaseError } from '../services/geminiService';
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
-
-type PaymentStep = 'list' | 'select_method' | 'form' | 'pix' | 'boleto' | 'view_boleto';
 
 interface ErrorInfo {
     message: string;
@@ -90,7 +84,7 @@ const statusConfig = {
 };
 
 // InvoiceItem Component
-const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void; onViewBoleto?: (invoice: Invoice) => void; discountInfo: ReturnType<typeof getDiscountInfo> | null }> = ({ invoice, onPay, onViewBoleto, discountInfo }) => {
+const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void; discountInfo: ReturnType<typeof getDiscountInfo> | null }> = ({ invoice, onPay, discountInfo }) => {
     const config = statusConfig[invoice.status] || statusConfig['Em aberto'];
     const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
 
@@ -134,11 +128,6 @@ const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => vo
                         ) : 'Pagar'}
                     </button>
                 )}
-                 {invoice.status === 'Boleto Gerado' && onViewBoleto && (
-                    <button onClick={() => onViewBoleto(invoice)} className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none">
-                        Ver Boleto
-                    </button>
-                )}
             </div>
         </div>
     );
@@ -150,8 +139,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
     const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
-    const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
-    const [isRedirecting, setIsRedirecting] = useState(false);
 
     const fetchInvoices = useCallback(async () => {
         setIsLoading(true);
@@ -184,14 +171,14 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     }, []);
 
     useEffect(() => {
-        if (paymentStep === 'list') {
-            fetchInvoices();
-        }
-    }, [paymentStep, fetchInvoices]);
+      if (!selectedInvoice) {
+        fetchInvoices();
+      }
+    }, [selectedInvoice, fetchInvoices]);
 
     const openInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'), [invoices]);
     const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga' || inv.status === 'Expirado' || inv.status === 'Cancelado'), [invoices]);
-    const totalDue = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto').reduce((sum, inv) => sum + inv.amount, 0), [invoices]);
+    const totalDue = useMemo(() => invoices.filter(i => i.status === 'Em aberto').reduce((sum, inv) => sum + inv.amount, 0), [invoices]);
 
     const handlePayClick = (invoice: Invoice) => {
         const discountInfo = getDiscountInfo(invoice.due_date, invoice.amount);
@@ -202,103 +189,43 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             discountValue: discountInfo ? discountInfo.discountValue : 0,
         };
         setSelectedInvoice(invoiceToPay);
-        setPaymentStep('select_method');
     };
     
-    const handleViewBoletoClick = (invoice: Invoice) => {
-        setSelectedInvoice(invoice);
-        setPaymentStep('view_boleto');
-    };
-
-    const handleMethodSelect = async (method: string) => {
-        if (!selectedInvoice) return;
-    
-        if (method === 'brick') setPaymentStep('form');
-        else if (method === 'pix') setPaymentStep('pix');
-        else if (method === 'boleto') setPaymentStep('boleto');
-        else if (method === 'redirect') {
-            setIsRedirecting(true);
-            try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) throw new Error("Usuário não autenticado");
-
-                const response = await fetch('/api/mercadopago/create-preference', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: selectedInvoice.id,
-                        description: `Fatura Relp Cell - ${selectedInvoice.month}`,
-                        amount: selectedInvoice.amount,
-                        payerEmail: user.email,
-                        redirect: true,
-                    }),
-                });
-                if (!response.ok) throw new Error('Falha ao criar preferência de pagamento.');
-                const data = await response.json();
-                window.location.href = data.init_point;
-            } catch (error: any) {
-                setErrorInfo({ message: error.message, isDiagnosing: false });
-                setIsRedirecting(false);
-            }
-        }
-    };
-
-    const handleBackToMethodSelection = () => setPaymentStep('select_method');
     const handleBackToList = () => {
         setSelectedInvoice(null);
-        setPaymentStep('list');
     };
 
-    const handlePaymentSuccess = useCallback(async () => {
+    const handlePaymentSuccess = useCallback(async (paymentId: string | number) => {
         if (selectedInvoice) {
+             // Atualiza a fatura localmente de forma otimista para uma UI mais rápida
+            setInvoices(prevInvoices => prevInvoices.map(inv =>
+                inv.id === selectedInvoice.id ? { ...inv, status: 'Paga' } : inv
+            ));
+            
+            // Atualiza o banco de dados em segundo plano
             const { error: updateError } = await supabase
                 .from('invoices')
-                .update({ status: 'Paga' })
+                .update({ 
+                    status: 'Paga', 
+                    payment_id: String(paymentId),
+                    payment_date: new Date().toISOString()
+                })
                 .eq('id', selectedInvoice.id);
 
             if (updateError) {
                 console.error('Failed to update invoice status:', updateError);
-                 setErrorInfo({ message: 'Houve um erro ao atualizar o status do pagamento.', isDiagnosing: false });
+                 setErrorInfo({ message: 'Houve um erro ao atualizar o status do pagamento. Seus dados estão seguros, mas a fatura pode demorar a atualizar.', isDiagnosing: false });
+                 // Reverte a atualização local se o DB falhar
+                 setInvoices(prevInvoices => prevInvoices.map(inv =>
+                    inv.id === selectedInvoice.id ? { ...inv, status: selectedInvoice.status } : inv
+                 ));
             }
         }
-        handleBackToList();
+        setSelectedInvoice(null);
     }, [selectedInvoice]);
     
-    const handleBoletoGenerated = (updatedInvoice: Invoice) => {
-        setInvoices(prevInvoices => prevInvoices.map(inv =>
-            inv.id === updatedInvoice.id ? updatedInvoice : inv
-        ));
-        setSelectedInvoice(updatedInvoice);
-        setPaymentStep('view_boleto');
-    };
-    
-    if (isRedirecting) {
-      return (
-            <div className="w-full max-w-md flex flex-col items-center justify-center space-y-4 p-8">
-                <LoadingSpinner />
-                <p className="text-slate-500 dark:text-slate-400">Redirecionando para o pagamento seguro...</p>
-            </div>
-      );
-    }
-
-    if (paymentStep === 'view_boleto' && selectedInvoice) {
-        return <BoletoDetails invoice={selectedInvoice} onBack={handleBackToList} />;
-    }
-
-    if (paymentStep === 'select_method' && selectedInvoice) {
-        return <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={handleMethodSelect} onBack={handleBackToList} />;
-    }
-    
-    if (paymentStep === 'pix' && selectedInvoice) {
-        return <PixPayment invoice={selectedInvoice} onBack={handleBackToMethodSelection} onPaymentConfirmed={handleBackToList} />;
-    }
-
-    if (paymentStep === 'boleto' && selectedInvoice) {
-        return <BoletoPayment invoice={selectedInvoice} onBack={handleBackToMethodSelection} onBoletoGenerated={handleBoletoGenerated} />;
-    }
-    
-    if (paymentStep === 'form' && selectedInvoice) {
-        return <PaymentForm invoice={selectedInvoice} mpPublicKey={mpPublicKey} onBack={handleBackToMethodSelection} onPaymentSuccess={handlePaymentSuccess} />;
+    if (selectedInvoice) {
+        return <PaymentForm invoice={selectedInvoice} mpPublicKey={mpPublicKey} onBack={handleBackToList} onPaymentSuccess={handlePaymentSuccess} />;
     }
     
     if (isLoading) {
@@ -377,8 +304,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                             <InvoiceItem 
                                 key={invoice.id} 
                                 invoice={invoice} 
-                                onPay={handlePayClick} 
-                                onViewBoleto={handleViewBoletoClick}
+                                onPay={handlePayClick}
                                 discountInfo={discountInfo}
                              />
                         );

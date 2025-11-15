@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
-import { supabase } from '../services/clients';
-import { getProfile, updateProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import InputField from './InputField';
 
-
+// Declara o objeto global do Mercado Pago para o TypeScript
 declare global {
   interface Window {
     MercadoPago: any;
@@ -18,351 +15,176 @@ interface PaymentFormProps {
   invoice: Invoice;
   mpPublicKey: string;
   onBack: () => void;
-  onPaymentSuccess: () => void;
+  onPaymentSuccess: (paymentId: string | number) => void;
 }
 
 const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack, onPaymentSuccess }) => {
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [preferenceId, setPreferenceId] = useState<string | null>(null);
   
-  // States do formulário
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    identificationType: 'CPF',
-    identificationNumber: '',
-    zipCode: '',
-    streetName: '',
-    streetNumber: '',
-    neighborhood: '',
-    city: '',
-    federalUnit: '',
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isFetchingCep, setIsFetchingCep] = useState(false);
-  const [cepError, setCepError] = useState<string | null>(null);
-  const [saveData, setSaveData] = useState(true); // Checkbox para salvar dados
-  
-  // States do Mercado Pago
-  const [installments, setInstallments] = useState<any[]>([]);
-  const [selectedInstallment, setSelectedInstallment] = useState('');
-  const [paymentMethodId, setPaymentMethodId] = useState('');
-  const [isSDKReady, setIsSDKReady] = useState(false);
+  // Refs para gerenciar o contêiner do Brick e a instância
+  const paymentBrickRef = useRef<HTMLDivElement>(null);
+  const brickInstance = useRef<any>(null);
 
-  const cardFormRef = useRef<any>(null);
-  const streetNumberRef = useRef<HTMLInputElement>(null);
-  const onPaymentSuccessRef = useRef(onPaymentSuccess);
+  // Passo 1: Cria a preferência de pagamento no backend ao montar o componente.
   useEffect(() => {
-    onPaymentSuccessRef.current = onPaymentSuccess;
-  }, [onPaymentSuccess]);
-  
-  // Efeito para buscar e preencher dados do perfil
-  useEffect(() => {
-    const fetchAndSetProfile = async () => {
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-            const profile = await getProfile(user.id);
-            if (profile) {
-                setFormData(prev => ({
-                    ...prev,
-                    firstName: profile.first_name || '',
-                    lastName: profile.last_name || '',
-                    identificationNumber: profile.identification_number || '',
-                    zipCode: profile.zip_code || '',
-                    streetName: profile.street_name || '',
-                    streetNumber: profile.street_number || '',
-                    neighborhood: profile.neighborhood || '',
-                    city: profile.city || '',
-                    federalUnit: profile.federal_unit || '',
-                }));
-            }
-        } catch (error) {
-            console.error("Falha ao buscar perfil do usuário:", error);
-        }
-    };
-    fetchAndSetProfile();
-  }, []);
-
-  // Efeito para inicializar o Card Form do Mercado Pago
-  useEffect(() => {
-    if (!mpPublicKey) return;
-
-    try {
-        const mp = new window.MercadoPago(mpPublicKey);
-        const cardForm = mp.cardForm({
-            amount: String(invoice.amount),
-            iframe: true,
-            form: {
-                id: 'form-checkout',
-                cardNumber: { id: 'form-checkout-cardNumber' },
-                securityCode: { id: 'form-checkout-securityCode' },
-                expirationDate: { id: 'form-checkout-expirationDate' },
-            },
-            callbacks: {
-                onReady: () => setIsSDKReady(true),
-                onPaymentMethodsReceived: (error: any, paymentMethods: any) => {
-                    if (error) return console.error('onPaymentMethodsReceived: ', error);
-                    setPaymentMethodId(paymentMethods[0].id);
-                },
-                onInstallmentsReceived: (error: any, installmentsResponse: any) => {
-                    if (error) return console.error('onInstallmentsReceived: ', error);
-                    if (installmentsResponse && installmentsResponse.length > 0 && installmentsResponse[0].payer_costs) {
-                        setInstallments(installmentsResponse[0].payer_costs);
-                        if (installmentsResponse[0].payer_costs.length > 0) {
-                            setSelectedInstallment(installmentsResponse[0].payer_costs[0].recommended_message);
-                        }
-                    }
-                },
-                onError: (error: any) => {
-                    console.error("CardForm Error:", error);
-                    setStatus(PaymentStatus.ERROR);
-                    setMessage(error[0]?.message || 'Verifique os dados do cartão.');
-                }
-            },
-        });
-        cardFormRef.current = cardForm;
-    } catch (e: any) {
-        console.error("Falha ao inicializar o formulário do Mercado Pago:", e);
-        let errorMessage = "Não foi possível carregar o formulário de pagamento seguro. Por favor, tente novamente.";
-        // Melhora a extração da mensagem de erro
-        if (Array.isArray(e) && e.length > 0 && e[0].message) {
-            errorMessage = e[0].message;
-        } else if (e.message) {
-            errorMessage = e.message;
-        }
-        setStatus(PaymentStatus.ERROR);
-        setMessage(errorMessage);
-    }
-
-  }, [mpPublicKey, invoice.amount]);
-
-  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    let { name, value } = e.target;
-
-    if (name === 'zipCode') {
-        setCepError(null);
-        value = value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2').substring(0, 9);
-    } else if (name === 'identificationNumber') {
-        value = value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
-    }
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-  
-  // Efeito para buscar o endereço via CEP
-  useEffect(() => {
-    const cep = formData.zipCode.replace(/\D/g, '');
-    if (cep.length !== 8) return;
-
-    const fetchAddress = async () => {
-        setIsFetchingCep(true);
-        setCepError(null);
-        try {
-            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-            if (!res.ok) throw new Error('API do ViaCEP falhou');
-            const data = await res.json();
-            if (data.erro) {
-                setCepError('CEP não encontrado. Por favor, verifique o número.');
-            } else {
-                setFormData(prev => ({
-                    ...prev,
-                    streetName: data.logradouro,
-                    neighborhood: data.bairro,
-                    city: data.localidade,
-                    federalUnit: data.uf,
-                }));
-                streetNumberRef.current?.focus();
-            }
-        } catch (error) {
-            console.error('Erro ao buscar CEP', error);
-            setCepError('Não foi possível buscar o CEP. Tente novamente.');
-        } finally {
-            setIsFetchingCep(false);
-        }
-    };
-    fetchAddress();
-  }, [formData.zipCode]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setStatus(PaymentStatus.PENDING);
-
-    try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user?.email) throw new Error('Sessão expirada. Faça login novamente.');
-
-        const cardToken = await cardFormRef.current.createCardToken();
-        
-        const paymentPayload = {
-            token: cardToken,
-            issuer_id: cardFormRef.current.getIssuerId(),
-            payment_method_id: paymentMethodId,
-            transaction_amount: invoice.amount,
-            installments: parseInt(selectedInstallment.split('x')[0]) || 1,
+    const createPreference = async () => {
+      setIsLoading(true);
+      setStatus(PaymentStatus.IDLE);
+      try {
+        const response = await fetch('/api/mercadopago/create-preference', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: invoice.id,
             description: `Fatura Relp Cell - ${invoice.month}`,
-            payer: {
-                email: user.email,
-                first_name: formData.firstName,
-                last_name: formData.lastName,
-                identification: {
-                    type: formData.identificationType,
-                    number: formData.identificationNumber,
-                },
-                address: {
-                    zip_code: formData.zipCode,
-                    street_name: formData.streetName,
-                    street_number: formData.streetNumber,
-                    neighborhood: formData.neighborhood,
-                    city: formData.city,
-                    federal_unit: formData.federalUnit,
-                }
-            }
-        };
-
-        const response = await fetch('/api/mercadopago/process-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(paymentPayload),
+            amount: invoice.amount,
+          }),
         });
-
-        const result = await response.json();
         if (!response.ok) {
-            throw new Error(result.message || 'O pagamento foi recusado.');
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Falha ao criar a preferência de pagamento.');
         }
-        
-        // Salva os dados do usuário se o checkbox estiver marcado
-        if (saveData) {
-            await updateProfile({
-                id: user.id,
-                first_name: formData.firstName,
-                last_name: formData.lastName,
-                identification_number: formData.identificationNumber,
-                zip_code: formData.zipCode,
-                street_name: formData.streetName,
-                street_number: formData.streetNumber,
-                neighborhood: formData.neighborhood,
-                city: formData.city,
-                federal_unit: formData.federalUnit,
-            });
-        }
-
-        const successMsg = await generateSuccessMessage(formData.firstName, String(invoice.amount));
-        setMessage(successMsg);
-        setStatus(PaymentStatus.SUCCESS);
-        setTimeout(() => {
-            onPaymentSuccessRef.current();
-        }, 4000);
-
-    } catch (err: any) {
+        const data = await response.json();
+        setPreferenceId(data.id);
+      } catch (error: any) {
         setStatus(PaymentStatus.ERROR);
-        setMessage(err.message || "Erro ao processar pagamento.");
-    } finally {
-        setIsSubmitting(false);
+        setMessage(error.message || 'Não foi possível iniciar o pagamento. Tente novamente mais tarde.');
+        setIsLoading(false);
+      }
+    };
+    createPreference();
+  }, [invoice]);
+
+  // Passo 2: Inicializa o Payment Brick assim que a preferência de pagamento for criada.
+  useEffect(() => {
+    if (preferenceId && mpPublicKey && paymentBrickRef.current) {
+      const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+      const bricks = mp.bricks();
+
+      bricks.create('payment', paymentBrickRef.current.id, {
+        initialization: {
+          amount: invoice.amount,
+          preferenceId: preferenceId,
+          // Garante que o ID da fatura seja enviado
+          externalReference: invoice.id,
+        },
+        customization: {
+          paymentMethods: {
+            ticket: 'all',
+            creditCard: 'all',
+            debitCard: 'all',
+            mercadoPago: 'all',
+          },
+        },
+        callbacks: {
+          onReady: () => {
+            setIsLoading(false); // O Brick está visível, esconde o spinner
+          },
+          onSubmit: async (formData: any) => {
+            setStatus(PaymentStatus.PENDING);
+            try {
+              // Envia os dados do formulário para o backend processar o pagamento
+              const response = await fetch('/api/mercadopago/process-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData),
+              });
+              const paymentResult = await response.json();
+              if (!response.ok) {
+                throw new Error(paymentResult.message || 'O pagamento foi recusado.');
+              }
+
+              // Lida com a resposta do pagamento
+              if (paymentResult.status === 'approved') {
+                const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
+                setMessage(successMsg);
+                setStatus(PaymentStatus.SUCCESS);
+                setTimeout(() => {
+                  onPaymentSuccess(paymentResult.id);
+                }, 4000);
+              } else {
+                 setMessage("Seu pagamento está sendo processado. Você receberá a confirmação em breve.");
+                 setStatus(PaymentStatus.SUCCESS); // Trata como sucesso para a UI
+                 setTimeout(() => {
+                    onPaymentSuccess(paymentResult.id);
+                 }, 4000);
+              }
+            } catch (error: any) {
+              setStatus(PaymentStatus.ERROR);
+              setMessage(error.message || 'Erro ao finalizar o pagamento.');
+            }
+          },
+          onError: (error: any) => {
+            console.error('Payment Brick Error:', error);
+            setStatus(PaymentStatus.ERROR);
+            setMessage('Ocorreu um erro. Verifique os dados e tente novamente.');
+          },
+        },
+      }).then((brick: any) => {
+          brickInstance.current = brick; // Guarda a instância para poder destruí-la
+      });
     }
-  };
-  
-  if (status === PaymentStatus.SUCCESS || status === PaymentStatus.ERROR) {
+
+    // Função de limpeza para desmontar o Brick quando o componente for destruído
+    return () => {
+        if (brickInstance.current) {
+          brickInstance.current.unmount();
+        }
+    };
+  }, [preferenceId, mpPublicKey, invoice.amount, invoice.id, invoice.month, onPaymentSuccess]);
+
+  const renderContent = () => {
+    if (status === PaymentStatus.ERROR) {
+      return <div className="p-4"><Alert message={message} type="error" /></div>;
+    }
+    if (status === PaymentStatus.SUCCESS) {
+      return <div className="p-4"><Alert message={message} type="success" /></div>;
+    }
+    if (status === PaymentStatus.PENDING) {
+        return (
+            <div className="flex flex-col items-center justify-center p-8 space-y-4">
+                <LoadingSpinner />
+                <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
+                <p className="text-sm text-slate-400">Por favor, não feche ou atualize a página.</p>
+            </div>
+        )
+    }
+
     return (
-        <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 animate-fade-in">
-             <Alert message={message} type={status === PaymentStatus.SUCCESS ? 'success' : 'error'} />
-        </div>
-    )
-  }
-  
-  if (status === PaymentStatus.PENDING) {
-    return (
-        <div className="w-full max-w-md flex flex-col items-center justify-center p-8 space-y-4 bg-white dark:bg-slate-800 rounded-2xl shadow-lg">
-            <LoadingSpinner />
-            <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
-            <p className="text-sm text-slate-400">Por favor, não feche ou atualize a página.</p>
+        <div className="relative">
+            {isLoading && (
+                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 space-y-4 z-10">
+                    <LoadingSpinner />
+                    <p className="text-slate-500 dark:text-slate-400">Preparando pagamento seguro...</p>
+                </div>
+            )}
+            {/* O Brick do Mercado Pago será renderizado aqui */}
+            <div id="paymentBrick_container" ref={paymentBrickRef}></div>
         </div>
     );
-  }
+  };
 
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in">
-      <div className="text-center p-6 sm:p-8 border-b border-slate-200 dark:border-slate-700">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pagamento com Cartão</h2>
+       <div className="text-center p-6 sm:p-8 border-b border-slate-200 dark:border-slate-700">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pagamento Seguro</h2>
         <p className="text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - R$ {invoice.amount.toFixed(2).replace('.', ',')}</p>
       </div>
 
-      <form id="form-checkout" onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-4 relative min-h-[500px]">
-        {!isSDKReady && status !== PaymentStatus.ERROR && (
-             <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 space-y-4 z-10">
-                <LoadingSpinner />
-                <p className="text-slate-500 dark:text-slate-400">Carregando formulário seguro...</p>
-            </div>
-        )}
-        <div className={`space-y-4 transition-opacity duration-300 ${isSDKReady ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">Detalhes do Titular</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <InputField label="Nome" name="firstName" value={formData.firstName} onChange={handleFormChange} required />
-                <InputField label="Sobrenome" name="lastName" value={formData.lastName} onChange={handleFormChange} required />
-            </div>
-            <InputField label="CPF" name="identificationNumber" value={formData.identificationNumber} onChange={handleFormChange} required placeholder="000.000.000-00" maxLength={14}/>
-
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 pt-2">Endereço da Fatura</h3>
-            <InputField label="CEP" name="zipCode" value={formData.zipCode} onChange={handleFormChange} required placeholder="00000-000" maxLength={9} isLoading={isFetchingCep} error={cepError} />
-            <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2">
-                    <InputField label="Rua / Avenida" name="streetName" value={formData.streetName} onChange={handleFormChange} required />
-                </div>
-                <InputField label="Número" name="streetNumber" value={formData.streetNumber} onChange={handleFormChange} required ref={streetNumberRef} />
-            </div>
-            <InputField label="Bairro" name="neighborhood" value={formData.neighborhood} onChange={handleFormChange} required />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <InputField label="Cidade" name="city" value={formData.city} onChange={handleFormChange} required />
-                <InputField label="Estado (UF)" name="federalUnit" value={formData.federalUnit} onChange={handleFormChange} required maxLength={2} placeholder="SP" />
-            </div>
-
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 pt-2">Dados do Cartão</h3>
-            <div>
-                 <label htmlFor="form-checkout-cardNumber" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Número do Cartão</label>
-                <div id="form-checkout-cardNumber" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label htmlFor="form-checkout-expirationDate" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Vencimento</label>
-                    <div id="form-checkout-expirationDate" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
-                </div>
-                <div>
-                     <label htmlFor="form-checkout-securityCode" className="block text-sm font-medium text-slate-700 dark:text-slate-300">CVV</label>
-                    <div id="form-checkout-securityCode" className="mt-1 block w-full h-[38px] px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus-within:ring-2 focus-within:ring-indigo-500"></div>
-                </div>
-            </div>
-            {installments.length > 0 && (
-                 <div>
-                    <label htmlFor="installments" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Parcelas</label>
-                    <select id="installments" name="installments" value={selectedInstallment} onChange={(e) => setSelectedInstallment(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        {installments.map(inst => <option key={inst.installments} value={inst.recommended_message}>{inst.recommended_message}</option>)}
-                    </select>
-                </div>
-            )}
-             <div className="flex items-center pt-2">
-                <input
-                    id="save-data"
-                    name="save-data"
-                    type="checkbox"
-                    checked={saveData}
-                    onChange={(e) => setSaveData(e.target.checked)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-slate-300 rounded"
-                />
-                <label htmlFor="save-data" className="ml-2 block text-sm text-slate-900 dark:text-slate-300">
-                    Salvar meus dados para pagamentos futuros
-                </label>
-            </div>
-            <button type="submit" disabled={isSubmitting || !isSDKReady} className="w-full mt-4 flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                {isSubmitting ? <LoadingSpinner /> : `Pagar ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+      <div className="p-2 sm:p-4 min-h-[400px]">
+        {renderContent()}
+      </div>
+      
+      {status !== PaymentStatus.PENDING && status !== PaymentStatus.SUCCESS && (
+        <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
+             <button type="button" onClick={onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
+                Voltar
             </button>
         </div>
-      </form>
-      
-      <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
-        <button type="button" onClick={onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
-            Voltar
-        </button>
-      </div>
+      )}
     </div>
   );
 };

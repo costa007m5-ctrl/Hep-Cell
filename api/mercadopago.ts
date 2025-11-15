@@ -3,6 +3,8 @@ import { URL } from 'url';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
+// FIX: Import the 'Invoice' type to resolve the 'Cannot find name 'Invoice'' error.
+import type { Invoice } from '../src/types';
 
 // --- Funções Auxiliares de Validação ---
 function getSupabaseAdminClient() {
@@ -69,275 +71,6 @@ async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
 }
 
 
-// --- Handler para /api/mercadopago/create-boleto-payment ---
-async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    const { invoiceId } = req.body;
-    
-    try {
-        const client = getMercadoPagoClient();
-        
-        const { amount, description, payer } = req.body;
-        
-        // Validação detalhada
-        const missingFields = [];
-        if (!amount) missingFields.push('amount');
-        if (!description) missingFields.push('description');
-        if (!invoiceId) missingFields.push('invoiceId');
-        if (!payer) missingFields.push('payer');
-        if (payer) {
-            if (!payer.email) missingFields.push('payer.email');
-            if (!payer.firstName) missingFields.push('payer.firstName');
-            if (!payer.lastName) missingFields.push('payer.lastName');
-            if (!payer.identificationType) missingFields.push('payer.identificationType');
-            if (!payer.identificationNumber) missingFields.push('payer.identificationNumber');
-            if (!payer.zipCode) missingFields.push('payer.zipCode');
-            if (!payer.streetName) missingFields.push('payer.streetName');
-            if (!payer.streetNumber) missingFields.push('payer.streetNumber');
-            if (!payer.neighborhood) missingFields.push('payer.neighborhood');
-            if (!payer.city) missingFields.push('payer.city');
-            if (!payer.federalUnit) missingFields.push('payer.federalUnit');
-        }
-        
-        if (missingFields.length > 0) {
-            console.error('Campos faltando:', missingFields);
-            return res.status(400).json({ 
-                error: 'Dados incompletos', 
-                message: `Campos obrigatórios faltando: ${missingFields.join(', ')}`,
-                missingFields 
-            });
-        }
-
-        console.log('Criando boleto com dados:', {
-            amount,
-            description,
-            payer: {
-                email: payer.email,
-                firstName: payer.firstName,
-                lastName: payer.lastName,
-            }
-        });
-
-        const payment = new Payment(client);
-        const paymentData = {
-            transaction_amount: Number(amount),
-            description: description,
-            payment_method_id: 'boleto',
-            payer: {
-                email: payer.email, 
-                first_name: payer.firstName, 
-                last_name: payer.lastName,
-                identification: { 
-                    type: payer.identificationType, 
-                    number: payer.identificationNumber.replace(/\D/g, '') 
-                },
-                address: { 
-                    zip_code: payer.zipCode.replace(/\D/g, ''), 
-                    street_name: payer.streetName, 
-                    street_number: payer.streetNumber, 
-                    neighborhood: payer.neighborhood, 
-                    city: payer.city, 
-                    federal_unit: payer.federalUnit 
-                }
-            },
-            external_reference: invoiceId,
-        };
-        
-        console.log('Enviando para Mercado Pago:', JSON.stringify(paymentData, null, 2));
-        
-        const result = await payment.create({ body: paymentData });
-        
-        console.log('Resposta completa do Mercado Pago:', JSON.stringify(result, null, 2));
-        
-        // Extrair dados do boleto - tentar diferentes formatos
-        const transactionData = result.point_of_interaction?.transaction_data as any;
-        const resultAny = result as any; // Type assertion para acessar propriedades dinâmicas
-        
-        // Tentar diferentes caminhos para os dados do boleto
-        let ticketUrl = transactionData?.ticket_url || result.transaction_details?.external_resource_url;
-        let barcode = transactionData?.bar_code?.content || 
-                      transactionData?.barcode?.content ||
-                      resultAny.barcode?.content;
-        
-        console.log('Dados extraídos:', {
-            ticketUrl,
-            barcode,
-            hasTransactionData: !!transactionData,
-            transactionDataKeys: transactionData ? Object.keys(transactionData) : []
-        });
-
-        // Verificar se temos pelo menos a URL do boleto
-        if (result.id && ticketUrl) {
-            const { error: updateError } = await supabase.from('invoices').update({ 
-                status: 'Boleto Gerado', 
-                payment_id: String(result.id), 
-                boleto_url: ticketUrl, 
-                boleto_barcode: barcode || 'Código não disponível', 
-                payment_method: 'Boleto' 
-            }).eq('id', invoiceId);
-            
-            if (updateError) {
-                console.error('Falha ao salvar dados do boleto no Supabase:', updateError);
-                // Não cancelar o pagamento se já foi criado com sucesso
-                console.warn('Boleto foi criado no Mercado Pago mas falhou ao salvar no banco');
-            }
-            
-            await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto para fatura ${invoiceId} gerado com sucesso.`);
-            
-            res.status(200).json({ 
-                message: "Boleto gerado e salvo com sucesso!", 
-                paymentId: result.id, 
-                boletoUrl: ticketUrl, 
-                boletoBarcode: barcode || 'Código não disponível',
-                status: result.status,
-                statusDetail: result.status_detail
-            });
-        } else {
-            console.error("Resposta inesperada do Mercado Pago - dados faltando:", {
-                hasId: !!result.id,
-                hasTicketUrl: !!ticketUrl,
-                hasBarcode: !!barcode,
-                fullResponse: JSON.stringify(result, null, 2)
-            });
-            
-            // Se o pagamento foi criado mas não temos a URL, ainda retornar sucesso parcial
-            if (result.id) {
-                await logAction(supabase, 'BOLETO_GENERATED', 'SUCCESS', `Boleto ${result.id} criado mas URL não disponível imediatamente.`);
-                
-                res.status(200).json({ 
-                    message: "Boleto gerado! Aguarde alguns instantes para visualizar.", 
-                    paymentId: result.id,
-                    status: result.status,
-                    statusDetail: result.status_detail,
-                    note: "O link do boleto estará disponível em breve. Verifique seu email ou acesse o Mercado Pago."
-                });
-            } else {
-                throw new Error('A resposta da API do Mercado Pago não incluiu os dados do boleto.');
-            }
-        }
-    } catch (error: any) {
-        console.error('Erro ao criar boleto com Mercado Pago:', error);
-        console.error('Stack trace:', error.stack);
-        
-        await logAction(supabase, 'BOLETO_GENERATED', 'FAILURE', `Falha ao gerar boleto para fatura ${invoiceId}.`, { 
-            error: error.message,
-            stack: error.stack,
-            cause: error.cause 
-        });
-        
-        res.status(500).json({ 
-            error: 'Falha ao gerar o boleto.', 
-            message: error?.cause?.message || error.message || 'Ocorreu um erro interno.',
-            details: error.cause || error
-        });
-    }
-}
-
-// --- Handler para /api/mercadopago/create-pix-payment ---
-function formatDateForMP(date: Date): string {
-    const offset = -date.getTimezoneOffset();
-    const offsetSign = offset >= 0 ? '+' : '-';
-    const offsetHours = Math.floor(Math.abs(offset) / 60).toString().padStart(2, '0');
-    const offsetMinutes = (Math.abs(offset) % 60).toString().padStart(2, '0');
-    return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}T${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}${offsetSign}${offsetHours}:${offsetMinutes}`;
-}
-
-async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
-    const client = getMercadoPagoClient();
-    const payment = new Payment(client);
-    const supabase = getSupabaseAdminClient();
-    const { invoiceId } = req.body;
-    let paymentIdToCancel: number | undefined;
-
-    try {
-        const { amount, description, payerEmail, userId, firstName, lastName, identificationNumber } = req.body;
-        if (!amount || !description || !payerEmail || !invoiceId || !userId) {
-            return res.status(400).json({ error: 'Faltam dados obrigatórios para gerar o PIX.' });
-        }
-        
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('first_name, last_name, identification_number')
-            .eq('id', userId)
-            .single();
-
-        if (profileError && profileError.code !== 'PGRST116') {
-            console.error('Erro ao buscar perfil para PIX:', profileError);
-            return res.status(500).json({ message: 'Erro ao consultar dados do usuário.' });
-        }
-
-        const finalPayerInfo = {
-            firstName: profile?.first_name || firstName,
-            lastName: profile?.last_name || lastName,
-            identificationNumber: profile?.identification_number || identificationNumber
-        };
-
-        if (!finalPayerInfo.firstName || !finalPayerInfo.lastName || !finalPayerInfo.identificationNumber) {
-            return res.status(400).json({ 
-                code: 'INCOMPLETE_PROFILE',
-                message: 'Para gerar um PIX, por favor, preencha seu nome completo e CPF.' 
-            });
-        }
-        
-        if ((firstName || lastName || identificationNumber) && userId) {
-            supabase.from('profiles').update({
-                first_name: finalPayerInfo.firstName,
-                last_name: finalPayerInfo.lastName,
-                identification_number: finalPayerInfo.identificationNumber,
-                updated_at: new Date().toISOString()
-            }).eq('id', userId).then(({ error: updateError }) => {
-                if (updateError) console.error("Falha ao atualizar o perfil em segundo plano:", updateError);
-                else console.log(`Perfil do usuário ${userId} atualizado em segundo plano.`);
-            });
-        }
-        
-        const expirationDate = new Date();
-        expirationDate.setMinutes(expirationDate.getMinutes() + 30);
-        const paymentData = {
-            transaction_amount: Number(amount),
-            description: description,
-            payment_method_id: 'pix',
-            payer: {
-                email: payerEmail,
-                first_name: finalPayerInfo.firstName,
-                last_name: finalPayerInfo.lastName,
-                identification: { type: "CPF", number: finalPayerInfo.identificationNumber.replace(/\D/g, '') }
-            },
-            date_of_expiration: formatDateForMP(expirationDate),
-            external_reference: invoiceId,
-        };
-        const result = await payment.create({ body: paymentData });
-        paymentIdToCancel = result.id;
-
-        const transactionData = result.point_of_interaction?.transaction_data as any;
-
-        if (result.id && transactionData?.qr_code && transactionData?.qr_code_base64) {
-            const { error: updateError } = await supabase.from('invoices').update({ payment_id: String(result.id), payment_method: 'PIX' }).eq('id', invoiceId);
-            if (updateError) {
-                console.error('Falha ao salvar o ID do pagamento PIX no Supabase:', updateError);
-                // Adiciona a mensagem de erro original do Supabase para melhor depuração.
-                throw new Error(`Falha ao vincular o pagamento PIX à fatura no banco de dados. Detalhes: ${updateError.message}`);
-            }
-            
-            await logAction(supabase, 'PIX_GENERATED', 'SUCCESS', `PIX para fatura ${invoiceId} gerado com sucesso.`);
-            res.status(200).json({ paymentId: result.id, qrCode: transactionData.qr_code, qrCodeBase64: transactionData.qr_code_base64, expires: result.date_of_expiration });
-        } else {
-            console.error("Resposta inesperada do Mercado Pago ao criar PIX (sem dados de QR):", result);
-            throw new Error('A resposta da API do Mercado Pago não incluiu os dados do QR Code.');
-        }
-    } catch (error: any) {
-        console.error('Erro ao criar pagamento PIX com Mercado Pago:', error);
-        await logAction(supabase, 'PIX_GENERATED', 'FAILURE', `Falha ao gerar PIX para fatura ${invoiceId}.`, { error: error.message });
-        if (paymentIdToCancel) {
-            console.log(`Tentando cancelar o pagamento ${paymentIdToCancel} devido a um erro...`);
-            await payment.cancel({ id: paymentIdToCancel }).catch(cancelError => 
-                console.error(`Falha ao tentar cancelar o pagamento ${paymentIdToCancel}:`, cancelError)
-            );
-        }
-        res.status(500).json({ error: 'Falha ao gerar o código PIX.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
-    }
-}
-
 // --- Handler para /api/mercadopago/create-preference ---
 async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
     try {
@@ -351,8 +84,12 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
         const preference = new Preference(client);
         const preferenceBody: any = {
             items: [{ id: id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
-            payer: { email: payerEmail, first_name: "Test", last_name: "User", identification: { type: "CPF", number: "19119119100" } }
         };
+
+        if (payerEmail) {
+            preferenceBody.payer = { email: payerEmail };
+        }
+
         if (redirect) {
             const origin = req.headers.origin || 'https://relpcell.com';
             preferenceBody.back_urls = { success: `${origin}?payment_status=success`, failure: `${origin}?payment_status=failure`, pending: `${origin}?payment_status=pending` };
@@ -387,6 +124,7 @@ async function handleGenerateMessage(req: VercelRequest, res: VercelResponse) {
 
 // --- Handler para /api/mercadopago/process-payment ---
 async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
     try {
         const client = getMercadoPagoClient();
 
@@ -397,12 +135,53 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         
         const payment = new Payment(client);
         const result = await payment.create({ body: paymentData });
+
+        if (result.id && result.external_reference) {
+            const invoiceId = result.external_reference;
+            const updateData: Partial<Invoice> = {
+                payment_id: String(result.id),
+                payment_method: result.payment_method?.id,
+            };
+
+            switch (result.status) {
+                case 'approved':
+                    updateData.status = 'Paga';
+                    updateData.payment_date = new Date().toISOString();
+                    break;
+                case 'in_process':
+                case 'pending':
+                    updateData.status = result.payment_method?.id === 'boleto' ? 'Boleto Gerado' : 'Em aberto';
+                     if (result.payment_method?.id === 'boleto') {
+                        const transactionData = result.point_of_interaction?.transaction_data as any;
+                        updateData.boleto_url = transactionData?.ticket_url;
+                        updateData.boleto_barcode = transactionData?.bar_code?.content;
+                    }
+                    break;
+                case 'rejected':
+                case 'cancelled':
+                     updateData.status = 'Cancelado';
+                    break;
+            }
+
+            const { error: updateError } = await supabase.from('invoices')
+                .update(updateData)
+                .eq('id', invoiceId);
+            
+            if (updateError) {
+                console.error(`Falha ao atualizar fatura ${invoiceId} após pagamento`, updateError);
+                // Não falha a requisição, mas loga o erro
+            }
+        }
+        
         if (result.status === 'approved' || result.status === 'in_process') {
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} processado para fatura ${result.external_reference}. Status: ${result.status}`);
             res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento processado com sucesso.' });
         } else {
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${result.external_reference} falhou. Status: ${result.status_detail}`, { result });
             res.status(400).json({ status: result.status, message: result.status_detail || 'Pagamento recusado.' });
         }
     } catch (error: any) {
+        await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Erro no endpoint process-payment.`, { error: error.message });
         console.error('Erro ao processar pagamento com Mercado Pago:', error);
         res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
     }
@@ -480,10 +259,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   switch (path) {
-    case '/api/mercadopago/create-boleto-payment':
-      return await handleCreateBoletoPayment(req, res);
-    case '/api/mercadopago/create-pix-payment':
-      return await handleCreatePixPayment(req, res);
     case '/api/mercadopago/create-preference':
       return await handleCreatePreference(req, res);
     case '/api/mercadopago/generate-message':
