@@ -91,6 +91,9 @@ const SETUP_SQL = `
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_limit" numeric(10, 2);
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "credit_status" "text";
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "last_limit_request_date" timestamp with time zone;
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_due_date" boolean DEFAULT true;
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_new_invoice" boolean DEFAULT true;
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_promotions" boolean DEFAULT true;
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
     -- Tabela de Produtos (Products)

@@ -57,7 +57,7 @@ const PageLoja: React.FC = () => {
   return (
     <div className="w-full h-full bg-slate-100 dark:bg-slate-900 overflow-y-auto">
         <div className="max-w-6xl mx-auto">
-            <header className="p-4 sticky top-0 bg-slate-100 dark:bg-slate-900 z-10">
+            <header className="p-4 sticky top-0 bg-slate-100/80 dark:bg-slate-900/80 backdrop-blur-md z-10">
                 <SearchBar />
             </header>
             

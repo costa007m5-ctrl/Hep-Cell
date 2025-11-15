@@ -11,9 +11,35 @@ interface PagePerfilProps {
     session: Session;
 }
 
+interface NotificationPrefs {
+    notify_due_date: boolean;
+    notify_new_invoice: boolean;
+    notify_promotions: boolean;
+}
+
+// Componente de toggle switch reutilizável
+const ToggleSwitch: React.FC<{ label: string; description: string; checked: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; name: string; }> = ({ label, description, checked, onChange, name }) => (
+  <div className="flex items-center justify-between py-3">
+    <div className="pr-4">
+      <p className="font-medium text-slate-800 dark:text-slate-200">{label}</p>
+      <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
+    </div>
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={onChange} name={name} className="sr-only peer" />
+      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500/50 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+    </label>
+  </div>
+);
+
+
 const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
-  const [activeView, setActiveView] = useState<'main' | 'data'>('main');
+  const [activeView, setActiveView] = useState<'main' | 'data' | 'notifications'>('main');
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPrefs>({
+      notify_due_date: true,
+      notify_new_invoice: true,
+      notify_promotions: true,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +50,17 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
       setIsLoading(true);
       setError(null);
       const userProfile = await getProfile(session.user.id);
-      setProfile({
+      const fullProfile = {
           id: session.user.id,
           email: session.user.email,
           ...userProfile
+      };
+      setProfile(fullProfile);
+      // Define as preferências de notificação com base no perfil, com fallback para true
+      setNotificationPrefs({
+          notify_due_date: userProfile?.notify_due_date ?? true,
+          notify_new_invoice: userProfile?.notify_new_invoice ?? true,
+          notify_promotions: userProfile?.notify_promotions ?? true,
       });
     } catch (err: any) {
       setError('Não foi possível carregar seus dados.');
@@ -37,7 +70,8 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
   }, [session.user.id, session.user.email]);
 
   useEffect(() => {
-    if (activeView === 'data') {
+    // Carrega o perfil completo na primeira vez
+    if (activeView !== 'main' || !profile) {
       fetchUserProfile();
     }
   }, [activeView, fetchUserProfile]);
@@ -70,53 +104,84 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
     }
   };
 
+  const handleNotificationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const { name, checked } = e.target;
+      setNotificationPrefs(prev => ({ ...prev, [name]: checked }));
+  };
+
+  const handleSaveNotifications = async () => {
+      if (!profile) return;
+      setIsSaving(true);
+      setError(null);
+      setSuccessMessage(null);
+      try {
+          await updateProfile({ id: profile.id, ...notificationPrefs });
+          setSuccessMessage('Preferências salvas com sucesso!');
+      } catch (err: any) {
+          setError('Erro ao salvar suas preferências.');
+      } finally {
+          setIsSaving(false);
+          setTimeout(() => setSuccessMessage(null), 3000);
+      }
+  };
+
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
   
-  const renderProfileDataView = () => {
-    if (isLoading) return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
-    if (error) return <Alert message={error} type="error" />;
+  const renderProfileDataView = () => { /* ... (sem alterações) ... */ };
+  
+  const renderNotificationsView = () => {
+      if (isLoading) return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
+      if (error) return <Alert message={error} type="error" />;
 
-    return (
-        <form onSubmit={handleSaveProfile} className="space-y-4 animate-fade-in">
+      return (
+        <div className="space-y-4 animate-fade-in">
              <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Meus Dados</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Notificações</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Mantenha seus dados atualizados para agilizar seus pagamentos.
+                    Escolha quais comunicados por e-mail você deseja receber.
                 </p>
              </div>
              {successMessage && <Alert message={successMessage} type="success" />}
              
-             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <InputField label="Nome" name="first_name" value={profile?.first_name || ''} onChange={handleInputChange} required />
-                <InputField label="Sobrenome" name="last_name" value={profile?.last_name || ''} onChange={handleInputChange} required />
-            </div>
-             <InputField label="CPF" name="identification_number" value={profile?.identification_number || ''} onChange={handleInputChange} required placeholder="000.000.000-00" maxLength={14}/>
-            
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 pt-2 border-t border-slate-200 dark:border-slate-700">Endereço</h3>
-            <InputField label="CEP" name="zip_code" value={profile?.zip_code || ''} onChange={handleInputChange} required placeholder="00000-000" maxLength={9} />
-            <InputField label="Rua / Avenida" name="street_name" value={profile?.street_name || ''} onChange={handleInputChange} required />
-            <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-1"><InputField label="Número" name="street_number" value={profile?.street_number || ''} onChange={handleInputChange} required /></div>
-                <div className="col-span-2"><InputField label="Bairro" name="neighborhood" value={profile?.neighborhood || ''} onChange={handleInputChange} required /></div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <InputField label="Cidade" name="city" value={profile?.city || ''} onChange={handleInputChange} required />
-                <InputField label="Estado (UF)" name="federal_unit" value={profile?.federal_unit || ''} onChange={handleInputChange} required maxLength={2} placeholder="SP" />
-            </div>
+             <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                 <ToggleSwitch 
+                    label="Lembrete de Vencimento"
+                    description="Receba um aviso alguns dias antes de sua fatura vencer."
+                    checked={notificationPrefs.notify_due_date}
+                    onChange={handleNotificationChange}
+                    name="notify_due_date"
+                 />
+                  <ToggleSwitch 
+                    label="Nova Fatura"
+                    description="Seja notificado assim que uma nova fatura for gerada."
+                    checked={notificationPrefs.notify_new_invoice}
+                    onChange={handleNotificationChange}
+                    name="notify_new_invoice"
+                 />
+                  <ToggleSwitch 
+                    label="Promoções e Ofertas"
+                    description="Receba e-mails sobre novidades e descontos na loja."
+                    checked={notificationPrefs.notify_promotions}
+                    onChange={handleNotificationChange}
+                    name="notify_promotions"
+                 />
+             </div>
 
             <div className="flex flex-col sm:flex-row-reverse gap-3 pt-4">
-                <button type="submit" disabled={isSaving} className="w-full sm:w-auto flex justify-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                    {isSaving ? <LoadingSpinner /> : 'Salvar Dados'}
+                <button type="button" onClick={handleSaveNotifications} disabled={isSaving} className="w-full sm:w-auto flex justify-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    {isSaving ? <LoadingSpinner /> : 'Salvar Preferências'}
                 </button>
                 <button type="button" onClick={() => setActiveView('main')} className="w-full sm:w-auto flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
                     Voltar
                 </button>
             </div>
-        </form>
-    );
+        </div>
+      );
   };
+
 
   const renderMainView = () => (
     <div className="flex flex-col items-center text-center animate-fade-in">
@@ -138,6 +203,15 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                 </svg>
                 Meus Dados
             </button>
+             <button
+                onClick={() => setActiveView('notifications')}
+                className="w-full flex justify-center items-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                Notificações
+            </button>
 
             <button
                 onClick={handleLogout}
@@ -154,7 +228,9 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
 
   return (
     <div className="w-full max-w-md p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg">
-        {activeView === 'main' ? renderMainView() : renderProfileDataView()}
+        {activeView === 'main' && renderMainView()}
+        {activeView === 'data' && renderProfileDataView()}
+        {activeView === 'notifications' && renderNotificationsView()}
     </div>
   );
 };

@@ -47,6 +47,9 @@ export interface Profile {
   credit_limit?: number | null;
   credit_status?: string | null;
   last_limit_request_date?: string | null; // Data da última solicitação de aumento
+  notify_due_date?: boolean;
+  notify_new_invoice?: boolean;
+  notify_promotions?: boolean;
 }
 
 export interface ScoreHistory {
