@@ -346,7 +346,6 @@ async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelRes
 
 async function handleProducts(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    const { image_base64, ...productData } = req.body; // Moved for logging on error
     try {
         if (req.method === 'GET') {
             const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
@@ -354,6 +353,7 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json(data);
         }
         if (req.method === 'POST') {
+            const { image_base64, ...productData } = req.body;
             let imageUrl = productData.image_url;
 
             if (image_base64) {
@@ -384,7 +384,7 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (error: any) {
         if (req.method === 'POST') {
-            await logAction(supabase, 'PRODUCT_CREATED', 'FAILURE', 'Falha ao criar produto.', { error: error.message, productData });
+            await logAction(supabase, 'PRODUCT_CREATED', 'FAILURE', 'Falha ao criar produto.', { error: error.message, productData: req.body });
         }
         return res.status(500).json({ error: error.message });
     }
