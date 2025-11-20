@@ -73,7 +73,7 @@ export interface Product {
   stock: number;
   image_url: string | null;
   category?: string; 
-  brand?: string; // Novo campo
+  brand?: string; // Novo campo para Marca
   rating?: number; 
   reviews_count?: number; 
   is_new?: boolean; 

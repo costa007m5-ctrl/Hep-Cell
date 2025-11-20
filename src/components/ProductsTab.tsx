@@ -13,21 +13,21 @@ const ProductsTab: React.FC = () => {
     
     // States do formulário principal
     const [formState, setFormState] = useState({
-        id: '', // Adicionado ID para edição
+        id: '',
         name: '',
         description: '',
         price: '',
         stock: '',
         image_url: '',
         brand: '',
-        category: 'Celulares', // Valor padrão
+        category: 'Celulares',
     });
     const [imageBase64, setImageBase64] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitMessage, setSubmitMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     const [isEditing, setIsEditing] = useState(false);
 
-    // States para importação do Mercado Livre e Shopee
+    // States para importação
     const [mercadoLivreUrl, setMercadoLivreUrl] = useState('');
     const [isFetchingML, setIsFetchingML] = useState(false);
     const [mlError, setMlError] = useState<string | null>(null);
@@ -198,9 +198,6 @@ const ProductsTab: React.FC = () => {
             const specs = [];
             if (itemData.brand) specs.push(`Marca: ${itemData.brand}`);
             if (itemData.model) specs.push(`Modelo: ${itemData.model}`);
-            if (itemData.color) specs.push(`Cor: ${itemData.color}`);
-            if (itemData.memory_ram) specs.push(`Memória RAM: ${itemData.memory_ram}`);
-            if (itemData.storage) specs.push(`Armazenamento: ${itemData.storage}`);
             
             if (specs.length > 0) {
                 detailedDescription = `--- FICHA TÉCNICA ---\n${specs.join('\n')}\n\n--- DESCRIÇÃO ---\n${detailedDescription}`;
@@ -214,7 +211,7 @@ const ProductsTab: React.FC = () => {
                 stock: String(itemData.available_quantity || '1'),
                 image_url: itemData.pictures?.[0]?.secure_url || '',
                 brand: itemData.brand || '',
-                category: 'Celulares', // Default for electronics usually
+                category: 'Celulares',
             }));
 
             setImageBase64(null);
@@ -243,17 +240,10 @@ const ProductsTab: React.FC = () => {
                 throw new Error(data.error || 'Erro ao buscar na Shopee.');
             }
             
-            let detailedDescription = data.descricao || '';
-            detailedDescription = detailedDescription.replace(/\\n/g, '\n');
-
-            if (data.marca || data.estoque) {
-                 detailedDescription = `--- FICHA TÉCNICA ---\nMarca: ${data.marca || 'Genérica'}\nEstoque Original: ${data.estoque}\n\n--- DESCRIÇÃO ---\n${detailedDescription}`;
-            }
-
             setFormState(prev => ({
                 ...prev,
                 name: data.nome || '',
-                description: detailedDescription.trim(),
+                description: data.descricao || '',
                 price: String(data.preco || ''),
                 stock: String(data.estoque || '1'),
                 image_url: data.imagens?.[0] || '',
