@@ -6,19 +6,23 @@ import SearchBar from './store/SearchBar';
 import StoreCarousel from './store/StoreCarousel';
 import CategoryIcons from './store/CategoryIcons';
 import ProductCarousel from './store/ProductCarousel';
-import BrandLogos from './store/BrandLogos'; // Import the new component
+import BrandLogos from './store/BrandLogos';
+import ProductDetails from './store/ProductDetails';
 
 const PageLoja: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Estado para controlar a navegação interna da loja
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await fetch('/api/products');
+        const response = await fetch('/api/admin/products');
         if (!response.ok) {
           throw new Error('Não foi possível carregar os produtos da loja.');
         }
@@ -32,6 +36,19 @@ const PageLoja: React.FC = () => {
     };
     fetchProducts();
   }, []);
+
+  // Scroll para o topo quando muda de tela
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [selectedProduct]);
+
+  const handleProductClick = (product: Product) => {
+      setSelectedProduct(product);
+  };
+
+  const handleBackToStore = () => {
+      setSelectedProduct(null);
+  };
 
   if (isLoading) {
     return (
@@ -50,26 +67,46 @@ const PageLoja: React.FC = () => {
     );
   }
 
+  // Se houver um produto selecionado, mostra a tela de detalhes
+  if (selectedProduct) {
+      return (
+          <ProductDetails 
+              product={selectedProduct} 
+              allProducts={products} 
+              onBack={handleBackToStore} 
+              onProductClick={handleProductClick}
+          />
+      );
+  }
+
   // Divide os produtos para diferentes carrosséis
   const offers = products.slice(0, 8);
   const newArrivals = products.slice(8, 16);
 
   return (
-    <div className="w-full h-full bg-slate-100 dark:bg-slate-900 overflow-y-auto">
+    <div className="w-full h-full bg-slate-100 dark:bg-slate-900 overflow-y-auto animate-fade-in">
         <div className="max-w-6xl mx-auto">
-            <header className="p-4 sticky top-0 bg-slate-100/80 dark:bg-slate-900/80 backdrop-blur-md z-10">
+            <header className="p-4 sticky top-0 bg-slate-100/90 dark:bg-slate-900/90 backdrop-blur-md z-10">
                 <SearchBar />
             </header>
             
             <main className="space-y-8 pb-8">
                 <StoreCarousel />
                 <CategoryIcons />
-                <BrandLogos /> {/* Add the new brand logos carousel */}
+                <BrandLogos />
 
                 {products.length > 0 ? (
                     <>
-                        <ProductCarousel title="Ofertas do Dia" products={offers} />
-                        <ProductCarousel title="Novidades" products={newArrivals} />
+                        <ProductCarousel 
+                            title="Ofertas do Dia" 
+                            products={offers} 
+                            onProductClick={handleProductClick}
+                        />
+                        <ProductCarousel 
+                            title="Novidades" 
+                            products={newArrivals} 
+                            onProductClick={handleProductClick}
+                        />
                     </>
                 ) : (
                      <div className="text-center p-12 bg-white dark:bg-slate-800 rounded-2xl shadow-lg mx-4">
