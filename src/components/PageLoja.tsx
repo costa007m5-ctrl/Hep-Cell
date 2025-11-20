@@ -44,7 +44,7 @@ const CartDrawer: React.FC<{ isOpen: boolean; onClose: () => void; cartItems: Ca
     const total = cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
     return (
-        <div className="fixed inset-0 z-[70] flex justify-end">
+        <div className="fixed inset-0 z-[110] flex justify-end">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
             <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-up">
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900">

@@ -24,12 +24,16 @@ interface ErrorInfo {
     isDiagnosing: boolean;
 }
 
-// --- Invoice Group & Item --- (Reusing logic but enhancing UI)
+// --- Invoice Group & Item ---
 
 const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => void; onDetails?: (invoice: Invoice) => void; onReceipt?: (invoice: Invoice) => void; }> = ({ invoice, onPay, onDetails, onReceipt }) => {
-    const formattedDueDate = new Date(invoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR');
+    // Ajuste de timezone para exibir a data correta
+    const dateParts = invoice.due_date.split('-');
+    const dueDateObj = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+    const formattedDueDate = dueDateObj.toLocaleDateString('pt-BR');
+    
     const isPaid = invoice.status === 'Paga';
-    const isLate = !isPaid && new Date(invoice.due_date) < new Date();
+    const isLate = !isPaid && dueDateObj < new Date();
 
     return (
         <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
@@ -46,7 +50,7 @@ const InvoiceItem: React.FC<{ invoice: Invoice; onPay?: (invoice: Invoice) => vo
                 <div>
                     <p className="font-semibold text-slate-800 dark:text-slate-100 text-sm">{invoice.month}</p>
                     <p className={`text-xs ${isLate ? 'text-red-500 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-                        {isPaid ? 'Pago em dia' : `Vence em ${formattedDueDate}`}
+                        {isPaid ? 'Pago com sucesso' : `Vence em ${formattedDueDate}`}
                     </p>
                 </div>
             </div>
@@ -87,7 +91,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
-            const { data, error: dbError } = await supabase.from('invoices').select('*').eq('user_id', user.id).order('due_date', { ascending: false });
+            const { data, error: dbError } = await supabase.from('invoices').select('*').eq('user_id', user.id);
             if (dbError) throw dbError;
             setInvoices(data || []);
         } catch (err: any) {
@@ -100,10 +104,21 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 
     const filteredInvoices = useMemo(() => {
+        let result = [];
         if (activeStatusTab === 'open') {
-            return invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado' || inv.status === 'Expirado');
+            result = invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado' || inv.status === 'Expirado');
+            // Ordenar as abertas pela data de vencimento mais próxima (Crescente)
+            result.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+        } else {
+            result = invoices.filter(inv => inv.status === 'Paga');
+            // Ordenar as pagas pela data de pagamento mais recente (Decrescente), ou vencimento se não houver pagto
+            result.sort((a, b) => {
+                const dateA = a.payment_date ? new Date(a.payment_date).getTime() : new Date(a.due_date).getTime();
+                const dateB = b.payment_date ? new Date(b.payment_date).getTime() : new Date(b.due_date).getTime();
+                return dateB - dateA;
+            });
         }
-        return invoices.filter(inv => inv.status === 'Paga');
+        return result;
     }, [invoices, activeStatusTab]);
 
     const generateReceipt = (invoice: Invoice) => {

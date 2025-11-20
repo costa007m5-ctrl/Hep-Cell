@@ -126,7 +126,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
     if (purchaseSuccess) {
         return (
-            <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+            <div className="fixed inset-0 z-[120] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
                 <div className="w-24 h-24 mb-6 relative">
                      {/* Confetti CSS effect implied here or simulated with simple dots */}
                      <div className="absolute inset-0 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center animate-bounce-slow">
@@ -141,10 +141,10 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     }
 
     return (
-        <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-900 flex flex-col overflow-y-auto overscroll-none">
              {/* Nav Float */}
-            <div className="fixed top-4 left-4 z-50">
-                <button onClick={onBack} className="p-2 bg-white/80 dark:bg-black/50 backdrop-blur rounded-full shadow-lg border border-white/20 text-slate-800 dark:text-white">
+            <div className="fixed top-4 left-4 z-[110]">
+                <button onClick={onBack} className="p-2 bg-white/80 dark:bg-black/50 backdrop-blur rounded-full shadow-lg border border-white/20 text-slate-800 dark:text-white active:scale-95 transition-transform">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
             </div>
@@ -199,12 +199,12 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
             </div>
 
             {/* Footer Actions */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 z-[70] pb-safe">
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 z-[110] pb-safe">
                 <div className="max-w-4xl mx-auto flex gap-3">
                      <button onClick={handleGenerateQuote} disabled={isGeneratingPdf} className="flex-1 py-3 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold text-sm">
                         {isGeneratingPdf ? '...' : 'Orçamento PDF'}
                      </button>
-                     <button onClick={handleBuyClick} disabled={product.stock <= 0 || isLoadingProfile} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">
+                     <button onClick={handleBuyClick} disabled={product.stock <= 0 || isLoadingProfile} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 active:scale-95 transition-transform">
                         {isLoadingProfile ? <LoadingSpinner /> : 'Comprar Agora'}
                      </button>
                 </div>
