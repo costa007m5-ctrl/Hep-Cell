@@ -12,73 +12,72 @@ import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
-import Alert from './components/Alert';
+import { ToastProvider, useToast } from './components/Toast';
+import SupportChat from './components/SupportChat'; // Componente Novo
 
 // A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.INICIO);
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [paymentNotification, setPaymentNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  
-  // Estado do Tema (Dark Mode)
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) return savedTheme === 'dark';
-        return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { addToast } = useToast();
 
-  // Aplica o tema
+  // Verifica tema inicial
   useEffect(() => {
-    if (isDarkMode) {
+    const savedTheme = localStorage.getItem('theme');
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    
+    if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+      setIsDarkMode(true);
+      document.documentElement.classList.add('dark');
+    } else {
+      setIsDarkMode(false);
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    if (newMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
-  }, [isDarkMode]);
+  };
 
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
-
-  // Efeito para verificar o status do pagamento no retorno de um redirecionamento
+  // Check payment status from redirect
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('payment_status');
     
     if (status) {
         if (status === 'approved' || status === 'success') {
-            setPaymentNotification({ message: 'Pagamento concluído com sucesso!', type: 'success' });
+            addToast('Pagamento concluído com sucesso!', 'success');
         } else if (status === 'failure' || status === 'rejected') {
-            setPaymentNotification({ message: 'O pagamento falhou. Por favor, tente novamente.', type: 'error' });
+            addToast('O pagamento falhou. Tente novamente.', 'error');
         }
-        
         setActiveTab(Tab.FATURAS);
-        window.history.replaceState(null, '', window.location.pathname); // Limpa a URL
-
-        setTimeout(() => setPaymentNotification(null), 6000);
+        window.history.replaceState(null, '', window.location.pathname);
     }
-  }, []);
+  }, [addToast]);
 
-  // Efeito para verificar sessão de admin ou buscar a do cliente
+  // Auth Check
   useEffect(() => {
     if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
       setView('adminDashboard');
-      setIsAdmin(true); // Garante que o estado é consistente
       setAuthLoading(false);
       return;
     }
 
-    setAuthLoading(true);
     const fetchSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
@@ -86,98 +85,62 @@ const App: React.FC = () => {
     };
 
     fetchSession();
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Se já somos admin, não mude a sessão
-      if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
+       if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
         setSession(session);
       }
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleAdminLoginSuccess = () => {
-    sessionStorage.setItem('isAdminLoggedIn', 'true');
-    setView('adminDashboard');
-    setIsAdmin(true);
-  };
-
   const handleAdminLogout = async () => {
     sessionStorage.removeItem('isAdminLoggedIn');
-    setIsAdmin(false);
-    await supabase.auth.signOut(); // Também desloga do Supabase
+    await supabase.auth.signOut();
     setView('customer');
     window.location.reload();
   };
-  
-  const handleBackToCustomer = () => {
-    setView('customer');
-  }
 
-  // Renderiza a área de Admin
-  if (view === 'adminLogin') {
-    return <AdminLoginPage 
-      onLoginSuccess={handleAdminLoginSuccess} 
-      onBackToCustomer={handleBackToCustomer}
-    />;
-  }
-
-  if (view === 'adminDashboard') {
-    return <AdminDashboard onLogout={handleAdminLogout} />;
-  }
-
-  // --- Renderização da área do cliente ---
+  if (view === 'adminLogin') return <AdminLoginPage onLoginSuccess={() => setView('adminDashboard')} onBackToCustomer={() => setView('customer')} />;
+  if (view === 'adminDashboard') return <AdminDashboard onLogout={handleAdminLogout} />;
 
   if (authLoading) {
     return (
-      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+      <div className="flex flex-col min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
         <LoadingSpinner />
-        <p className="mt-4 text-slate-500 dark:text-slate-400">
-            Verificando acesso...
-        </p>
       </div>
     );
   }
 
-  if (!session) {
-    return <AuthPage onAdminLoginClick={() => setView('adminLogin')} />;
-  }
+  if (!session) return <AuthPage onAdminLoginClick={() => setView('adminLogin')} />;
 
   const renderContent = () => {
     switch (activeTab) {
-      case Tab.INICIO:
-        return <PageInicio />;
-      case Tab.FATURAS:
-        return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
-      case Tab.LOJA:
-        return <PageLoja />;
-      case Tab.PERFIL:
-        return <PagePerfil session={session} />;
-      default:
-        return <PageInicio />;
+      case Tab.INICIO: return <PageInicio setActiveTab={setActiveTab} />;
+      case Tab.FATURAS: return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
+      case Tab.LOJA: return <PageLoja />;
+      case Tab.PERFIL: return <PagePerfil session={session} />;
+      default: return <PageInicio setActiveTab={setActiveTab} />;
     }
   };
 
   return (
     <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
-      {/* Oculta o Header global na aba Loja para dar imersão total */}
       {activeTab !== Tab.LOJA && <Header toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
       
-       {paymentNotification && (
-          <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-md p-4 z-50 animate-fade-in-up">
-              <Alert message={paymentNotification.message} type={paymentNotification.type} />
-          </div>
-      )}
-      
-      {/* Ajusta o container principal: Centralizado para a maioria das abas, Full-width para a Loja */}
       <main className={activeTab === Tab.LOJA ? "flex-grow w-full pb-20" : "flex-grow flex items-center justify-center p-4 pb-24"}>
         {renderContent()}
       </main>
       
+      <SupportChat />
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );
 };
+
+const App: React.FC = () => (
+  <ToastProvider>
+    <AppContent />
+  </ToastProvider>
+);
 
 export default App;
