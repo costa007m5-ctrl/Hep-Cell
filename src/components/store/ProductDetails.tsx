@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
-import { Product } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { Product, Profile } from '../../types';
 import ProductCarousel from './ProductCarousel';
 import jsPDF from 'jspdf';
 import LoadingSpinner from '../LoadingSpinner';
+import { supabase } from '../../services/clients';
+import { getProfile } from '../../services/profileService';
+import PurchaseModal from './PurchaseModal';
+import Alert from '../Alert';
 
 interface ProductDetailsProps {
     product: Product;
@@ -13,6 +17,32 @@ interface ProductDetailsProps {
 
 const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, onBack, onProductClick }) => {
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+    const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+    const [userProfile, setUserProfile] = useState<Profile | null>(null);
+    const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+    const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+
+    // Busca o perfil do usuário para ter o limite de crédito atualizado
+    useEffect(() => {
+        const fetchUser = async () => {
+            setIsLoadingProfile(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    const profile = await getProfile(user.id);
+                    // Merge auth data with profile data
+                    if (profile) {
+                        setUserProfile({ ...profile, id: user.id, email: user.email });
+                    }
+                }
+            } catch (error) {
+                console.error("Erro ao buscar perfil para compra:", error);
+            } finally {
+                setIsLoadingProfile(false);
+            }
+        };
+        fetchUser();
+    }, []);
 
     // Filtra produtos relacionados (excluindo o atual)
     const relatedProducts = allProducts
@@ -85,6 +115,45 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         setIsGeneratingPdf(false);
     };
 
+    const handleBuyClick = () => {
+        if (userProfile) {
+            setShowPurchaseModal(true);
+        } else {
+            // Fallback simples se o perfil não carregar
+            alert("Faça login novamente para realizar compras.");
+        }
+    };
+
+    const handlePurchaseSuccess = () => {
+        setShowPurchaseModal(false);
+        setPurchaseSuccess(true);
+        window.scrollTo(0, 0);
+    };
+
+    if (purchaseSuccess) {
+        return (
+            <div className="min-h-screen bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+                <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Compra Realizada!</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-8 max-w-sm">
+                    Seu pedido do <strong>{product.name}</strong> foi recebido. As faturas do parcelamento já estão disponíveis na sua conta.
+                </p>
+                <div className="flex flex-col gap-3 w-full max-w-xs">
+                    <button onClick={onBack} className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors">
+                        Continuar Comprando
+                    </button>
+                     <button onClick={() => window.location.reload()} className="py-3 px-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-semibold transition-colors">
+                        Ver Minhas Faturas
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="bg-white dark:bg-slate-900 min-h-full animate-fade-in pb-24">
             {/* Header de Navegação */}
@@ -136,7 +205,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                             <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
                                 {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </span>
-                            <span className="text-sm text-slate-500 dark:text-slate-400">à vista ou 12x de {(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            <span className="text-sm text-slate-500 dark:text-slate-400">à vista ou parcelado no limite</span>
                         </div>
                     </div>
 
@@ -156,11 +225,19 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                                 </>
                             )}
                         </button>
-                         <button className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition-all active:scale-95">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
-                            </svg>
-                            <span>Comprar</span>
+                         <button 
+                            onClick={handleBuyClick}
+                            disabled={isLoadingProfile}
+                            className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-70 disabled:cursor-wait"
+                         >
+                            {isLoadingProfile ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
+                                    </svg>
+                                    <span>Comprar</span>
+                                </>
+                            )}
                         </button>
                     </div>
 
@@ -188,6 +265,16 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                      </div>
                  )}
             </div>
+
+            {/* Purchase Modal */}
+            {showPurchaseModal && userProfile && (
+                <PurchaseModal 
+                    product={product}
+                    profile={userProfile}
+                    onClose={() => setShowPurchaseModal(false)}
+                    onSuccess={handlePurchaseSuccess}
+                />
+            )}
         </div>
     );
 };
