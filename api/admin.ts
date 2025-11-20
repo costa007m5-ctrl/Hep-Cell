@@ -601,10 +601,42 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
         
         const prompt = `An admin user of a web application is facing a database error. The error message is: "${errorMessage}". Based on this error, provide a diagnosis in Portuguese. Structure your response with markdown. Start with a title "### Diagnóstico do Erro". Then a section "### Causa Provável" explaining what the error likely means in the context of Supabase/PostgreSQL. Finally, a section "### Ações Recomendadas" with clear, actionable steps for the admin to resolve the issue, like checking RLS policies, table permissions, or function definitions in their Supabase dashboard. Keep the explanation clear and targeted at a developer/admin user.`;
 
-        const response = await genAI.models.generateContent({ model: 'gemini-2.5-pro', contents: prompt });
+        // Alterado para flash para maior velocidade
+        const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
         res.status(200).json({ diagnosis: response.text });
     } catch (error: any) {
         res.status(500).json({ error: 'Failed to get diagnosis from AI.', message: error.message });
+    }
+}
+
+async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
+    try {
+        const genAI = getGeminiClient();
+        const { message, context } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required.' });
+        }
+
+        const systemInstruction = `Você é o assistente virtual oficial da Relp Cell, uma loja de eletrônicos e serviços financeiros. 
+        Seu tom é amigável, profissional e direto.
+        Você pode responder sobre: status de faturas, produtos disponíveis na loja (iPhone, Samsung, Xiaomi, etc), limites de crédito e dúvidas gerais sobre o app.
+        Use o contexto fornecido sobre o usuário para personalizar a resposta.
+        Se não souber a resposta, oriente o usuário a entrar em contato com o suporte humano via WhatsApp.
+        Contexto do Usuário: ${context || 'Visitante não logado'}`;
+
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: message,
+            config: {
+                systemInstruction: systemInstruction,
+            }
+        });
+
+        res.status(200).json({ reply: response.text });
+    } catch (error: any) {
+        console.error("Error in support chat:", error);
+        res.status(500).json({ error: 'Failed to generate chat response.', message: error.message });
     }
 }
 
@@ -655,6 +687,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
+                case '/api/admin/chat': return await handleSupportChat(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

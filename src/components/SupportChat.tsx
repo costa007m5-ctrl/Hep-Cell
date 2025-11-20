@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Modal from './Modal';
-import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -9,24 +8,7 @@ const SupportChat: React.FC = () => {
     const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(false);
-    const [apiKey, setApiKey] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        // Fetch API Key securely via backend proxy or env (Assuming backend proxy for security in real app, 
-        // but for this structure, we fetch config from api/config or assume we have a client initialized in services)
-        // For this demo, we will use the client from services/clients if available, or fetch config
-        const fetchConfig = async () => {
-             const res = await fetch('/api/admin/settings');
-             // Note: In a real secure app, we wouldn't expose the API KEY to client. 
-             // We would send the prompt to the backend (/api/chat) and backend calls Gemini.
-             // Implementing backend proxy pattern here for "Real AI" feel without exposing keys directly if possible,
-             // but user requested "make functions work". I will implement a client-side chat using a proxy endpoint 
-             // or if the user provided key is public safe (it's not usually).
-             // BEST PRACTICE: Create an API route for chat.
-        };
-        fetchConfig();
-    }, []);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,44 +27,38 @@ const SupportChat: React.FC = () => {
         try {
              // Get User Context for "Smart" answers
              const { data: { user } } = await supabase.auth.getUser();
-             let context = "Você é um assistente virtual útil da Relp Cell, uma loja de eletrônicos e fintech.";
+             let context = "";
              
              if (user) {
                  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
                  const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', user.id).eq('status', 'Em aberto');
                  
-                 context += ` O usuário se chama ${profile?.first_name}. Ele tem ${invoices?.length || 0} faturas em aberto.`;
+                 context += `Nome do usuário: ${profile?.first_name || 'Cliente'}. Faturas em aberto: ${invoices?.length || 0}.`;
+             } else {
+                 context = "Usuário não logado.";
              }
 
-             // Call Backend API for Chat (Secure Way)
-             // We'll assume a new endpoint or reuse admin diagnose logic but adapted.
-             // Since we don't have a dedicated chat endpoint in the provided admin.ts, 
-             // I will add a quick fetch to Gemini using the existing client service if available, 
-             // OR simpler: use the genAI instance if the key was exposed (which clients.ts suggests).
-             
-             // Let's use a direct call to a new endpoint we'd imagine exists, OR use the `diagnose-error` endpoint hack
-             // OR better: instantiate GenAI here if we had the key. 
-             // CORRECT APPROACH for this contest: Use a specific serverless function for chat to hide key.
-             // Since I cannot create new files outside the XML block easily without bloating, 
-             // I will implement a client-side call to `/api/admin/diagnose-error` (abusing it slightly) 
-             // OR better, I will assume the user creates a `/api/chat` eventually.
-             
-             // For now, I will simulate the backend call structure:
-             const response = await fetch('/api/admin/diagnose-error', { // Reusing AI endpoint for demo purposes, prompting it as chat
+             const response = await fetch('/api/admin/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    errorMessage: `CONTEXTO: ${context}. PERGUNTA DO USUÁRIO: ${userMsg}. Responda como assistente amigável.` 
+                    message: userMsg,
+                    context: context 
                 }),
             });
 
-            const data = await response.json();
-            const reply = data.diagnosis || "Desculpe, estou com dificuldades para conectar ao cérebro digital no momento.";
+            if (!response.ok) {
+                 throw new Error('Falha na comunicação com a IA.');
+            }
 
-            setMessages(prev => [...prev, { role: 'model', text: reply.replace(/###/g, '').replace(/\*\*/g, '') }]); // Simple clean up
+            const data = await response.json();
+            const reply = data.reply || "Desculpe, não consegui processar sua resposta.";
+
+            setMessages(prev => [...prev, { role: 'model', text: reply }]);
 
         } catch (error) {
-            setMessages(prev => [...prev, { role: 'model', text: "Erro ao processar mensagem. Tente novamente." }]);
+            console.error(error);
+            setMessages(prev => [...prev, { role: 'model', text: "Estou com dificuldades de conexão no momento. Tente novamente em alguns instantes." }]);
         } finally {
             setLoading(false);
         }
