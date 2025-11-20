@@ -1,7 +1,13 @@
 {
   "name": "Relp Cell Pagamentos",
   "short_name": "Relp Cell",
-  "description": "Um aplicativo moderno para que os clientes da Relp Cell possam pagar suas faturas de forma rápida e segura.",
+  "description": "Gerencie suas faturas e compras na Relp Cell com facilidade.",
+  "id": "relp-cell-app-v1",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -25,10 +31,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
-  "scope": "/"
+  ]
 }

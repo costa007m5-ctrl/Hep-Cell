@@ -2,16 +2,19 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Relp Cell - Pagamento de Faturas</title>
     <!-- PWA Tags -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#4f46e5" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
+        darkMode: 'media', // ou 'class'
         theme: {
           extend: {
             keyframes: {
@@ -58,7 +61,7 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 dark:bg-gradient-to-b dark:from-slate-900 dark:to-black">
+  <body class="bg-slate-50 dark:bg-slate-900">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
     <!-- PWA Service Worker Registration -->
