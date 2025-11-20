@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
+import { supabase } from '../services/clients'; // Import para buscar o usuário
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -23,12 +24,24 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [preferenceId, setPreferenceId] = useState<string | null>(null);
+  const [payerEmail, setPayerEmail] = useState<string>('');
   
   // Refs para gerenciar o contêiner do Brick e a instância
   const paymentBrickRef = useRef<HTMLDivElement>(null);
   const brickInstance = useRef<any>(null);
 
-  // Passo 1: Cria a preferência de pagamento no backend ao montar o componente.
+  // Passo 0: Buscar email do usuário logado
+  useEffect(() => {
+    const fetchUser = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email) {
+            setPayerEmail(user.email);
+        }
+    };
+    fetchUser();
+  }, []);
+
+  // Passo 1: Cria a preferência de pagamento no backend.
   useEffect(() => {
     const createPreference = async () => {
       setIsLoading(true);
@@ -41,6 +54,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             id: invoice.id,
             description: `Fatura Relp Cell - ${invoice.month}`,
             amount: invoice.amount,
+            payerEmail: payerEmail // Envia o email se já tiver
           }),
         });
         if (!response.ok) {
@@ -55,133 +69,180 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         setIsLoading(false);
       }
     };
+    
+    // Só cria a preferência quando tivermos tentado buscar o email (mesmo que venha vazio)
     createPreference();
-  }, [invoice]);
+  }, [invoice, payerEmail]);
 
-  // Passo 2: Inicializa o Payment Brick assim que a preferência de pagamento for criada.
+  // Passo 2: Inicializa o Payment Brick focando em CARTÕES.
   useEffect(() => {
     if (preferenceId && mpPublicKey && paymentBrickRef.current) {
       const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
       const bricks = mp.bricks();
 
-      bricks.create('payment', paymentBrickRef.current.id, {
+      const settings = {
         initialization: {
           amount: invoice.amount,
           preferenceId: preferenceId,
-          // Garante que o ID da fatura seja enviado
+          payer: {
+            email: payerEmail, // Preenche o email automaticamente
+          },
           externalReference: invoice.id,
         },
         customization: {
+          visual: {
+            style: {
+              theme: 'default', // 'default' | 'dark' | 'bootstrap' | 'flat'
+            },
+            hidePaymentButton: false, 
+          },
           paymentMethods: {
-            ticket: 'all',
+            // Como temos telas separadas para Pix e Boleto, aqui forçamos apenas Cartões
+            ticket: 'max', // Oculta boleto se possível, ou joga pro final
+            bankTransfer: 'max', // Oculta pix
             creditCard: 'all',
             debitCard: 'all',
-            mercadoPago: 'all',
+            mercadoPago: 'all', // Carteira MP
+            maxInstallments: 12,
           },
         },
         callbacks: {
           onReady: () => {
-            setIsLoading(false); // O Brick está visível, esconde o spinner
+            setIsLoading(false);
           },
           onSubmit: async (formData: any) => {
             setStatus(PaymentStatus.PENDING);
+            setMessage('');
+            
+            // Adiciona ID da fatura se não estiver presente
+            if (!formData.external_reference) {
+                formData.external_reference = invoice.id;
+            }
+
             try {
-              // Envia os dados do formulário para o backend processar o pagamento
               const response = await fetch('/api/mercadopago/process-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
               });
+              
               const paymentResult = await response.json();
+
               if (!response.ok) {
-                throw new Error(paymentResult.message || 'O pagamento foi recusado.');
+                 // Lança erro com a mensagem tratada pelo backend (ex: "Saldo insuficiente")
+                 throw new Error(paymentResult.message || 'O pagamento foi recusado.');
               }
 
-              // Lida com a resposta do pagamento
               if (paymentResult.status === 'approved') {
+                // Gera mensagem com IA
                 const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
                 setMessage(successMsg);
                 setStatus(PaymentStatus.SUCCESS);
                 setTimeout(() => {
                   onPaymentSuccess(paymentResult.id);
                 }, 4000);
-              } else {
-                 setMessage("Seu pagamento está sendo processado. Você receberá a confirmação em breve.");
-                 setStatus(PaymentStatus.SUCCESS); // Trata como sucesso para a UI
+              } else if (paymentResult.status === 'in_process') {
+                 setMessage("Seu pagamento está em análise. Você será notificado em breve.");
+                 setStatus(PaymentStatus.SUCCESS);
                  setTimeout(() => {
                     onPaymentSuccess(paymentResult.id);
                  }, 4000);
+              } else {
+                 // Caso status seja rejected mas response.ok foi true (fluxo raro, mas possível)
+                 throw new Error(paymentResult.message || 'Pagamento não aprovado.');
               }
             } catch (error: any) {
+              console.error('Erro no processamento:', error);
               setStatus(PaymentStatus.ERROR);
-              setMessage(error.message || 'Erro ao finalizar o pagamento.');
+              setMessage(error.message || 'Erro ao processar pagamento. Verifique os dados do cartão.');
+              
+              // Permite tentar novamente resetando parcialmente o estado após alguns segundos
+              // (Opcional, mas o Brick geralmente lida com re-tentativas na interface)
             }
           },
           onError: (error: any) => {
             console.error('Payment Brick Error:', error);
             setStatus(PaymentStatus.ERROR);
-            setMessage('Ocorreu um erro. Verifique os dados e tente novamente.');
+            setMessage('Ocorreu um erro técnico na conexão com o Mercado Pago.');
           },
         },
-      }).then((brick: any) => {
-          brickInstance.current = brick; // Guarda a instância para poder destruí-la
-      });
+      };
+
+      bricks.create('payment', paymentBrickRef.current.id, settings)
+        .then((brick: any) => {
+          brickInstance.current = brick;
+        })
+        .catch((err: any) => {
+            console.error("Erro ao criar Brick:", err);
+            setStatus(PaymentStatus.ERROR);
+            setMessage("Erro ao carregar o formulário de pagamento.");
+        });
     }
 
-    // Função de limpeza para desmontar o Brick quando o componente for destruído
     return () => {
         if (brickInstance.current) {
           brickInstance.current.unmount();
         }
     };
-  }, [preferenceId, mpPublicKey, invoice.amount, invoice.id, invoice.month, onPaymentSuccess]);
+  }, [preferenceId, mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess]);
 
   const renderContent = () => {
-    if (status === PaymentStatus.ERROR) {
-      return <div className="p-4"><Alert message={message} type="error" /></div>;
-    }
-    if (status === PaymentStatus.SUCCESS) {
-      return <div className="p-4"><Alert message={message} type="success" /></div>;
-    }
     if (status === PaymentStatus.PENDING) {
         return (
-            <div className="flex flex-col items-center justify-center p-8 space-y-4">
+            <div className="flex flex-col items-center justify-center p-8 space-y-4 min-h-[300px]">
                 <LoadingSpinner />
-                <p className="text-slate-500 dark:text-slate-400">Processando seu pagamento...</p>
-                <p className="text-sm text-slate-400">Por favor, não feche ou atualize a página.</p>
+                <p className="text-slate-600 dark:text-slate-300 font-medium">Processando pagamento junto ao banco...</p>
+                <p className="text-xs text-slate-400">Isso pode levar alguns segundos.</p>
             </div>
         )
     }
 
+    if (status === PaymentStatus.SUCCESS) {
+      return (
+        <div className="p-4 min-h-[300px] flex items-center">
+            <Alert message={message} type="success" />
+        </div>
+      );
+    }
+
     return (
-        <div className="relative">
+        <div className="relative w-full">
+             {/* Overlay de loading inicial */}
             {isLoading && (
-                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 space-y-4 z-10">
+                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 z-20 rounded-lg">
                     <LoadingSpinner />
-                    <p className="text-slate-500 dark:text-slate-400">Preparando pagamento seguro...</p>
+                    <p className="text-slate-500 dark:text-slate-400 mt-4">Carregando formulário seguro...</p>
                 </div>
             )}
-            {/* O Brick do Mercado Pago será renderizado aqui */}
-            <div id="paymentBrick_container" ref={paymentBrickRef}></div>
+            
+            {/* Mensagem de erro persistente no topo se houver falha anterior */}
+            {status === PaymentStatus.ERROR && (
+                <div className="mb-4 animate-fade-in">
+                    <Alert message={message} type="error" />
+                </div>
+            )}
+
+            {/* O Brick do Mercado Pago */}
+            <div id="paymentBrick_container" ref={paymentBrickRef} className="w-full min-h-[450px]"></div>
         </div>
     );
   };
 
   return (
-    <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in">
-       <div className="text-center p-6 sm:p-8 border-b border-slate-200 dark:border-slate-700">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pagamento Seguro</h2>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - R$ {invoice.amount.toFixed(2).replace('.', ',')}</p>
+    <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in overflow-hidden">
+       <div className="text-center p-6 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito ou Débito</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Fatura de {invoice.month} - <span className="font-bold text-indigo-600 dark:text-indigo-400">R$ {invoice.amount.toFixed(2).replace('.', ',')}</span></p>
       </div>
 
-      <div className="p-2 sm:p-4 min-h-[400px]">
+      <div className="p-2 sm:p-4">
         {renderContent()}
       </div>
       
       {status !== PaymentStatus.PENDING && status !== PaymentStatus.SUCCESS && (
-        <div className="p-6 sm:p-8 border-t border-slate-200 dark:border-slate-700">
-             <button type="button" onClick={onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-200">
-                Voltar
+        <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+             <button type="button" onClick={onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+                Cancelar e Voltar
             </button>
         </div>
       )}

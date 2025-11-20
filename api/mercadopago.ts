@@ -43,6 +43,29 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
     }
 }
 
+// Helper para traduzir erros de pagamento
+function getPaymentErrorMessage(statusDetail: string): string {
+    const messages: { [key: string]: string } = {
+        'cc_rejected_bad_filled_card_number': 'Revise o número do cartão.',
+        'cc_rejected_bad_filled_date': 'Revise a data de vencimento.',
+        'cc_rejected_bad_filled_other': 'Revise os dados do pagamento.',
+        'cc_rejected_bad_filled_security_code': 'Revise o código de segurança do cartão.',
+        'cc_rejected_blacklist': 'Não pudemos processar seu pagamento.',
+        'cc_rejected_call_for_authorize': 'Você deve autorizar o pagamento com o banco emissor do cartão.',
+        'cc_rejected_card_disabled': 'Ligue para o banco para ativar seu cartão.',
+        'cc_rejected_card_error': 'Não conseguimos processar seu pagamento.',
+        'cc_rejected_duplicated_payment': 'Você já fez um pagamento com esse valor. Caso precise pagar de novo, utilize outro cartão ou outra forma de pagamento.',
+        'cc_rejected_high_risk': 'Seu pagamento foi recusado por segurança. Escolha outra forma de pagamento.',
+        'cc_rejected_insufficient_amount': 'Seu cartão possui saldo insuficiente.',
+        'cc_rejected_invalid_installments': 'O cartão não processa pagamentos em parcelas.',
+        'cc_rejected_max_attempts': 'Você atingiu o limite de tentativas permitidas. Escolha outro cartão ou outra forma de pagamento.',
+        'cc_rejected_other_reason': 'O banco emissor não processou o pagamento.',
+        'cc_rejected_card_type_not_allowed': 'O pagamento foi rejeitado porque o tipo de cartão não é aceito.'
+    };
+
+    return messages[statusDetail] || `O pagamento foi recusado pelo banco. Motivo: ${statusDetail}`;
+}
+
 
 // --- Handler para o Webhook de Autenticação do Supabase ---
 async function handleAuthHook(req: VercelRequest, res: VercelResponse) {
@@ -89,6 +112,9 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
         const preferenceBody: any = {
             items: [{ id: id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
             external_reference: id,
+             // Configurações para melhorar a experiência
+            statement_descriptor: "RELP CELL",
+            binary_mode: true, // Recusa pagamentos pendentes que requerem aprovação manual complexa
         };
 
         if (payerEmail) {
@@ -139,7 +165,11 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         }
         
         const payment = new Payment(client);
-        const result = await payment.create({ body: { ...paymentData, external_reference: paymentData.external_reference || null } });
+        
+        // Garante que a external_reference seja string (invoice ID)
+        const payload = { ...paymentData, external_reference: String(paymentData.external_reference || '') };
+
+        const result = await payment.create({ body: payload });
         
         const invoiceId = result.external_reference;
 
@@ -151,13 +181,21 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} PENDENTE para fatura ${invoiceId}.`);
             res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento pendente de processamento.' });
         } else {
-             await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${invoiceId} falhou. Status: ${result.status_detail}`, { result });
-            res.status(400).json({ status: result.status, message: result.status_detail || 'Pagamento recusado.' });
+             // Pagamento recusado
+             const failMessage = getPaymentErrorMessage(result.status_detail || 'unknown');
+             await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${invoiceId} falhou. Motivo: ${result.status_detail}`, { result });
+            
+            // Retorna 400 para o frontend saber que falhou
+            res.status(400).json({ 
+                status: result.status, 
+                message: failMessage,
+                detail: result.status_detail 
+            });
         }
     } catch (error: any) {
         await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Erro no endpoint process-payment.`, { error: error.message });
         console.error('Erro ao processar pagamento com Mercado Pago:', error);
-        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno.' });
+        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno no servidor de pagamento.' });
     }
 }
 
