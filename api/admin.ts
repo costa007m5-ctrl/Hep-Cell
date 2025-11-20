@@ -304,7 +304,18 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
 
     } catch (error: any) {
         console.error("Error generating banner:", error);
-        res.status(500).json({ error: 'Failed to generate banner.', message: error.message || "Unknown error from AI service." });
+        
+        // Tratamento específico para erro 429 (Resource Exhausted / Quota Exceeded)
+        let errorMessage = error.message || "Unknown error from AI service.";
+        let statusCode = 500;
+        const stringError = JSON.stringify(error);
+
+        if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED') || stringError.includes('RESOURCE_EXHAUSTED')) {
+            statusCode = 429;
+            errorMessage = "Limite de uso da IA atingido (Quota Excedida). Por favor, aguarde cerca de 1 minuto e tente novamente.";
+        }
+
+        res.status(statusCode).json({ error: 'Failed to generate banner.', message: errorMessage });
     }
 }
 

@@ -143,7 +143,12 @@ const AdvertisingTab: React.FC = () => {
                 setTargetLink(data.suggestedLink);
             }
         } catch (error: any) {
-            setGenerateError(error.message);
+            let msg = error.message;
+            // Se o erro for relacionado a limite de quota, mostra mensagem específica
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite')) {
+                msg = "Muitas solicitações seguidas. A IA precisa descansar um pouco. Por favor, aguarde 1 minuto e tente novamente.";
+            }
+            setGenerateError(msg);
         } finally {
             setIsGenerating(false);
         }
@@ -254,7 +259,11 @@ const AdvertisingTab: React.FC = () => {
                         )}
                     </button>
                     
-                    {generateError && <div className="mt-4"><Alert message={generateError} type="error" /></div>}
+                    {generateError && (
+                        <div className="mt-4 animate-fade-in">
+                             <Alert message={generateError} type={generateError.includes('descansar') ? 'error' : 'error'} />
+                        </div>
+                    )}
                 </div>
 
                 {/* Preview Resultado */}
