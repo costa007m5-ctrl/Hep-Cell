@@ -474,6 +474,14 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
     const { prompt, imageBase64 } = req.body;
     if (!imageBase64) return res.status(400).json({ error: 'Image is required.' });
 
+    // Validate and extract base64 mime type dynamically
+    const match = imageBase64.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) {
+        return res.status(400).json({ error: "Invalid image data format. Must be a valid base64 data URI." });
+    }
+    const mimeType = match[1]; // Capture correct mime type (e.g. image/png, image/jpeg)
+    const data = match[2];
+
     try {
         // Passo 1: Descrever a imagem enviada e sugerir link
         // Usamos o modelo de texto com visão para entender o produto e categorizá-lo
@@ -485,26 +493,24 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         const analysisResponse = await genAI.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
-                { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
+                { inlineData: { mimeType: mimeType, data: data } },
                 { text: analysisPrompt }
             ],
             config: { responseMimeType: 'application/json' }
         });
         
-        const analysis = JSON.parse(analysisResponse.text || '{}');
+        const analysisText = analysisResponse.text;
+        if (!analysisText) throw new Error("IA Failed to analyze image.");
+        
+        const analysis = JSON.parse(analysisText);
         const productDescription = analysis.description || "a product";
         
-        // Define o link sugerido (prioriza categoria, mas se for marca famosa, pode ser marca)
+        // Define o link sugerido (prioriza categoria)
         let suggestedLink = 'category:Ofertas';
         if (analysis.category) suggestedLink = `category:${analysis.category}`;
-        // Exemplo: se for Apple, talvez queira navegar para a marca
-        if (analysis.brand && ['Apple', 'Samsung', 'Xiaomi', 'Motorola'].includes(analysis.brand)) {
-             // Para este MVP vamos manter a lógica focada em categoria que é mais garantida na navegação atual
-             // Mas poderíamos retornar 'brand:Apple' se quiséssemos
-        }
 
         // Passo 2: Gerar o Banner
-        // Usamos o gemini-2.5-flash-image para gerar uma nova imagem baseada na descrição + contexto do usuário
+        // Cria um prompt otimizado para banner 16:9
         const bannerPrompt = `A professional, high-quality e-commerce banner (wide aspect ratio 16:9) featuring: ${productDescription}. 
         Context/Offer Text idea: ${prompt || 'Special Offer'}. 
         Style: Modern, sleek, commercial lighting, vibrant background, 4k resolution. 
@@ -523,7 +529,8 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             const base64Image = `data:${generatedPart.inlineData.mimeType};base64,${generatedPart.inlineData.data}`;
             res.status(200).json({ image: base64Image, suggestedLink: suggestedLink });
         } else {
-             throw new Error("O modelo não retornou uma imagem válida. Tente simplificar o prompt.");
+             console.error("Generation Failed. Response:", JSON.stringify(response, null, 2));
+             throw new Error("O modelo não retornou uma imagem válida. Tente simplificar o prompt ou usar outra imagem.");
         }
 
     } catch (error: any) {
@@ -936,7 +943,7 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
 
 async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
     // Resposta padrão de fallback caso a IA falhe
-    const fallbackReply = "Estou com uma pequena instabilidade para conectar com meu cérebro de IA, mas posso te adiantar: verifique suas faturas na aba 'Faturas' e nosso catálogo na aba 'Loja'. Se precisar de algo urgente, contate o suporte via WhatsApp.";
+    const fallbackReply = "Estou com uma pequena instabilidade para conectar com meu cérebro de IA, mas posso te adiantar: verifique suas faturas na aba 'Faturas' e nosso catálogo na aba 'Loja'. Se precisar de algo urgente, contate o suporte humano via WhatsApp.";
     const supabase = getSupabaseAdminClient();
 
     try {
