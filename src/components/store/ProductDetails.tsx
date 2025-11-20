@@ -6,7 +6,6 @@ import LoadingSpinner from '../LoadingSpinner';
 import { supabase } from '../../services/clients';
 import { getProfile } from '../../services/profileService';
 import PurchaseModal from './PurchaseModal';
-import Alert from '../Alert';
 
 interface ProductDetailsProps {
     product: Product;
@@ -15,7 +14,6 @@ interface ProductDetailsProps {
     onProductClick: (product: Product) => void;
 }
 
-// Componente de Avaliações
 const ReviewList: React.FC<{ reviews: Review[] }> = ({ reviews }) => (
     <div className="space-y-4">
         {reviews.map(review => (
@@ -53,14 +51,7 @@ const ShippingCalculator = () => {
         <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl mt-4">
             <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Calcular Frete e Prazo</p>
             <div className="flex gap-2">
-                <input 
-                    type="text" 
-                    placeholder="00000-000" 
-                    maxLength={9}
-                    value={cep}
-                    onChange={(e) => setCep(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
-                />
+                <input type="text" placeholder="00000-000" maxLength={9} value={cep} onChange={(e) => setCep(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
                 <button onClick={calculate} className="px-4 py-2 bg-slate-800 dark:bg-slate-600 text-white rounded-lg text-xs font-bold">OK</button>
             </div>
             {loading && <p className="text-xs text-slate-500 mt-2">Calculando...</p>}
@@ -85,7 +76,6 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     const [purchaseSuccess, setPurchaseSuccess] = useState(false);
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // Mock Reviews
     const reviews: Review[] = [
         { id: '1', userName: 'Carlos Silva', rating: 5, comment: 'Excelente produto, chegou super rápido!', date: '10/05/2024' },
         { id: '2', userName: 'Ana Souza', rating: 4, comment: 'Gostei muito, mas a caixa veio um pouco amassada.', date: '12/05/2024' },
@@ -126,9 +116,8 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
     if (purchaseSuccess) {
         return (
-            <div className="fixed inset-0 z-[120] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+            <div className="fixed inset-0 z-[150] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
                 <div className="w-24 h-24 mb-6 relative">
-                     {/* Confetti CSS effect implied here or simulated with simple dots */}
                      <div className="absolute inset-0 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center animate-bounce-slow">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                      </div>
@@ -141,9 +130,8 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     }
 
     return (
-        <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-900 flex flex-col overflow-y-auto overscroll-none">
-             {/* Nav Float */}
-            <div className="fixed top-4 left-4 z-[110]">
+        <div className="fixed inset-0 z-[130] bg-white dark:bg-slate-900 flex flex-col overflow-y-auto overscroll-none">
+            <div className="fixed top-4 left-4 z-[140]">
                 <button onClick={onBack} className="p-2 bg-white/80 dark:bg-black/50 backdrop-blur rounded-full shadow-lg border border-white/20 text-slate-800 dark:text-white active:scale-95 transition-transform">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
@@ -172,7 +160,6 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                         <span className="text-sm text-slate-500 mb-1">à vista</span>
                     </div>
 
-                    {/* Tabs */}
                     <div className="flex border-b border-slate-200 dark:border-slate-800 mb-6">
                         <button onClick={() => setActiveTab('details')} className={`flex-1 pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'details' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Detalhes</button>
                         <button onClick={() => setActiveTab('reviews')} className={`flex-1 pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'reviews' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Avaliações ({reviews.length})</button>
@@ -198,8 +185,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                 </div>
             </div>
 
-            {/* Footer Actions */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 z-[110] pb-safe">
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 z-[140] pb-safe">
                 <div className="max-w-4xl mx-auto flex gap-3">
                      <button onClick={handleGenerateQuote} disabled={isGeneratingPdf} className="flex-1 py-3 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold text-sm">
                         {isGeneratingPdf ? '...' : 'Orçamento PDF'}
