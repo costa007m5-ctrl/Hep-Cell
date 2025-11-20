@@ -41,6 +41,29 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
     }
 }
 
+// Função auxiliar para retry com backoff exponencial
+async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries = 3, initialDelay = 2000) {
+    let delay = initialDelay;
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await genAI.models.generateContent(params);
+        } catch (error: any) {
+            // Tenta novamente em caso de erro 429 (Too Many Requests) ou 503 (Service Unavailable)
+            const isRetryable = error.status === 429 || error.status === 503 || 
+                                (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('overloaded')));
+            
+            if (isRetryable && i < retries - 1) {
+                console.warn(`AI Request failed (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms... Error: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2; // Aumenta o tempo de espera (2s, 4s, 8s)
+            } else {
+                throw error;
+            }
+        }
+    }
+    throw new Error("Max retries exceeded");
+}
+
 // Função de análise de crédito reutilizável
 async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string) {
     const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -59,7 +82,9 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 
     const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
 
-    const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+    // Usa retry na análise também
+    const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+    
     const text = response.text;
     if (!text) {
         throw new Error("A resposta da IA para análise de crédito estava vazia.");
@@ -224,7 +249,8 @@ async function handleGenerateProductDetails(req: VercelRequest, res: VercelRespo
         
         If any information is missing, make a reasonable guess.`;
         
-        const response = await genAI.models.generateContent({
+        // Usa retry
+        const response = await generateContentWithRetry(genAI, {
             model: 'gemini-2.5-flash',
             contents: instruction,
             config: { responseMimeType: 'application/json' }
@@ -261,7 +287,8 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         Return ONLY a valid JSON object like: { "description": "text description", "category": "Celulares", "brand": "Apple" }.
         Categories allowed: Celulares, Acessórios, Fones, Smartwatch, Ofertas.`;
 
-        const analysisResponse = await genAI.models.generateContent({
+        // Usa retry para análise
+        const analysisResponse = await generateContentWithRetry(genAI, {
             model: 'gemini-2.5-flash',
             contents: [
                 { inlineData: { mimeType: mimeType, data: data } },
@@ -285,7 +312,8 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         Style: Modern, sleek, commercial lighting, vibrant background, 4k resolution. 
         Make it look like a premium advertisement on a tech store.`;
 
-        const response = await genAI.models.generateContent({
+        // Usa retry para geração de imagem
+        const response = await generateContentWithRetry(genAI, {
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: bannerPrompt }] },
             config: {}
@@ -312,7 +340,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
 
         if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED') || stringError.includes('RESOURCE_EXHAUSTED')) {
             statusCode = 429;
-            errorMessage = "Limite de uso da IA atingido (Quota Excedida). Por favor, aguarde cerca de 1 minuto e tente novamente.";
+            errorMessage = "O sistema de IA está com alto tráfego no momento. Por favor, aguarde cerca de 1 minuto e tente novamente.";
         }
 
         res.status(statusCode).json({ error: 'Failed to generate banner.', message: errorMessage });
@@ -714,7 +742,7 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
         
         const prompt = `An admin user of a web application is facing a database error. The error message is: "${errorMessage}". Based on this error, provide a diagnosis in Portuguese. Structure your response with markdown. Start with a title "### Diagnóstico do Erro". Then a section "### Causa Provável" explaining what the error likely means in the context of Supabase/PostgreSQL. Finally, a section "### Ações Recomendadas" with clear, actionable steps for the admin to resolve the issue, like checking RLS policies, table permissions, or function definitions in their Supabase dashboard. Keep the explanation clear and targeted at a developer/admin user.`;
 
-        const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
+        const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt });
         res.status(200).json({ diagnosis: response.text });
     } catch (error: any) {
         res.status(500).json({ error: 'Failed to get diagnosis from AI.', message: error.message });
@@ -756,7 +784,7 @@ async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
         // Envolve a chamada da IA em um try-catch específico para garantir que
         // erros da API do Google não derrubem a requisição sem resposta.
         try {
-            const response = await genAI.models.generateContent({
+            const response = await generateContentWithRetry(genAI, {
                 model: selectedModel, // Usa o modelo configurado dinamicamente
                 contents: message,
                 config: {
@@ -775,7 +803,7 @@ async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
             if (selectedModel !== 'gemini-2.5-flash') {
                  try {
                     console.log("Tentando fallback para gemini-2.5-flash...");
-                    const fallbackResponse = await genAI.models.generateContent({
+                    const fallbackResponse = await generateContentWithRetry(genAI, {
                         model: 'gemini-2.5-flash',
                         contents: message,
                         config: { systemInstruction }

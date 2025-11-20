@@ -144,9 +144,9 @@ const AdvertisingTab: React.FC = () => {
             }
         } catch (error: any) {
             let msg = error.message;
-            // Se o erro for relacionado a limite de quota, mostra mensagem específica
-            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite')) {
-                msg = "Muitas solicitações seguidas. A IA precisa descansar um pouco. Por favor, aguarde 1 minuto e tente novamente.";
+            // Se o erro for relacionado a limite de quota ou tráfego
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego')) {
+                msg = "O sistema de IA está com alto tráfego no momento. Por favor, aguarde cerca de 1 minuto e tente novamente.";
             }
             setGenerateError(msg);
         } finally {
@@ -261,7 +261,7 @@ const AdvertisingTab: React.FC = () => {
                     
                     {generateError && (
                         <div className="mt-4 animate-fade-in">
-                             <Alert message={generateError} type={generateError.includes('descansar') ? 'error' : 'error'} />
+                             <Alert message={generateError} type="error" />
                         </div>
                     )}
                 </div>
