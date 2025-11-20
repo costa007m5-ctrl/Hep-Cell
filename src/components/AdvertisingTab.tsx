@@ -144,9 +144,9 @@ const AdvertisingTab: React.FC = () => {
             }
         } catch (error: any) {
             let msg = error.message;
-            // Se o erro for relacionado a limite de quota ou tráfego
-            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego')) {
-                msg = "O sistema de IA está com alto tráfego no momento. Por favor, aguarde cerca de 1 minuto e tente novamente.";
+            // Se o erro for relacionado a limite de quota ou tráfego (429)
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
+                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
             }
             setGenerateError(msg);
         } finally {
@@ -224,7 +224,7 @@ const AdvertisingTab: React.FC = () => {
                                             <>
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                                                 <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
-                                                <p className="text-xs text-slate-500">PNG, JPG, AVIF (Convertido auto.)</p>
+                                                <p className="text-xs text-slate-500">JPG, PNG, WEBP, AVIF (Convertido auto.)</p>
                                             </>
                                         )}
                                     </div>

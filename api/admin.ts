@@ -48,12 +48,13 @@ async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries
         try {
             return await genAI.models.generateContent(params);
         } catch (error: any) {
-            // Tenta novamente em caso de erro 429 (Too Many Requests) ou 503 (Service Unavailable)
+            const errorMsg = error.message || JSON.stringify(error);
+            // Tenta novamente em caso de erro 429 (Too Many Requests), 503 (Service Unavailable) ou erros de Quota
             const isRetryable = error.status === 429 || error.status === 503 || 
-                                (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('overloaded')));
+                                errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('overloaded') || errorMsg.includes('RESOURCE_EXHAUSTED');
             
             if (isRetryable && i < retries - 1) {
-                console.warn(`AI Request failed (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms... Error: ${error.message}`);
+                console.warn(`AI Request failed (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms... Error: ${errorMsg}`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 delay *= 2; // Aumenta o tempo de espera (2s, 4s, 8s)
             } else {
@@ -287,7 +288,8 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         Return ONLY a valid JSON object like: { "description": "text description", "category": "Celulares", "brand": "Apple" }.
         Categories allowed: Celulares, Acessórios, Fones, Smartwatch, Ofertas.`;
 
-        // Usa retry para análise
+        // Usa retry para análise (aumenta chances de sucesso em caso de 429)
+        // Usa mais retries e tempo maior de espera
         const analysisResponse = await generateContentWithRetry(genAI, {
             model: 'gemini-2.5-flash',
             contents: [
@@ -295,7 +297,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                 { text: analysisPrompt }
             ],
             config: { responseMimeType: 'application/json' }
-        });
+        }, 4, 3000); // 4 retries, starting at 3s delay
         
         const analysisText = analysisResponse.text;
         if (!analysisText) throw new Error("IA Failed to analyze image. Check if image format is supported.");
@@ -317,7 +319,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: bannerPrompt }] },
             config: {}
-        });
+        }, 3, 4000); // 3 retries, starting at 4s delay
         
         // Extrair a imagem gerada
         const generatedPart = response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
