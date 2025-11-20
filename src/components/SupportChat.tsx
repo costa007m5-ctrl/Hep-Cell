@@ -17,6 +17,13 @@ const SupportChat: React.FC = () => {
 
     useEffect(scrollToBottom, [messages]);
 
+    // Listen for global open event
+    useEffect(() => {
+        const handleOpenChat = () => setIsOpen(true);
+        window.addEventListener('open-support-chat', handleOpenChat);
+        return () => window.removeEventListener('open-support-chat', handleOpenChat);
+    }, []);
+
     const handleSendMessage = async () => {
         if (!inputText.trim()) return;
         

@@ -111,9 +111,20 @@ export interface Review {
 }
 
 export interface ScoreHistory {
-  id: number;
-  date: string;
-  reason: string;
+  id: string;
+  user_id: string;
   change: number;
-  newScore: number;
+  new_score: number;
+  reason: string;
+  created_at: string;
+}
+
+export interface LimitRequest {
+    id: string;
+    user_id: string;
+    requested_amount: number;
+    current_limit: number;
+    justification: string | null;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
 }

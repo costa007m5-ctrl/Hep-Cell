@@ -65,9 +65,21 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
     }
     const analysis = JSON.parse(text.trim());
 
+    // Atualiza perfil
     const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
     if (updateError) throw updateError;
     
+    // Grava histórico de score se houve mudança
+    if (profile.credit_score !== analysis.credit_score) {
+        const change = analysis.credit_score - (profile.credit_score || 0);
+        await supabase.from('score_history').insert({
+            user_id: userId,
+            change: change,
+            new_score: analysis.credit_score,
+            reason: change > 0 ? 'Análise automática: Perfil positivo' : 'Análise automática: Ajuste de crédito'
+        });
+    }
+
     await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Análise de crédito para ${profile.email}. Status: ${analysis.credit_status}, Limite: ${analysis.credit_limit}`);
     return updatedProfile;
 }
@@ -183,7 +195,7 @@ const SETUP_SQL = `
     ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "notes" "text";
     ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Notificações (Notifications) - NOVO
+    -- Tabela de Notificações (Notifications)
     CREATE TABLE IF NOT EXISTS "public"."notifications" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid" NOT NULL,
@@ -197,20 +209,61 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
+    -- Tabela de Histórico de Score (Score History) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."score_history" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "user_id" "uuid" NOT NULL,
+        "change" integer NOT NULL,
+        "new_score" integer NOT NULL,
+        "reason" "text",
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "score_history_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "score_history_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."score_history" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Solicitações de Limite (Limit Requests) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."limit_requests" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "user_id" "uuid" NOT NULL,
+        "requested_amount" numeric(10, 2) NOT NULL,
+        "current_limit" numeric(10, 2),
+        "justification" "text",
+        "status" "text" NOT NULL DEFAULT 'pending', -- pending, approved, rejected
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY;
+
     -- Tabela de Logs de Ação
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY;
 
     -- Políticas de Segurança (RLS)
     
-    -- Admin
+    -- Admin Check
     CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$
     BEGIN
       RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-    -- Profiles
+    -- Score History RLS
+    DROP POLICY IF EXISTS "Allow users to view their own score history" ON "public"."score_history";
+    CREATE POLICY "Allow users to view their own score history" ON "public"."score_history" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin full access score history" ON "public"."score_history";
+    CREATE POLICY "Allow admin full access score history" ON "public"."score_history" FOR ALL USING (is_admin());
+
+    -- Limit Requests RLS
+    DROP POLICY IF EXISTS "Allow users to create limit requests" ON "public"."limit_requests";
+    CREATE POLICY "Allow users to create limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow users to view their own limit requests" ON "public"."limit_requests";
+    CREATE POLICY "Allow users to view their own limit requests" ON "public"."limit_requests" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin full access limit requests" ON "public"."limit_requests";
+    CREATE POLICY "Allow admin full access limit requests" ON "public"."limit_requests" FOR ALL USING (is_admin());
+
+    -- Profiles (Existing)
     DROP POLICY IF EXISTS "Allow users to read their own profile" ON "public"."profiles";
     CREATE POLICY "Allow users to read their own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
     DROP POLICY IF EXISTS "Allow users to update their own profile" ON "public"."profiles";
@@ -256,7 +309,7 @@ const SETUP_SQL = `
     DROP POLICY IF EXISTS "Allow admin full access to invoices" ON "public"."invoices";
     CREATE POLICY "Allow admin full access to invoices" ON "public"."invoices" FOR ALL USING (is_admin());
 
-    -- Notifications - NOVO
+    -- Notifications
     DROP POLICY IF EXISTS "Allow users to read their own notifications" ON "public"."notifications";
     CREATE POLICY "Allow users to read their own notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
     DROP POLICY IF EXISTS "Allow users to update their own notifications" ON "public"."notifications";
@@ -281,6 +334,10 @@ const SETUP_SQL = `
       INSERT INTO public.profiles (id, email)
       VALUES (user_id, user_email)
       ON CONFLICT (id) DO NOTHING;
+      
+      -- Inicializa histórico de score com valor padrão (500)
+      INSERT INTO public.score_history (user_id, change, new_score, reason)
+      VALUES (user_id, 500, 500, 'Score inicial');
       
       -- Envia notificação de boas-vindas
       INSERT INTO public.notifications (user_id, title, message, type)
@@ -311,7 +368,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         }
 
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados configurado! Tabelas de e-commerce, endereços, notificações e políticas de segurança foram criadas." });
+        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Novas tabelas criadas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
