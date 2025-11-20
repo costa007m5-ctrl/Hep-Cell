@@ -1,10 +1,8 @@
-const CACHE_NAME = 'relp-cell-v3';
+const CACHE_NAME = 'relp-cell-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
+  '/manifest.json'
 ];
 
 // Instalação: Cacheia o Shell do App (HTML + Assets básicos)
@@ -69,6 +67,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
+        // Check if we received a valid response
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             caches.open(CACHE_NAME).then((cache) => {
                 cache.put(event.request, networkResponse.clone());
@@ -76,7 +75,7 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Se falhar o fetch (offline) e não tiver cache, não faz nada (ou retorna placeholder)
+        // Se falhar o fetch (offline) e não tiver cache, não faz nada
       });
 
       return cachedResponse || fetchPromise;
