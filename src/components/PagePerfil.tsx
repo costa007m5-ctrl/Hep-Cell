@@ -44,6 +44,26 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  // Detecta evento de instalar PWA
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  };
 
   const fetchUserProfile = useCallback(async () => {
     try {
@@ -104,8 +124,18 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
     }
   };
 
-  const handleNotificationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNotificationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const { name, checked } = e.target;
+      
+      // Se o usuário estiver ativando, solicitamos permissão do navegador
+      if (checked && 'Notification' in window && Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+             alert('Você precisa permitir notificações no navegador para ativar esta função.');
+             return; // Não muda o estado
+        }
+      }
+
       setNotificationPrefs(prev => ({ ...prev, [name]: checked }));
   };
 
@@ -187,7 +217,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
              <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Notificações</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Escolha quais comunicados por e-mail você deseja receber.
+                    Gerencie como você recebe atualizações sobre suas faturas e novidades.
                 </p>
              </div>
              {successMessage && <Alert message={successMessage} type="success" />}
@@ -195,21 +225,21 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
              <div className="divide-y divide-slate-200 dark:divide-slate-700">
                  <ToggleSwitch 
                     label="Lembrete de Vencimento"
-                    description="Receba um aviso alguns dias antes de sua fatura vencer."
+                    description="Receba um aviso antes da fatura vencer."
                     checked={notificationPrefs.notify_due_date}
                     onChange={handleNotificationChange}
                     name="notify_due_date"
                  />
                   <ToggleSwitch 
                     label="Nova Fatura"
-                    description="Seja notificado assim que uma nova fatura for gerada."
+                    description="Seja notificado ao gerar uma nova fatura."
                     checked={notificationPrefs.notify_new_invoice}
                     onChange={handleNotificationChange}
                     name="notify_new_invoice"
                  />
                   <ToggleSwitch 
                     label="Promoções e Ofertas"
-                    description="Receba e-mails sobre novidades e descontos na loja."
+                    description="Novidades exclusivas da loja."
                     checked={notificationPrefs.notify_promotions}
                     onChange={handleNotificationChange}
                     name="notify_promotions"
@@ -258,6 +288,18 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                 </svg>
                 Notificações
             </button>
+            
+            {installPrompt && (
+                <button
+                    onClick={handleInstallClick}
+                    className="w-full flex justify-center items-center py-3 px-4 border border-indigo-200 dark:border-indigo-800 rounded-md shadow-sm text-sm font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Instalar Aplicativo
+                </button>
+            )}
 
             <button
                 onClick={handleLogout}

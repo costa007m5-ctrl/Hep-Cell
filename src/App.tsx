@@ -26,6 +26,29 @@ const App: React.FC = () => {
   const [view, setView] = useState<View>('customer');
   const [isAdmin, setIsAdmin] = useState(false);
   const [paymentNotification, setPaymentNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  
+  // Estado do Tema (Dark Mode)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) return savedTheme === 'dark';
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  // Aplica o tema
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // Efeito para verificar o status do pagamento no retorno de um redirecionamento
   useEffect(() => {
@@ -108,7 +131,7 @@ const App: React.FC = () => {
 
   if (authLoading) {
     return (
-      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900">
+      <div className="flex flex-col min-h-screen font-sans items-center justify-center bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
         <LoadingSpinner />
         <p className="mt-4 text-slate-500 dark:text-slate-400">
             Verificando acesso...
@@ -137,9 +160,9 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900">
+    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
       {/* Oculta o Header global na aba Loja para dar imersão total */}
-      {activeTab !== Tab.LOJA && <Header />}
+      {activeTab !== Tab.LOJA && <Header toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
       
        {paymentNotification && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-md p-4 z-50 animate-fade-in-up">

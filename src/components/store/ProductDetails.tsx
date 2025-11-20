@@ -118,7 +118,11 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         if (userProfile) {
             setShowPurchaseModal(true);
         } else {
-            alert("Faça login novamente para realizar compras.");
+            // Se não tiver perfil carregado, tenta recarregar ou alerta
+            const confirmLogin = window.confirm("Para usar seu saldo do crediário, você precisa estar logado. Deseja ir para o login?");
+            if(confirmLogin) {
+                window.location.reload();
+            }
         }
     };
 
@@ -154,27 +158,20 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
     return (
         <div className="bg-white dark:bg-slate-900 min-h-screen animate-fade-in flex flex-col">
-            {/* Header de Navegação Transparente */}
-            <div className="fixed top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/40 to-transparent pointer-events-none">
+            {/* Header de Navegação Transparente com Blur */}
+            <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
                 <button 
                     onClick={onBack}
-                    className="p-2 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white pointer-events-auto shadow-lg"
+                    className="p-2.5 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white pointer-events-auto shadow-lg border border-white/10"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                     </svg>
                 </button>
-                <div className="flex gap-2 pointer-events-auto">
-                     <button className="p-2 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white shadow-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                        </svg>
-                    </button>
-                </div>
             </div>
 
             {/* Conteúdo Scrollável */}
-            <div className="flex-grow pb-32"> 
+            <div className="flex-grow pb-40"> 
                 {/* Imagem Principal Full Bleed */}
                 <div className="w-full bg-slate-100 dark:bg-slate-800 aspect-square relative flex justify-center items-center overflow-hidden">
                      <img 
@@ -185,48 +182,48 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                 </div>
 
                 {/* Informações Principais */}
-                <div className="px-5 pt-6 space-y-6 -mt-6 relative z-10 bg-white dark:bg-slate-900 rounded-t-3xl shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] dark:shadow-none min-h-[50vh]">
+                <div className="px-6 pt-8 space-y-6 -mt-8 relative z-10 bg-white dark:bg-slate-900 rounded-t-3xl shadow-[0_-10px_40px_-10px_rgba(0,0,0,0.1)] dark:shadow-none min-h-[60vh]">
                     {/* Barra de arraste decorativa */}
                     <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-4 opacity-50"></div>
                     
                     <div className="space-y-2">
-                        <div className="flex justify-between items-start">
-                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight max-w-[80%]">
+                        <div className="flex justify-between items-start gap-4">
+                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight">
                                 {product.name}
                             </h2>
                             {/* Badge Estoque */}
-                            <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${product.stock > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700'}`}>
-                                {product.stock > 0 ? 'Em Estoque' : 'Esgotado'}
+                            <span className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${product.stock > 0 ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                {product.stock > 0 ? 'Disponível' : 'Esgotado'}
                             </span>
                         </div>
                         
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                        <div className="flex flex-col">
+                            <span className="text-3xl font-extrabold text-slate-900 dark:text-white">
                                 {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </span>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                à vista ou parcelado
+                            </p>
                         </div>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                             12x de <span className="font-semibold text-slate-700 dark:text-slate-200">{(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span> sem juros
-                        </p>
                     </div>
 
                     {/* Garantia Card */}
-                    <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                         <div className="p-2 bg-white dark:bg-indigo-900/50 rounded-full text-indigo-600 dark:text-indigo-400 shadow-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                         <div className="p-2 bg-white dark:bg-slate-700 rounded-full text-indigo-600 dark:text-indigo-400 shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
                          </div>
                          <div>
-                             <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wide">Compra Garantida</p>
-                             <p className="text-xs text-indigo-700 dark:text-indigo-400">Receba o produto que está esperando ou devolvemos o dinheiro.</p>
+                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Compra Garantida Relp</p>
+                             <p className="text-xs text-slate-500 dark:text-slate-400">Receba o produto que está esperando ou devolvemos o dinheiro.</p>
                          </div>
                     </div>
 
                     {/* Descrição */}
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800/50">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3">Descrição</h3>
-                        <div className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">
+                    <div className="pt-2">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3">Ficha Técnica</h3>
+                        <div className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl">
                             {product.description || 'Descrição detalhada não disponível para este produto.'}
                         </div>
                     </div>
@@ -234,7 +231,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
                  {/* Produtos Relacionados */}
                  {relatedProducts.length > 0 && (
-                     <div className="mt-2 pt-6 px-4 bg-white dark:bg-slate-900 pb-6">
+                     <div className="mt-4 pt-6 px-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
                          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 px-1">Quem viu, comprou também</h3>
                         <ProductCarousel 
                             title="" 
@@ -245,27 +242,38 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                  )}
             </div>
 
-            {/* Sticky Footer Actions (Barra fixa de compra) */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe">
-                <div className="max-w-4xl mx-auto flex gap-3">
+            {/* Sticky Footer Actions (Barra fixa de compra com efeito Glass) */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 z-40 pb-safe">
+                <div className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border-t border-slate-200/50 dark:border-slate-800/50 shadow-2xl shadow-black/10"></div>
+                <div className="relative max-w-4xl mx-auto flex flex-col gap-3">
+                     {/* Card de Resumo da Parcela */}
+                    <div className="flex justify-between items-center px-2">
+                        <div className="flex flex-col">
+                            <span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Melhor Condição</span>
+                             <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
+                                12x de {(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                        </div>
+                        <button 
+                            onClick={handleGenerateQuote}
+                            className="text-xs font-medium text-slate-500 hover:text-indigo-600 underline decoration-2 underline-offset-2"
+                            disabled={isGeneratingPdf}
+                        >
+                            {isGeneratingPdf ? 'Gerando...' : 'Baixar Orçamento'}
+                        </button>
+                    </div>
+
                     <button 
-                        onClick={handleGenerateQuote}
-                        disabled={isGeneratingPdf}
-                        className="flex-1 py-3.5 rounded-xl font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors disabled:opacity-50 active:scale-95"
-                    >
-                        {isGeneratingPdf ? <LoadingSpinner /> : 'Orçamento'}
-                    </button>
-                     <button 
                         onClick={handleBuyClick}
                         disabled={isLoadingProfile || product.stock <= 0}
-                        className="flex-[2] py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-70 disabled:grayscale disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-2xl font-bold text-lg shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] disabled:opacity-70 disabled:grayscale disabled:cursor-not-allowed flex items-center justify-center gap-2"
                      >
                         {isLoadingProfile ? <LoadingSpinner /> : (
                             <>
-                                <span>Comprar Agora</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                                 </svg>
+                                <span>Comprar no Crediário</span>
                             </>
                         )}
                     </button>
@@ -273,7 +281,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
             </div>
 
             {/* Padding extra no final para compensar o footer fixo e a navbar inferior */}
-            <div className="h-16"></div>
+            <div className="h-20"></div>
 
             {/* Purchase Modal */}
             {showPurchaseModal && userProfile && (
