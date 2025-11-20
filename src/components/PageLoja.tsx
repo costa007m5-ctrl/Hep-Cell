@@ -6,7 +6,13 @@ import { supabase } from '../services/clients';
 import { useToast } from './Toast';
 import Modal from './Modal';
 
-// --- Sub-Componentes ---
+// Importação dos Novos Sub-Componentes
+import StoreCarousel from './store/StoreCarousel';
+import CategoryIcons from './store/CategoryIcons';
+import BrandLogos from './store/BrandLogos';
+import ProductDetails from './store/ProductDetails';
+
+// --- Sub-Componentes Internos (que não foram externalizados) ---
 
 // 1. Countdown Timer para Ofertas
 const FlashSaleBanner = () => {
@@ -197,13 +203,17 @@ const PageLoja: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState('Todos');
+    const [activeBrand, setActiveBrand] = useState<string | undefined>(undefined);
     
-    const [cart, setCart] = useState<CartItem[]>([]);
+    // View states
+    const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [isCartOpen, setIsCartOpen] = useState(false);
+    const [isWishlistOpen, setIsWishlistOpen] = useState(false);
     const [isCheckingOut, setIsCheckingOut] = useState(false);
 
+    // Data Persistance
+    const [cart, setCart] = useState<CartItem[]>([]);
     const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-    const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
     const { addToast } = useToast();
 
@@ -334,19 +344,53 @@ const PageLoja: React.FC = () => {
         }
     };
 
-    // --- Filtering ---
-    const categories = ['Todos', 'Celulares', 'Acessórios', 'Fones', 'Ofertas'];
+    // --- Filtering Logic ---
     
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
-            const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                  p.brand?.toLowerCase().includes(searchQuery.toLowerCase());
+            // 1. Search Filter
+            const matchesSearch = !searchQuery || 
+                p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                p.brand?.toLowerCase().includes(searchQuery.toLowerCase());
+            
+            // 2. Category Filter
             const matchesCategory = activeCategory === 'Todos' || 
-                                    (activeCategory === 'Ofertas' ? p.category === 'Ofertas' || p.name.toLowerCase().includes('promo') : p.category === activeCategory);
-            return matchesSearch && matchesCategory;
-        });
-    }, [products, searchQuery, activeCategory]);
+                (activeCategory === 'Ofertas' ? p.category === 'Ofertas' || p.name.toLowerCase().includes('promo') : p.category === activeCategory);
+            
+            // 3. Brand Filter (if specific brand selected)
+            const matchesBrand = !activeBrand || activeBrand === 'Todas' || 
+                (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase());
 
+            return matchesSearch && matchesCategory && matchesBrand;
+        });
+    }, [products, searchQuery, activeCategory, activeBrand]);
+
+    const handleCategorySelect = (cat: string) => {
+        setActiveCategory(cat);
+        // Reset brand filter if switching categories might help UX, but optional.
+    };
+
+    const handleBannerLink = (link: string) => {
+        if (link.startsWith('category:')) {
+            const cat = link.split(':')[1];
+            setActiveCategory(cat);
+        } else if (link.startsWith('brand:')) {
+            const brand = link.split(':')[1];
+            setActiveBrand(brand);
+        }
+    };
+
+    // Se um produto estiver selecionado, mostre a tela de detalhes
+    if (selectedProduct) {
+        return (
+            <ProductDetails 
+                product={selectedProduct} 
+                allProducts={products}
+                onBack={() => setSelectedProduct(null)}
+                onProductClick={setSelectedProduct} // Permite navegar para produtos relacionados
+            />
+        );
+    }
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-900 pb-24 animate-fade-in">
@@ -375,53 +419,51 @@ const PageLoja: React.FC = () => {
                             placeholder="Buscar produtos, marcas..." 
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-sm border-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                            className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-sm border-none focus:ring-2 focus:ring-indigo-500 dark:text-white shadow-inner"
                         />
-                    </div>
-
-                    {/* Filter Chips */}
-                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-                        {categories.map(cat => (
-                            <button 
-                                key={cat}
-                                onClick={() => setActiveCategory(cat)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
-                                    activeCategory === cat 
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30' 
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent'
-                                }`}
-                            >
-                                {cat}
-                            </button>
-                        ))}
                     </div>
                 </div>
             </header>
 
-            {/* 2. Conteúdo Principal */}
-            <main className="max-w-md mx-auto pt-2">
+            {/* 2. Conteúdo Principal Scrollável */}
+            <main className="max-w-md mx-auto pt-2 space-y-4">
+                
+                {/* Carousel de Destaques (Apenas se não houver busca) */}
                 {!searchQuery && activeCategory === 'Todos' && (
                     <>
+                        <StoreCarousel onBannerClick={handleBannerLink} />
+                        <CategoryIcons activeCategory={activeCategory} onSelect={handleCategorySelect} />
+                        <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
                         <FlashSaleBanner />
-                        <h2 className="px-4 text-lg font-bold text-slate-900 dark:text-white mb-3">Destaques</h2>
+                        <h2 className="px-4 text-lg font-bold text-slate-900 dark:text-white">Destaques</h2>
                     </>
                 )}
 
+                {/* Category Filters (if specific category selected or searching) */}
+                {(searchQuery || activeCategory !== 'Todos') && (
+                     <CategoryIcons activeCategory={activeCategory} onSelect={handleCategorySelect} />
+                )}
+
+                {/* Product Grid */}
                 {isLoading ? (
                     <div className="flex justify-center py-20"><LoadingSpinner /></div>
                 ) : filteredProducts.length > 0 ? (
                     <div className="grid grid-cols-2 gap-3 px-3 pb-6">
                         {filteredProducts.map(product => (
-                            <div key={product.id} className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-sm border border-slate-100 dark:border-slate-700 relative group flex flex-col">
+                            <div 
+                                key={product.id} 
+                                className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-sm border border-slate-100 dark:border-slate-700 relative group flex flex-col cursor-pointer"
+                                onClick={() => setSelectedProduct(product)} // Abre detalhes
+                            >
                                 {/* Badges */}
-                                <div className="absolute top-3 left-3 z-10 flex flex-col gap-1">
+                                <div className="absolute top-3 left-3 z-10 flex flex-col gap-1 pointer-events-none">
                                     {product.is_new && <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-sm">NOVO</span>}
                                     {product.stock < 5 && <span className="bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md shadow-sm">RESTAM {product.stock}</span>}
                                 </div>
 
-                                {/* Wishlist Button */}
+                                {/* Wishlist Button (Stop Propagation) */}
                                 <button 
-                                    onClick={() => toggleWishlist(product.id)}
+                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
                                     className="absolute top-2 right-2 z-10 p-2 bg-white/80 dark:bg-black/40 backdrop-blur rounded-full text-slate-400 hover:text-red-500 transition-colors shadow-sm"
                                 >
                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill={wishlist.has(product.id) ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} color={wishlist.has(product.id) ? "#ef4444" : "currentColor"}><path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
@@ -446,7 +488,7 @@ const PageLoja: React.FC = () => {
                                         </p>
                                         
                                         <button 
-                                            onClick={() => handleAddToCart(product)}
+                                            onClick={(e) => { e.stopPropagation(); handleAddToCart(product); }}
                                             className="w-full py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-indigo-600 dark:hover:bg-slate-200 transition-colors active:scale-95"
                                         >
                                             Adicionar
@@ -465,7 +507,7 @@ const PageLoja: React.FC = () => {
                 )}
             </main>
 
-            {/* Drawers */}
+            {/* Drawers (Carrinho e Wishlist) */}
             <CartDrawer 
                 isOpen={isCartOpen} 
                 onClose={() => setIsCartOpen(false)} 

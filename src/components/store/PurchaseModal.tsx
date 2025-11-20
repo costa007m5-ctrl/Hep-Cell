@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Profile } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
