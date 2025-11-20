@@ -84,7 +84,7 @@ const PageLoja: React.FC = () => {
   const newArrivals = products.slice(8, 16);
 
   return (
-    <div className="w-full h-full bg-slate-100 dark:bg-slate-900 overflow-y-auto animate-fade-in">
+    <div className="w-full h-full bg-slate-100 dark:bg-slate-900 overflow-y-auto animate-fade-in pb-24">
         <div className="max-w-6xl mx-auto">
             <header className="p-4 sticky top-0 bg-slate-100/90 dark:bg-slate-900/90 backdrop-blur-md z-10">
                 <SearchBar />

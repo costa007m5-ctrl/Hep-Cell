@@ -13,13 +13,13 @@ const ProductCard: React.FC<{ product: Product; onClick: () => void }> = ({ prod
     return (
         <button 
             onClick={onClick}
-            className="flex-shrink-0 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden snap-start text-left hover:shadow-xl transition-shadow duration-200 group"
+            className="flex-shrink-0 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-md overflow-hidden snap-start text-left hover:shadow-xl transition-all duration-200 group border border-slate-100 dark:border-slate-700"
         >
-            <div className="relative overflow-hidden h-48">
+            <div className="relative overflow-hidden h-48 bg-white p-2 flex items-center justify-center">
                 <img 
                     src={product.image_url || 'https://via.placeholder.com/400x400.png/E2E8F0/475569?text=Relp'} 
                     alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
                 />
             </div>
             <div className="p-3 border-t border-slate-100 dark:border-slate-700">
@@ -28,7 +28,7 @@ const ProductCard: React.FC<{ product: Product; onClick: () => void }> = ({ prod
                     {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    em até 12x de R$ {installmentValue}
+                    12x de R$ {installmentValue}
                 </p>
             </div>
         </button>
@@ -43,9 +43,11 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products, onPr
 
     return (
         <section className="space-y-4 animate-fade-in-up">
-            <div className="flex justify-between items-center px-4">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
-            </div>
+            {title && (
+                <div className="flex justify-between items-center px-4">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h2>
+                </div>
+            )}
             <div className="flex space-x-4 overflow-x-auto pb-4 px-4 scrollbar-hide snap-x snap-mandatory scroll-smooth">
                 {products.map(product => (
                     <ProductCard 

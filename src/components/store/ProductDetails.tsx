@@ -15,19 +15,18 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
     // Filtra produtos relacionados (excluindo o atual)
-    // Em um app real, filtraria por categoria. Aqui pegamos 5 aleatórios ou sequenciais.
     const relatedProducts = allProducts
         .filter(p => p.id !== product.id)
         .slice(0, 6);
 
     const handleGenerateQuote = async () => {
         setIsGeneratingPdf(true);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Pequeno delay visual
+        await new Promise(resolve => setTimeout(resolve, 500)); 
 
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
 
-        // Header Style
+        // Cabeçalho
         doc.setFillColor(79, 70, 229); // Indigo-600
         doc.rect(0, 0, pageWidth, 40, 'F');
         
@@ -37,51 +36,34 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         doc.text('Relp Cell', 20, 20);
         doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
-        doc.text('Orçamento de Produto', 20, 30);
+        doc.text('Soluções em Tecnologia', 20, 30);
         
         doc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth - 60, 20);
 
-        // Product Info
+        // Info Produto
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(18);
         doc.setFont('helvetica', 'bold');
         doc.text(product.name, 20, 60);
 
-        // Price Box
+        // Caixa de Preço
         doc.setDrawColor(200, 200, 200);
         doc.setFillColor(245, 245, 245);
         doc.roundedRect(20, 70, pageWidth - 40, 40, 3, 3, 'FD');
 
         doc.setFontSize(14);
-        doc.text('Valor à Vista:', 30, 85);
+        doc.text('Valor:', 30, 85);
         doc.setFontSize(20);
-        doc.setTextColor(79, 70, 229); // Indigo
+        doc.setTextColor(79, 70, 229); 
         doc.text(product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), pageWidth - 80, 85);
 
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(12);
-        doc.text('Parcelado:', 30, 100);
+        doc.text('Condição:', 30, 100);
         const installmentVal = (product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         doc.text(`12x de ${installmentVal}`, pageWidth - 80, 100);
 
-        // Image (if valid)
-        if (product.image_url) {
-            try {
-                // Tentativa básica de carregar imagem. Pode falhar devido a CORS dependendo da fonte.
-                // Se falhar, apenas ignoramos a imagem no PDF.
-                const img = new Image();
-                img.src = product.image_url;
-                // Nota: Em um ambiente real, seria necessário proxy para imagens externas no canvas/pdf
-                // Aqui adicionamos um placeholder de texto se não conseguirmos desenhar
-                doc.setFontSize(10);
-                doc.setTextColor(150, 150, 150);
-                doc.text('(Imagem do produto disponível no site)', 20, 130);
-            } catch (e) {
-                console.log("Imagem não carregada no PDF");
-            }
-        }
-
-        // Description
+        // Descrição
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
@@ -93,18 +75,18 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         const splitDesc = doc.splitTextToSize(product.description || 'Sem descrição adicional.', pageWidth - 40);
         doc.text(splitDesc, 20, 150);
 
-        // Footer
+        // Rodapé
         doc.setFontSize(10);
         doc.setTextColor(100, 100, 100);
-        doc.text('Este orçamento é válido por 5 dias. Sujeito a disponibilidade em estoque.', 20, 270);
-        doc.text('Relp Cell - A melhor tecnologia para você.', 20, 275);
+        doc.text('Orçamento válido por 5 dias.', 20, 270);
+        doc.text('Relp Cell - Contato: contato@relpcell.com.br', 20, 275);
 
         doc.save(`Orcamento_${product.name.replace(/\s+/g, '_')}.pdf`);
         setIsGeneratingPdf(false);
     };
 
     return (
-        <div className="bg-white dark:bg-slate-900 min-h-full animate-fade-in">
+        <div className="bg-white dark:bg-slate-900 min-h-full animate-fade-in pb-24">
             {/* Header de Navegação */}
             <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
                 <button 
@@ -118,38 +100,44 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                 <h1 className="text-lg font-semibold text-slate-800 dark:text-white truncate flex-1">
                     Detalhes do Produto
                 </h1>
-                <button className="p-2 text-indigo-600 dark:text-indigo-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                </button>
             </div>
 
-            <div className="max-w-4xl mx-auto pb-12">
+            <div className="max-w-4xl mx-auto">
                 {/* Imagem Principal */}
-                <div className="w-full bg-white dark:bg-slate-800 aspect-square sm:aspect-[16/9] relative">
+                <div className="w-full bg-white dark:bg-slate-800 aspect-square sm:aspect-[16/9] relative flex justify-center items-center p-4">
                      <img 
                         src={product.image_url || 'https://via.placeholder.com/600'} 
                         alt={product.name}
-                        className="w-full h-full object-contain p-4"
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
                     />
                 </div>
 
                 {/* Informações Principais */}
-                <div className="px-4 py-6 space-y-6 bg-white dark:bg-slate-900 relative -mt-4 rounded-t-3xl shadow-top">
+                <div className="px-4 py-6 space-y-6 bg-white dark:bg-slate-900 relative rounded-t-3xl shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] dark:shadow-slate-800/50">
+                    
+                    {/* Informações do App */}
+                    <div className="flex items-center space-x-3 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/30">
+                         <div className="p-2 bg-indigo-100 dark:bg-indigo-800 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                         </div>
+                         <div>
+                             <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-200">Vendido por Relp Cell</h3>
+                             <p className="text-xs text-indigo-700 dark:text-indigo-400">Garantia e Qualidade Comprovada</p>
+                         </div>
+                    </div>
+
                     <div className="space-y-2">
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight">
                             {product.name}
                         </h2>
-                        <div className="flex items-baseline gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-baseline gap-2">
                             <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
                                 {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </span>
-                            <span className="text-sm text-slate-500 dark:text-slate-400">à vista</span>
+                            <span className="text-sm text-slate-500 dark:text-slate-400">à vista ou 12x de {(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                         </div>
-                         <p className="text-sm font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 inline-block px-2 py-1 rounded-md">
-                            12x de {(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros
-                        </p>
                     </div>
 
                     {/* Ações */}
@@ -162,7 +150,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                             {isGeneratingPdf ? <LoadingSpinner /> : (
                                 <>
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                     </svg>
                                     <span>Orçamento</span>
                                 </>
@@ -187,9 +175,13 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
                  {/* Produtos Relacionados */}
                  {relatedProducts.length > 0 && (
-                     <div className="mt-4 pt-6 border-t-4 border-slate-100 dark:border-slate-800">
+                     <div className="mt-4 pt-6 border-t-4 border-slate-100 dark:border-slate-800 px-4">
+                         <div className="mb-4">
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Outras opções para você</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">Produtos similares que podem te interessar.</p>
+                         </div>
                         <ProductCarousel 
-                            title="Você também pode gostar" 
+                            title="" 
                             products={relatedProducts} 
                             onProductClick={onProductClick}
                         />
