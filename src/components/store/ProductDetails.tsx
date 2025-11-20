@@ -30,7 +30,6 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
                     const profile = await getProfile(user.id);
-                    // Merge auth data with profile data
                     if (profile) {
                         setUserProfile({ ...profile, id: user.id, email: user.email });
                     }
@@ -119,7 +118,6 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         if (userProfile) {
             setShowPurchaseModal(true);
         } else {
-            // Fallback simples se o perfil não carregar
             alert("Faça login novamente para realizar compras.");
         }
     };
@@ -133,7 +131,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     if (purchaseSuccess) {
         return (
             <div className="min-h-screen bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
-                <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6">
+                <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6 animate-bounce-slow">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
@@ -155,108 +153,89 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
     }
 
     return (
-        <div className="bg-white dark:bg-slate-900 min-h-full animate-fade-in pb-24">
-            {/* Header de Navegação */}
-            <div className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 py-3 flex items-center gap-3">
+        <div className="bg-white dark:bg-slate-900 min-h-screen animate-fade-in flex flex-col">
+            {/* Header de Navegação Transparente */}
+            <div className="fixed top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/40 to-transparent pointer-events-none">
                 <button 
                     onClick={onBack}
-                    className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-300"
+                    className="p-2 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white pointer-events-auto shadow-lg"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                     </svg>
                 </button>
-                <h1 className="text-lg font-semibold text-slate-800 dark:text-white truncate flex-1">
-                    Detalhes do Produto
-                </h1>
+                <div className="flex gap-2 pointer-events-auto">
+                     <button className="p-2 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                        </svg>
+                    </button>
+                </div>
             </div>
 
-            <div className="max-w-4xl mx-auto">
-                {/* Imagem Principal */}
-                <div className="w-full bg-white dark:bg-slate-800 aspect-square sm:aspect-[16/9] relative flex justify-center items-center p-4">
+            {/* Conteúdo Scrollável */}
+            <div className="flex-grow pb-32"> 
+                {/* Imagem Principal Full Bleed */}
+                <div className="w-full bg-slate-100 dark:bg-slate-800 aspect-square relative flex justify-center items-center overflow-hidden">
                      <img 
                         src={product.image_url || 'https://via.placeholder.com/600'} 
                         alt={product.name}
-                        className="max-w-full max-h-full object-contain rounded-lg shadow-sm"
+                        className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal"
                     />
                 </div>
 
                 {/* Informações Principais */}
-                <div className="px-4 py-6 space-y-6 bg-white dark:bg-slate-900 relative rounded-t-3xl shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] dark:shadow-slate-800/50">
+                <div className="px-5 pt-6 space-y-6 -mt-6 relative z-10 bg-white dark:bg-slate-900 rounded-t-3xl shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.1)] dark:shadow-none min-h-[50vh]">
+                    {/* Barra de arraste decorativa */}
+                    <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-4 opacity-50"></div>
                     
-                    {/* Informações do App */}
-                    <div className="flex items-center space-x-3 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/30">
-                         <div className="p-2 bg-indigo-100 dark:bg-indigo-800 rounded-full">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight max-w-[80%]">
+                                {product.name}
+                            </h2>
+                            {/* Badge Estoque */}
+                            <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${product.stock > 0 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-700'}`}>
+                                {product.stock > 0 ? 'Em Estoque' : 'Esgotado'}
+                            </span>
+                        </div>
+                        
+                        <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                                {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                        </div>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                             12x de <span className="font-semibold text-slate-700 dark:text-slate-200">{(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span> sem juros
+                        </p>
+                    </div>
+
+                    {/* Garantia Card */}
+                    <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                         <div className="p-2 bg-white dark:bg-indigo-900/50 rounded-full text-indigo-600 dark:text-indigo-400 shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
                          </div>
                          <div>
-                             <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-200">Vendido por Relp Cell</h3>
-                             <p className="text-xs text-indigo-700 dark:text-indigo-400">Garantia e Qualidade Comprovada</p>
+                             <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wide">Compra Garantida</p>
+                             <p className="text-xs text-indigo-700 dark:text-indigo-400">Receba o produto que está esperando ou devolvemos o dinheiro.</p>
                          </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight">
-                            {product.name}
-                        </h2>
-                        <div className="flex flex-col sm:flex-row sm:items-baseline gap-2">
-                            <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
-                                {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                            <span className="text-sm text-slate-500 dark:text-slate-400">à vista ou parcelado no limite</span>
-                        </div>
-                    </div>
-
-                    {/* Ações */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <button 
-                            onClick={handleGenerateQuote}
-                            disabled={isGeneratingPdf}
-                            className="flex items-center justify-center gap-2 py-3 px-4 border border-indigo-600 dark:border-indigo-500 rounded-xl font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50"
-                        >
-                            {isGeneratingPdf ? <LoadingSpinner /> : (
-                                <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    <span>Orçamento</span>
-                                </>
-                            )}
-                        </button>
-                         <button 
-                            onClick={handleBuyClick}
-                            disabled={isLoadingProfile}
-                            className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-70 disabled:cursor-wait"
-                         >
-                            {isLoadingProfile ? <LoadingSpinner /> : (
-                                <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
-                                    </svg>
-                                    <span>Comprar</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
-
                     {/* Descrição */}
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Sobre o produto</h3>
-                        <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800/50">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3">Descrição</h3>
+                        <div className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">
                             {product.description || 'Descrição detalhada não disponível para este produto.'}
-                        </p>
+                        </div>
                     </div>
                 </div>
 
                  {/* Produtos Relacionados */}
                  {relatedProducts.length > 0 && (
-                     <div className="mt-4 pt-6 border-t-4 border-slate-100 dark:border-slate-800 px-4">
-                         <div className="mb-4">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Outras opções para você</h3>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">Produtos similares que podem te interessar.</p>
-                         </div>
+                     <div className="mt-2 pt-6 px-4 bg-white dark:bg-slate-900 pb-6">
+                         <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 px-1">Quem viu, comprou também</h3>
                         <ProductCarousel 
                             title="" 
                             products={relatedProducts} 
@@ -265,6 +244,36 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                      </div>
                  )}
             </div>
+
+            {/* Sticky Footer Actions (Barra fixa de compra) */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-40 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)] pb-safe">
+                <div className="max-w-4xl mx-auto flex gap-3">
+                    <button 
+                        onClick={handleGenerateQuote}
+                        disabled={isGeneratingPdf}
+                        className="flex-1 py-3.5 rounded-xl font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors disabled:opacity-50 active:scale-95"
+                    >
+                        {isGeneratingPdf ? <LoadingSpinner /> : 'Orçamento'}
+                    </button>
+                     <button 
+                        onClick={handleBuyClick}
+                        disabled={isLoadingProfile || product.stock <= 0}
+                        className="flex-[2] py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95 disabled:opacity-70 disabled:grayscale disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                     >
+                        {isLoadingProfile ? <LoadingSpinner /> : (
+                            <>
+                                <span>Comprar Agora</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                </svg>
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* Padding extra no final para compensar o footer fixo e a navbar inferior */}
+            <div className="h-16"></div>
 
             {/* Purchase Modal */}
             {showPurchaseModal && userProfile && (

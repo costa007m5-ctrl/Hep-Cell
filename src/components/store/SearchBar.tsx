@@ -2,16 +2,16 @@ import React from 'react';
 
 const SearchBar: React.FC = () => {
     return (
-        <div className="relative">
+        <div className="relative group">
             <input
                 type="search"
-                placeholder="Buscar produtos, marcas e muito mais..."
-                className="w-full pl-10 pr-4 py-3 rounded-full bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="O que você procura?"
+                className="w-full pl-10 pr-4 py-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border-none shadow-inner focus:ring-2 focus:ring-indigo-500/50 transition-all text-sm"
             />
             <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-slate-400"
+                    className="h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"

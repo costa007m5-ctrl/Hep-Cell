@@ -36,27 +36,20 @@ const StoreCarousel: React.FC = () => {
 
     return (
         <div className="px-4">
-            <div className="relative w-full aspect-[16/9] sm:aspect-[21/9] md:aspect-[2.5/1] overflow-hidden rounded-2xl shadow-lg group">
+            <div className="relative w-full aspect-[2/1] sm:aspect-[2.5/1] md:aspect-[3/1] overflow-hidden rounded-2xl shadow-md group">
                 <div className="flex transition-transform duration-700 ease-in-out h-full" style={{ transform: `translateX(-${currentIndex * 100}%)` }}>
                     {banners.map((banner) => (
-                        <a href={banner.href} key={banner.id} className="flex-shrink-0 w-full h-full">
+                        <a href={banner.href} key={banner.id} className="flex-shrink-0 w-full h-full relative">
+                             <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent z-10"></div>
                             <img src={banner.src} alt={banner.alt} className="w-full h-full object-cover" />
                         </a>
                     ))}
                 </div>
 
-                {/* Navigation Buttons */}
-                <button onClick={prevSlide} className="absolute top-1/2 left-2 -translate-y-1/2 bg-black/30 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-white z-10">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                </button>
-                <button onClick={nextSlide} className="absolute top-1/2 right-2 -translate-y-1/2 bg-black/30 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-white z-10">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </button>
-
                 {/* Indicators */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-2 z-10">
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex space-x-1.5 z-20">
                     {banners.map((_, index) => (
-                        <button key={index} onClick={() => goToSlide(index)} className={`w-3 h-3 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/50'}`}></button>
+                        <button key={index} onClick={() => goToSlide(index)} className={`h-1.5 rounded-full transition-all duration-300 ${currentIndex === index ? 'w-6 bg-white' : 'w-1.5 bg-white/50'}`}></button>
                     ))}
                 </div>
             </div>
