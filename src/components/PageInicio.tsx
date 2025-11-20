@@ -37,7 +37,9 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
   useEffect(() => {
     const handler = (e: any) => {
+      // Impede que o mini-infobar apareça no mobile
       e.preventDefault();
+      // Salva o evento para ser disparado depois
       setDeferredPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handler);
@@ -46,9 +48,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
+    // Mostra o prompt de instalação
     deferredPrompt.prompt();
+    // Espera pela escolha do usuário
     const { outcome } = await deferredPrompt.userChoice;
     console.log(`User response to the install prompt: ${outcome}`);
+    // Limpa o prompt salvo, pois ele só pode ser usado uma vez
     setDeferredPrompt(null);
   };
   

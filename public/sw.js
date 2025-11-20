@@ -1,4 +1,4 @@
-const CACHE_NAME = 'relp-cell-v13';
+const CACHE_NAME = 'relp-cell-v14'; // Versão incrementada
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -7,12 +7,13 @@ const STATIC_ASSETS = [
   'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
 ];
 
-// Instalação: Cacheia apenas o essencial para o app abrir
+// Instalação: Cacheia o Shell do App
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  self.skipWaiting(); // Força ativação imediata
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Caching static assets');
+      // Importante: Cacheia explicitamente o index.html
       return cache.addAll(STATIC_ASSETS);
     })
   );
@@ -33,41 +34,40 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: Network First para HTML, Cache First para assets, com fallback robusto
+// Fetch: Estratégia Network First com Fallback Robusto para index.html
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignora requisições que não sejam GET ou que sejam para API
+  // 1. Ignora requisições API ou não-GET
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
     return;
   }
 
-  // Navegação (HTML) - Estratégia Network First
+  // 2. Tratamento de Navegação (HTML)
+  // Isso é CRÍTICO para a instalação funcionar. Se a rede falhar, DEVE retornar o index.html
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
-        .then((networkResponse) => {
-          return caches.open(CACHE_NAME).then((cache) => {
-            // Atualiza o cache com a nova versão da página
-            cache.put('/', networkResponse.clone());
-            return networkResponse;
-          });
-        })
         .catch(() => {
-          // Fallback Offline: Tenta retornar o index.html do cache
-          return caches.match('/index.html').then((response) => {
-              return response || caches.match('/');
-          });
+          return caches.match('/index.html')
+            .then((response) => {
+                if (response) {
+                    return response;
+                }
+                // Se não achar /index.html, tenta a raiz '/'
+                return caches.match('/');
+            });
         })
     );
     return;
   }
 
-  // Assets estáticos e imagens - Estratégia Cache First
+  // 3. Tratamento de Assets (CSS, JS, Imagens)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request).then((networkResponse) => {
-        return networkResponse;
+      return cachedResponse || fetch(event.request).catch(() => {
+          // Retorna null se falhar, para não quebrar a página inteira
+          return null;
       });
     })
   );
@@ -75,11 +75,7 @@ self.addEventListener('fetch', (event) => {
 
 // Lidar com o clique na notificação
 self.addEventListener('notificationclick', function(event) {
-  console.log('[SW] Notification click Received.', event.notification.data);
-  
   event.notification.close();
-
-  // Foca na janela do app se estiver aberta, ou abre uma nova
   event.waitUntil(
     clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(clientList) {
       for (var i = 0; i < clientList.length; i++) {
