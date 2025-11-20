@@ -241,7 +241,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                     last_name: payer.lastName,
                     identification: { type: 'CPF', number: payer.identificationNumber.replace(/\D/g, '') },
                     address: {
-                        zip_code: payer.zipCode,
+                        zip_code: payer.zipCode.replace(/\D/g, ''), // Remove formatação, apenas números
                         street_name: payer.streetName,
                         street_number: payer.streetNumber,
                         neighborhood: payer.neighborhood,
@@ -253,20 +253,28 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         });
 
         // Extração robusta dos dados do boleto
-        const transactionData = result.point_of_interaction?.transaction_data as any;
-        const boletoUrl = transactionData?.ticket_url || result.transaction_details?.external_resource_url;
-        const boletoBarcode = transactionData?.bar_code;
+        const responseData = result as any;
         
-        if (!result.id || !boletoUrl || !boletoBarcode) {
-            console.error("Não foi possível encontrar a URL ou o código de barras do boleto na resposta do Mercado Pago:", JSON.stringify(result, null, 2));
-            throw new Error('A resposta do Mercado Pago não continha os detalhes do boleto. Verifique os dados do pagador.');
+        // Tenta encontrar a URL do boleto em diferentes locais da resposta
+        const boletoUrl = 
+            responseData.transaction_details?.external_resource_url || 
+            responseData.point_of_interaction?.transaction_data?.ticket_url;
+
+        // Tenta encontrar o código de barras em diferentes locais
+        const boletoBarcode = 
+            responseData.barcode?.content || 
+            responseData.point_of_interaction?.transaction_data?.bar_code;
+        
+        if (!result.id || !boletoUrl) {
+            console.error("Não foi possível encontrar a URL do boleto na resposta do Mercado Pago:", JSON.stringify(result, null, 2));
+            throw new Error('A resposta do Mercado Pago não continha o link do boleto. Verifique os dados do endereço e CPF.');
         }
 
         await supabase.from('invoices').update({
             payment_id: String(result.id),
             status: 'Boleto Gerado',
             boleto_url: boletoUrl,
-            boleto_barcode: boletoBarcode,
+            boleto_barcode: boletoBarcode || null, // Se não tiver código de barras, salva como null
         }).eq('id', invoiceId);
 
         await logAction(supabase, 'BOLETO_CREATED', 'SUCCESS', `Boleto gerado para fatura ${invoiceId}.`);
