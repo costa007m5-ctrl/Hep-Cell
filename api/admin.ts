@@ -411,10 +411,23 @@ async function handleGenerateProductDetails(req: VercelRequest, res: VercelRespo
     if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
     try {
+        // Updated prompt to ensure structured description
         const instruction = `Extract product details from the following user prompt: "${prompt}".
         Return a JSON object with the following keys:
         - name: The full commercial name of the product.
-        - description: A compelling technical and sales description in Portuguese (markdown supported).
+        - description: A structured description using Markdown headers (###) to separate sections. 
+          Example structure:
+          ### Destaques
+          [Bullet points of main features]
+          
+          ### Ficha Técnica
+          - Tela: [Details]
+          - Processador: [Details]
+          ...
+          
+          ### Itens Inclusos
+          [List of items]
+          
         - price: The price as a number (extract from text, e.g., "500 reais" -> 500).
         - stock: The stock quantity as a number.
         - brand: The brand of the product (e.g., Apple, Samsung, Xiaomi, Motorola). If not specified, infer from the name or set to "Genérica".

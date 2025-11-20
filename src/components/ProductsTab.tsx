@@ -200,7 +200,9 @@ const ProductsTab: React.FC = () => {
             if (itemData.model) specs.push(`Modelo: ${itemData.model}`);
             
             if (specs.length > 0) {
-                detailedDescription = `--- FICHA TÉCNICA ---\n${specs.join('\n')}\n\n--- DESCRIÇÃO ---\n${detailedDescription}`;
+                detailedDescription = `### Ficha Técnica\n${specs.join('\n')}\n\n### Descrição\n${detailedDescription}`;
+            } else {
+                 detailedDescription = `### Descrição\n${detailedDescription}`;
             }
             
             setFormState(prev => ({
@@ -243,7 +245,7 @@ const ProductsTab: React.FC = () => {
             setFormState(prev => ({
                 ...prev,
                 name: data.nome || '',
-                description: data.descricao || '',
+                description: `### Descrição\n${data.descricao || ''}`,
                 price: String(data.preco || ''),
                 stock: String(data.estoque || '1'),
                 image_url: data.imagens?.[0] || '',
@@ -294,7 +296,7 @@ const ProductsTab: React.FC = () => {
                                     <span className="font-bold text-indigo-800 dark:text-indigo-200">Comando Mágico (IA)</span>
                                 </div>
                                 <p className="text-xs text-indigo-600 dark:text-indigo-300 mb-3">
-                                    Digite algo como: "iPhone 15 128GB azul por 4500 reais com 5 no estoque" e clique em Gerar.
+                                    Digite algo como: "iPhone 15 128GB azul por 4500 reais com 5 no estoque" e clique em Gerar. A IA vai criar a ficha técnica automaticamente!
                                 </p>
                                 <div className="flex gap-2">
                                     <input 
@@ -396,7 +398,10 @@ const ProductsTab: React.FC = () => {
 
                         <div>
                             <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Descrição & Ficha Técnica</label>
-                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={8} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-white border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 mb-1">
+                                Dica: Use <strong>### Título</strong> para criar seções separadas na loja (ex: ### Ficha Técnica).
+                            </div>
+                            <textarea id="description" name="description" value={formState.description} onChange={handleInputChange} rows={8} className="block w-full px-3 py-2 border rounded-md shadow-sm bg-white border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500"></textarea>
                         </div>
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

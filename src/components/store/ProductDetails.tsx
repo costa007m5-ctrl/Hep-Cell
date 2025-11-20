@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Product, Profile, Review } from '../../types';
 import ProductCarousel from './ProductCarousel';
@@ -64,6 +65,63 @@ const ShippingCalculator = () => {
                     <p className="text-xs text-green-600 mt-1">Chega em {shipping.days}</p>
                 </div>
             )}
+        </div>
+    );
+};
+
+// Novo componente para renderizar a descrição em blocos organizados
+const DescriptionSection: React.FC<{ description: string }> = ({ description }) => {
+    if (!description) return <p className="text-slate-600 dark:text-slate-300 text-sm">Sem descrição.</p>;
+
+    // Tenta dividir por seções Markdown (### Titulo)
+    const sections = description.split(/###\s+/).filter(Boolean);
+
+    // Se não houver seções claras, exibe o texto completo
+    if (sections.length <= 1 && !description.includes('###')) {
+        return <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">{description}</p>;
+    }
+
+    return (
+        <div className="space-y-4">
+            {sections.map((section, index) => {
+                const [title, ...contentLines] = section.split('\n');
+                const content = contentLines.join('\n').trim();
+                
+                // Layout especial para Ficha Técnica (Tabela Zebrada)
+                if (title.toLowerCase().includes('ficha') || title.toLowerCase().includes('técnica') || title.toLowerCase().includes('specs')) {
+                     const specs = content.split('\n').filter(line => line.trim().length > 0);
+                     return (
+                        <div key={index} className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                             <h3 className="bg-slate-100 dark:bg-slate-700/80 px-4 py-2 text-sm font-bold text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-600">
+                                {title}
+                             </h3>
+                             <div className="text-sm">
+                                {specs.map((line, i) => {
+                                    const [key, val] = line.split(':').map(s => s.trim().replace(/^-/, ''));
+                                    return (
+                                        <div key={i} className={`px-4 py-2 flex justify-between ${i % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-800/50'}`}>
+                                            <span className="text-slate-500 dark:text-slate-400 font-medium">{key}</span>
+                                            <span className="text-slate-800 dark:text-slate-200 text-right ml-4">{val || ''}</span>
+                                        </div>
+                                    )
+                                })}
+                             </div>
+                        </div>
+                     )
+                }
+
+                // Layout Padrão para outras seções (Card Simples)
+                return (
+                    <div key={index} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 p-4 shadow-sm">
+                         <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 border-l-4 border-indigo-500 pl-2">
+                            {title}
+                        </h3>
+                        <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                            {content}
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 };
@@ -167,7 +225,8 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
                     {activeTab === 'details' ? (
                         <div className="animate-fade-in">
-                            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">{product.description || 'Sem descrição.'}</p>
+                            {/* Usa o novo componente de Renderização Organizada */}
+                            <DescriptionSection description={product.description || ''} />
                             <ShippingCalculator />
                         </div>
                     ) : (
