@@ -238,7 +238,7 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Banners da Loja (Store Banners) - NOVO
+    -- Tabela de Banners da Loja (Store Banners)
     CREATE TABLE IF NOT EXISTS "public"."store_banners" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "image_url" "text" NOT NULL,
@@ -247,6 +247,7 @@ const SETUP_SQL = `
         "created_at" timestamp with time zone DEFAULT "now"(),
         CONSTRAINT "store_banners_pkey" PRIMARY KEY ("id")
     );
+    ALTER TABLE "public"."store_banners" ADD COLUMN IF NOT EXISTS "link" "text";
     ALTER TABLE "public"."store_banners" ENABLE ROW LEVEL SECURITY;
 
     -- Tabela de Logs de Ação
@@ -474,19 +475,36 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
     if (!imageBase64) return res.status(400).json({ error: 'Image is required.' });
 
     try {
-        // Passo 1: Descrever a imagem enviada (para que a IA entenda o produto)
-        const descriptionResponse = await genAI.models.generateContent({
+        // Passo 1: Descrever a imagem enviada e sugerir link
+        // Usamos o modelo de texto com visão para entender o produto e categorizá-lo
+        const analysisPrompt = `Describe this product in detail (color, type, key features) for an image generator prompt. Be concise.
+        ALSO, identify the brand and category to suggest a navigation link.
+        Return ONLY a valid JSON object like: { "description": "text description", "category": "Celulares", "brand": "Apple" }.
+        Categories allowed: Celulares, Acessórios, Fones, Smartwatch, Ofertas.`;
+
+        const analysisResponse = await genAI.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
                 { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
-                { text: "Describe this product in detail (color, type, key features) for an image generator prompt. Be concise." }
-            ]
+                { text: analysisPrompt }
+            ],
+            config: { responseMimeType: 'application/json' }
         });
-        const productDescription = descriptionResponse.text || "a product";
+        
+        const analysis = JSON.parse(analysisResponse.text || '{}');
+        const productDescription = analysis.description || "a product";
+        
+        // Define o link sugerido (prioriza categoria, mas se for marca famosa, pode ser marca)
+        let suggestedLink = 'category:Ofertas';
+        if (analysis.category) suggestedLink = `category:${analysis.category}`;
+        // Exemplo: se for Apple, talvez queira navegar para a marca
+        if (analysis.brand && ['Apple', 'Samsung', 'Xiaomi', 'Motorola'].includes(analysis.brand)) {
+             // Para este MVP vamos manter a lógica focada em categoria que é mais garantida na navegação atual
+             // Mas poderíamos retornar 'brand:Apple' se quiséssemos
+        }
 
         // Passo 2: Gerar o Banner
         // Usamos o gemini-2.5-flash-image para gerar uma nova imagem baseada na descrição + contexto do usuário
-        // Nota: O ideal seria usar 'imagen-3.0-generate-001' se disponível, mas seguiremos a regra do modelo 2.5-flash-image
         const bannerPrompt = `A professional, high-quality e-commerce banner (wide aspect ratio 16:9) featuring: ${productDescription}. 
         Context/Offer Text idea: ${prompt || 'Special Offer'}. 
         Style: Modern, sleek, commercial lighting, vibrant background, 4k resolution. 
@@ -495,10 +513,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         const response = await genAI.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: bannerPrompt }] },
-            config: {
-                // Nota: gemini-2.5-flash-image gera imagens quando solicitado, mas retorna no formato inlineData
-                // Não definimos responseMimeType para imagem, o modelo infere.
-            }
+            config: {}
         });
         
         // Extrair a imagem gerada
@@ -506,10 +521,8 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         
         if (generatedPart && generatedPart.inlineData) {
             const base64Image = `data:${generatedPart.inlineData.mimeType};base64,${generatedPart.inlineData.data}`;
-            res.status(200).json({ image: base64Image });
+            res.status(200).json({ image: base64Image, suggestedLink: suggestedLink });
         } else {
-             // Fallback: Se o modelo recusar gerar imagem diretamente (algumas versões de preview tem restrições),
-             // retornamos erro claro.
              throw new Error("O modelo não retornou uma imagem válida. Tente simplificar o prompt.");
         }
 
@@ -531,7 +544,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
         }
 
         if (req.method === 'POST') {
-            const { image_base64, prompt } = req.body;
+            const { image_base64, prompt, link } = req.body;
             if (!image_base64) return res.status(400).json({ error: 'Image data required' });
 
             // Upload para Storage
@@ -564,6 +577,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
             const { data, error: dbError } = await supabase.from('store_banners').insert({
                 image_url: imageUrl,
                 prompt: prompt,
+                link: link, // Salva o link gerado/editado
                 active: true
             }).select().single();
 

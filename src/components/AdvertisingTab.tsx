@@ -7,6 +7,7 @@ interface Banner {
     id: string;
     image_url: string;
     prompt: string;
+    link?: string;
     active: boolean;
     created_at: string;
 }
@@ -15,6 +16,7 @@ const AdvertisingTab: React.FC = () => {
     // Generation State
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [prompt, setPrompt] = useState('');
+    const [targetLink, setTargetLink] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [generateError, setGenerateError] = useState<string | null>(null);
@@ -81,6 +83,10 @@ const AdvertisingTab: React.FC = () => {
             }
 
             setGeneratedImage(data.image);
+            // Preenche o link sugerido pela IA
+            if (data.suggestedLink) {
+                setTargetLink(data.suggestedLink);
+            }
         } catch (error: any) {
             setGenerateError(error.message);
         } finally {
@@ -99,7 +105,8 @@ const AdvertisingTab: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     image_base64: generatedImage,
-                    prompt: prompt || 'Banner Gerado por IA'
+                    prompt: prompt || 'Banner Gerado por IA',
+                    link: targetLink // Envia o link
                 })
             });
             
@@ -112,6 +119,7 @@ const AdvertisingTab: React.FC = () => {
             setGeneratedImage(null);
             setSelectedImage(null);
             setPrompt('');
+            setTargetLink('');
 
         } catch (error: any) {
             setSaveMessage({ text: error.message, type: 'error' });
@@ -164,7 +172,7 @@ const AdvertisingTab: React.FC = () => {
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">2. Texto ou Oferta (Opcional)</label>
                         <textarea 
-                            rows={3} 
+                            rows={2} 
                             className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             placeholder="Ex: Oferta de Black Friday, 50% OFF, Frete Grátis..."
                             value={prompt}
@@ -193,6 +201,22 @@ const AdvertisingTab: React.FC = () => {
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg border-2 border-indigo-500 animate-fade-in">
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Resultado:</h3>
                         <img src={generatedImage} className="w-full rounded-lg shadow-md mb-4" alt="Banner Gerado" />
+                        
+                        {/* Campo de Link Gerado/Editável */}
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 uppercase">Link de Destino (Sugerido pela IA)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={targetLink}
+                                    onChange={(e) => setTargetLink(e.target.value)}
+                                    className="flex-1 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:ring-indigo-500"
+                                    placeholder="category:Celulares"
+                                />
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Formatos: category:Nome ou brand:Nome</p>
+                        </div>
+
                         <button 
                             onClick={handleSaveBanner}
                             disabled={isSaving}
@@ -218,7 +242,10 @@ const AdvertisingTab: React.FC = () => {
                                 <div key={banner.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative group">
                                     <img src={banner.image_url} className="w-full h-32 object-cover rounded-lg mb-2" alt="Banner" />
                                     <div className="flex justify-between items-center">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{banner.prompt}</p>
+                                        <div className="flex flex-col">
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">{banner.prompt}</p>
+                                            {banner.link && <span className="text-[10px] text-indigo-500 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1 rounded w-fit mt-1">{banner.link}</span>}
+                                        </div>
                                         <button 
                                             onClick={() => handleDeleteBanner(banner.id)}
                                             className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-1"

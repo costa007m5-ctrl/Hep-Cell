@@ -2,11 +2,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const fallbackBanners = [
-    { id: 'f1', image_url: 'https://images.pexels.com/photos/1092644/pexels-photo-1092644.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2', prompt: 'Smartphones' },
-    { id: 'f2', image_url: 'https://images.pexels.com/photos/3780681/pexels-photo-3780681.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2', prompt: 'Acessórios' },
+    { id: 'f1', image_url: 'https://images.pexels.com/photos/1092644/pexels-photo-1092644.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2', prompt: 'Smartphones', link: 'category:Celulares' },
+    { id: 'f2', image_url: 'https://images.pexels.com/photos/3780681/pexels-photo-3780681.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2', prompt: 'Acessórios', link: 'category:Acessórios' },
 ];
 
-const StoreCarousel: React.FC = () => {
+interface StoreCarouselProps {
+    onBannerClick?: (link: string) => void;
+}
+
+const StoreCarousel: React.FC<StoreCarouselProps> = ({ onBannerClick }) => {
     const [banners, setBanners] = useState<any[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const timeoutRef = useRef<number | null>(null);
@@ -55,6 +59,12 @@ const StoreCarousel: React.FC = () => {
         setCurrentIndex(index);
     };
 
+    const handleBannerClick = (link?: string) => {
+        if (link && onBannerClick) {
+            onBannerClick(link);
+        }
+    };
+
     if (banners.length === 0) return null;
 
     return (
@@ -62,7 +72,11 @@ const StoreCarousel: React.FC = () => {
             <div className="relative w-full aspect-[2/1] sm:aspect-[2.5/1] md:aspect-[3/1] overflow-hidden rounded-2xl shadow-md group">
                 <div className="flex transition-transform duration-700 ease-in-out h-full" style={{ transform: `translateX(-${currentIndex * 100}%)` }}>
                     {banners.map((banner) => (
-                        <div key={banner.id} className="flex-shrink-0 w-full h-full relative">
+                        <div 
+                            key={banner.id} 
+                            className={`flex-shrink-0 w-full h-full relative ${banner.link ? 'cursor-pointer' : ''}`}
+                            onClick={() => handleBannerClick(banner.link)}
+                        >
                              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent z-10 pointer-events-none"></div>
                             <img src={banner.image_url} alt={banner.prompt || 'Banner'} className="w-full h-full object-cover" />
                         </div>
@@ -75,7 +89,7 @@ const StoreCarousel: React.FC = () => {
                         {banners.map((_, index) => (
                             <button 
                                 key={index} 
-                                onClick={() => goToSlide(index)} 
+                                onClick={(e) => { e.stopPropagation(); goToSlide(index); }} 
                                 className={`h-1.5 rounded-full transition-all duration-300 ${currentIndex === index ? 'w-6 bg-white' : 'w-1.5 bg-white/50'}`}
                             />
                         ))}

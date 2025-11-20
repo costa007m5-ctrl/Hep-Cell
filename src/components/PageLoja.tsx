@@ -400,6 +400,24 @@ const PageLoja: React.FC = () => {
       }
   };
 
+  // Novo Handler para Banners
+  const handleBannerClick = (link: string) => {
+      if (!link) return;
+      
+      // Parse simple link format: "type:value"
+      const [type, value] = link.split(':');
+      
+      if (type === 'category') {
+          navigateToCategory(value);
+      } else if (type === 'brand') {
+          navigateToBrand(value);
+      } else {
+          // Fallback for other formats or simple text searches
+          // Could implement a generic search redirect here
+          navigateToCategory('Ofertas');
+      }
+  };
+
   // --- Render Logic ---
 
   if (selectedProduct) {
@@ -452,7 +470,7 @@ const PageLoja: React.FC = () => {
             <StoriesRail />
             
             <div className="md:max-w-7xl md:mx-auto">
-                <StoreCarousel />
+                <StoreCarousel onBannerClick={handleBannerClick} />
             </div>
             
             <div className="max-w-7xl mx-auto">
