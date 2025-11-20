@@ -18,6 +18,7 @@ const AdvertisingTab: React.FC = () => {
     const [prompt, setPrompt] = useState('');
     const [targetLink, setTargetLink] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isEditing, setIsEditing] = useState(false); // Novo state para edição
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [generateError, setGenerateError] = useState<string | null>(null);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
@@ -144,13 +145,52 @@ const AdvertisingTab: React.FC = () => {
             }
         } catch (error: any) {
             let msg = error.message;
-            // Se o erro for relacionado a limite de quota ou tráfego (429)
             if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
                 msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
             }
             setGenerateError(msg);
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const handleEdit = async () => {
+        if (!selectedImage) {
+            setGenerateError("Por favor, selecione uma imagem para editar.");
+            return;
+        }
+        if (!prompt) {
+            setGenerateError("Por favor, digite uma instrução para a edição (ex: 'Adicionar filtro retro').");
+            return;
+        }
+        setIsEditing(true);
+        setGenerateError(null);
+        setGeneratedImage(null);
+
+        try {
+            const response = await fetch('/api/admin/edit-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    imageBase64: selectedImage,
+                    prompt: prompt 
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || data.error || "Erro ao editar imagem.");
+            }
+
+            setGeneratedImage(data.image);
+        } catch (error: any) {
+            let msg = error.message;
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
+                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
+            }
+            setGenerateError(msg);
+        } finally {
+            setIsEditing(false);
         }
     };
 
@@ -206,12 +246,12 @@ const AdvertisingTab: React.FC = () => {
         <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Coluna Esquerda: Gerador */}
             <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Criar Banner com IA</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Estúdio de IA</h2>
                 
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
                     {/* Upload Imagem */}
                     <div className="mb-6">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">1. Foto do Produto</label>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">1. Imagem Base</label>
                         <div className="flex items-center justify-center w-full">
                             <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50 cursor-wait' : ''}`}>
                                 {selectedImage ? (
@@ -224,7 +264,7 @@ const AdvertisingTab: React.FC = () => {
                                             <>
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
                                                 <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
-                                                <p className="text-xs text-slate-500">JPG, PNG, WEBP, AVIF (Convertido auto.)</p>
+                                                <p className="text-xs text-slate-500">JPG, PNG, WEBP, AVIF</p>
                                             </>
                                         )}
                                     </div>
@@ -236,28 +276,43 @@ const AdvertisingTab: React.FC = () => {
 
                     {/* Prompt */}
                     <div className="mb-6">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">2. Texto ou Oferta (Opcional)</label>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">2. Instrução</label>
                         <textarea 
                             rows={2} 
                             className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="Ex: Oferta de Black Friday, 50% OFF, Frete Grátis..."
+                            placeholder="Ex: 'Oferta de Natal' para gerar banner OU 'Adicionar filtro vintage' para editar."
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
                         ></textarea>
                     </div>
 
-                    <button 
-                        onClick={handleGenerate} 
-                        disabled={isGenerating || !selectedImage || isProcessingImage}
-                        className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                        {isGenerating ? <LoadingSpinner /> : (
-                            <>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
-                                Gerar Banner Mágico
-                            </>
-                        )}
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <button 
+                            onClick={handleGenerate} 
+                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
+                            className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {isGenerating ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
+                                    Gerar Novo Banner
+                                </>
+                            )}
+                        </button>
+                        
+                        <button 
+                            onClick={handleEdit} 
+                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
+                            className="flex-1 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {isEditing ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                    Editar Imagem
+                                </>
+                            )}
+                        </button>
+                    </div>
                     
                     {generateError && (
                         <div className="mt-4 animate-fade-in">
@@ -270,11 +325,11 @@ const AdvertisingTab: React.FC = () => {
                 {generatedImage && (
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg border-2 border-indigo-500 animate-fade-in">
                         <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Resultado:</h3>
-                        <img src={generatedImage} className="w-full rounded-lg shadow-md mb-4" alt="Banner Gerado" />
+                        <img src={generatedImage} className="w-full rounded-lg shadow-md mb-4" alt="Resultado IA" />
                         
                         {/* Campo de Link Gerado/Editável */}
                         <div className="mb-4">
-                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 uppercase">Link de Destino (Sugerido pela IA)</label>
+                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 uppercase">Link de Destino (Sugerido)</label>
                             <div className="flex gap-2">
                                 <input 
                                     type="text" 

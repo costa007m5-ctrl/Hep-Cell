@@ -264,6 +264,64 @@ async function handleGenerateProductDetails(req: VercelRequest, res: VercelRespo
     }
 }
 
+// --- Endpoint para Edição de Imagens ---
+async function handleEditImage(req: VercelRequest, res: VercelResponse) {
+    const genAI = getGeminiClient();
+    if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' });
+
+    const { prompt, imageBase64 } = req.body;
+    if (!imageBase64 || !prompt) return res.status(400).json({ error: 'Image and prompt are required.' });
+
+    // Validate and extract base64
+    const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+    if (!match) {
+        return res.status(400).json({ error: "Invalid image data format." });
+    }
+    const mimeType = match[1];
+    const data = match[2];
+
+    try {
+        // Call Gemini 2.5 Flash Image for Editing
+        // Note: The model uses 'generateContent' with both image and text to perform editing/reasoning.
+        const response = await generateContentWithRetry(genAI, {
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    { inlineData: { mimeType: mimeType, data: data } },
+                    { text: prompt }
+                ]
+            },
+            config: {}
+        }, 3, 4000); // Retry logic for robustness
+
+        // Extract the generated image from response
+        const generatedPart = response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+        
+        if (generatedPart && generatedPart.inlineData) {
+            const base64Image = `data:${generatedPart.inlineData.mimeType};base64,${generatedPart.inlineData.data}`;
+            res.status(200).json({ image: base64Image });
+        } else {
+            // Fallback if only text is returned (sometimes models chat instead of generating)
+            const textPart = response.text;
+            console.warn("Model returned text instead of image:", textPart);
+            throw new Error("O modelo não retornou uma imagem editada. Tente reformular o prompt.");
+        }
+
+    } catch (error: any) {
+        console.error("Error editing image:", error);
+        let errorMessage = error.message || "Unknown error from AI service.";
+        let statusCode = 500;
+        const stringError = JSON.stringify(error);
+
+        if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED') || stringError.includes('RESOURCE_EXHAUSTED')) {
+            statusCode = 429;
+            errorMessage = "O sistema de IA está com alto tráfego no momento. Por favor, aguarde cerca de 1 minuto e tente novamente.";
+        }
+
+        res.status(statusCode).json({ error: 'Failed to edit image.', message: errorMessage });
+    }
+}
+
 // --- Endpoint para Geração de Banners ---
 async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
     const genAI = getGeminiClient();
@@ -273,7 +331,6 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
     if (!imageBase64) return res.status(400).json({ error: 'Image is required.' });
 
     // Validate and extract base64 mime type dynamically using a broad regex
-    // Now accepts any image type since frontend converts to safe formats, but regex covers edge cases
     const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
     if (!match) {
         return res.status(400).json({ error: "Invalid image data format. Must be a valid base64 data URI." });
@@ -289,7 +346,6 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         Categories allowed: Celulares, Acessórios, Fones, Smartwatch, Ofertas.`;
 
         // Usa retry para análise (aumenta chances de sucesso em caso de 429)
-        // Usa mais retries e tempo maior de espera
         const analysisResponse = await generateContentWithRetry(genAI, {
             model: 'gemini-2.5-flash',
             contents: [
@@ -297,7 +353,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                 { text: analysisPrompt }
             ],
             config: { responseMimeType: 'application/json' }
-        }, 4, 3000); // 4 retries, starting at 3s delay
+        }, 4, 3000); 
         
         const analysisText = analysisResponse.text;
         if (!analysisText) throw new Error("IA Failed to analyze image. Check if image format is supported.");
@@ -319,7 +375,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             model: 'gemini-2.5-flash-image',
             contents: { parts: [{ text: bannerPrompt }] },
             config: {}
-        }, 3, 4000); // 3 retries, starting at 4s delay
+        }, 3, 4000); 
         
         // Extrair a imagem gerada
         const generatedPart = response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
@@ -876,7 +932,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/chat': return await handleSupportChat(req, res);
                 case '/api/admin/send-notification': return await handleSendNotification(req, res);
                 case '/api/admin/generate-product-details': return await handleGenerateProductDetails(req, res);
-                case '/api/admin/generate-banner': return await handleGenerateBanner(req, res); // Novo Endpoint
+                case '/api/admin/generate-banner': return await handleGenerateBanner(req, res); // Endpoint de geração (novo banner)
+                case '/api/admin/edit-image': return await handleEditImage(req, res); // Novo Endpoint de Edição
                 case '/api/admin/banners': return await handleBanners(req, res); // Novo Endpoint POST (Save)
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }

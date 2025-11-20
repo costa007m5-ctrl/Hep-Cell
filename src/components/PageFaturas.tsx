@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients';
