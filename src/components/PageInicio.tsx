@@ -48,9 +48,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-    }
+    console.log(`User response to the install prompt: ${outcome}`);
+    setDeferredPrompt(null);
   };
   
   const getGreeting = () => {

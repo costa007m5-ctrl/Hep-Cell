@@ -1,8 +1,10 @@
-const CACHE_NAME = 'relp-cell-v12';
+const CACHE_NAME = 'relp-cell-v13';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
 ];
 
 // Instalação: Cacheia apenas o essencial para o app abrir
@@ -40,24 +42,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navegação (HTML)
+  // Navegação (HTML) - Estratégia Network First
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
           return caches.open(CACHE_NAME).then((cache) => {
+            // Atualiza o cache com a nova versão da página
             cache.put('/', networkResponse.clone());
             return networkResponse;
           });
         })
         .catch(() => {
-          return caches.match('/') || caches.match('/index.html');
+          // Fallback Offline: Tenta retornar o index.html do cache
+          return caches.match('/index.html').then((response) => {
+              return response || caches.match('/');
+          });
         })
     );
     return;
   }
 
-  // Assets estáticos e imagens
+  // Assets estáticos e imagens - Estratégia Cache First
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       return cachedResponse || fetch(event.request).then((networkResponse) => {
