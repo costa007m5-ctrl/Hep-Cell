@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DeveloperTab from './DeveloperTab';
 import FinancialDashboard from './FinancialDashboard';
 import ProductsTab from './ProductsTab';
@@ -6,72 +6,85 @@ import ClientsTab from './ClientsTab';
 import NewSaleTab from './NewSaleTab';
 import ActionLogTab from './ActionLogTab';
 import StatusTab from './StatusTab';
+import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-// --- Simple CSS Chart Component ---
-const SalesChart = () => {
-    const data = [30, 45, 25, 60, 80, 55, 90];
-    const max = Math.max(...data);
-    
+// --- Simple CSS Chart Component with Real Data ---
+const SalesChart = ({ data }: { data: number[] }) => {
+    const max = Math.max(...data, 1); // Avoid division by zero
+    const days = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+    const today = new Date().getDay();
+    // Rotate days array so today is last
+    const rotatedDays = [...days.slice(today + 1), ...days.slice(0, today + 1)];
+
     return (
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm mb-6">
-            <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Vendas da Semana</h3>
+            <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Vendas (Últimos 7 dias)</h3>
             <div className="flex items-end justify-between h-40 gap-2">
                 {data.map((val, i) => (
-                    <div key={i} className="w-full bg-indigo-100 dark:bg-indigo-900/30 rounded-t-md relative group">
+                    <div key={i} className="w-full bg-indigo-50 dark:bg-indigo-900/10 rounded-t-md relative group flex flex-col justify-end">
                         <div 
-                            className="absolute bottom-0 left-0 right-0 bg-indigo-600 rounded-t-md transition-all duration-1000 ease-out hover:bg-indigo-500"
+                            className="w-full bg-indigo-600 rounded-t-md transition-all duration-1000 ease-out hover:bg-indigo-500 min-h-[4px]"
                             style={{ height: `${(val/max)*100}%` }}
                         ></div>
-                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">{val}</span>
+                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            R$ {val}
+                        </div>
                     </div>
                 ))}
             </div>
-            <div className="flex justify-between mt-2 text-xs text-slate-500">
-                <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sab</span>
+            <div className="flex justify-between mt-2 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-700 pt-2">
+                {rotatedDays.map((d, i) => <span key={i}>{d}</span>)}
             </div>
         </div>
     );
 };
 
-// --- Kanban Board Component ---
-const OrderKanban = () => {
-    const orders = [
-        { id: '102', client: 'Maria S.', status: 'pending', total: 'R$ 1.200' },
-        { id: '105', client: 'João P.', status: 'shipped', total: 'R$ 450' },
-        { id: '109', client: 'Ana L.', status: 'delivered', total: 'R$ 3.500' },
-    ];
+// --- Kanban Board Component (Mock for now, but structure ready for real data) ---
+const DefaultersList = () => {
+    const [defaulters, setDefaulters] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const Column = ({ title, status, color }: any) => (
-        <div className="flex-1 min-w-[200px] bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg">
-            <h4 className={`font-bold text-sm mb-3 ${color} flex items-center gap-2`}>
-                <span className={`w-2 h-2 rounded-full bg-current`}></span> {title}
-            </h4>
-            <div className="space-y-2">
-                {orders.filter(o => o.status === status).map(o => (
-                    <div key={o.id} className="bg-white dark:bg-slate-800 p-3 rounded shadow-sm border-l-4 border-indigo-500 cursor-move hover:shadow-md transition-shadow">
-                        <div className="flex justify-between">
-                            <span className="font-bold text-sm text-slate-800 dark:text-white">#{o.id}</span>
-                            <span className="text-xs text-slate-500">{o.total}</span>
-                        </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">{o.client}</p>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
+    useEffect(() => {
+        const fetchDefaulters = async () => {
+            // Busca faturas em aberto com data de vencimento anterior a hoje
+            const today = new Date().toISOString().split('T')[0];
+            const { data, error } = await supabase
+                .from('invoices')
+                .select('amount, due_date, profiles(first_name, last_name, email)')
+                .eq('status', 'Em aberto')
+                .lt('due_date', today)
+                .limit(5);
+            
+            if (!error && data) setDefaulters(data);
+            setLoading(false);
+        };
+        fetchDefaulters();
+    }, []);
 
     return (
-        <div className="overflow-x-auto pb-2">
-            <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Fluxo de Pedidos</h3>
-            <div className="flex gap-4 min-w-[600px]">
-                <Column title="Pendente" status="pending" color="text-yellow-600" />
-                <Column title="Enviado" status="shipped" color="text-blue-600" />
-                <Column title="Entregue" status="delivered" color="text-green-600" />
-            </div>
+        <div className="overflow-hidden">
+            <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4 text-red-600 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                Inadimplentes Recentes
+            </h3>
+            {loading ? <p className="text-sm text-slate-500">Carregando...</p> : 
+             defaulters.length === 0 ? <p className="text-sm text-slate-500">Nenhum cliente inadimplente.</p> : (
+                <div className="space-y-3">
+                    {defaulters.map((d, i) => (
+                        <div key={i} className="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
+                            <div>
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{d.profiles?.first_name} {d.profiles?.last_name}</p>
+                                <p className="text-xs text-red-500">Venceu: {new Date(d.due_date).toLocaleDateString('pt-BR')}</p>
+                            </div>
+                            <span className="font-bold text-red-700 dark:text-red-400">R$ {d.amount}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
@@ -102,6 +115,41 @@ const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: s
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [currentView, setCurrentView] = useState('dashboard');
+  const [stats, setStats] = useState({ today: 0, orders: 0, ticket: 0, last7Days: [0,0,0,0,0,0,0] });
+
+  useEffect(() => {
+      const fetchStats = async () => {
+          // Mock de dados reais seria complexo de implementar em uma query só sem backend functions avançadas
+          // Aqui faremos queries simples para dar vida ao dashboard
+          const today = new Date();
+          const todayStr = today.toISOString().split('T')[0];
+          
+          // Faturamento Hoje
+          const { data: todaySales } = await supabase.from('invoices').select('amount').eq('status', 'Paga').gte('payment_date', todayStr);
+          const totalToday = todaySales?.reduce((acc, curr) => acc + curr.amount, 0) || 0;
+
+          // Pedidos Novos (Orders)
+          const { count: ordersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).gte('created_at', todayStr);
+
+          // Últimos 7 dias (Gráfico)
+          const last7Days = [];
+          for (let i = 6; i >= 0; i--) {
+              const d = new Date();
+              d.setDate(d.getDate() - i);
+              const dStr = d.toISOString().split('T')[0];
+              const { data } = await supabase.from('invoices').select('amount').eq('status', 'Paga').gte('payment_date', dStr + 'T00:00:00').lte('payment_date', dStr + 'T23:59:59');
+              last7Days.push(data?.reduce((acc, c) => acc + c.amount, 0) || 0);
+          }
+
+          setStats({
+              today: totalToday,
+              orders: ordersCount || 0,
+              ticket: 150, // Mock médio para não pesar queries
+              last7Days
+          });
+      };
+      fetchStats();
+  }, []);
   
   const menuItems = [
     { id: 'dashboard', label: 'Início', icon: Icons.Dashboard, color: 'bg-slate-500' },
@@ -120,14 +168,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Faturamento Hoje</p>
-                  <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">R$ 4.520,00</p>
+                  <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{stats.today.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</p>
               </div>
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-blue-500">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Pedidos Novos</p>
-                  <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">12</p>
+                  <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{stats.orders}</p>
               </div>
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-purple-500">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Ticket Médio</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Ticket Médio (Est.)</p>
                   <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">R$ 376,00</p>
               </div>
           </div>
@@ -150,9 +198,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
           {/* Gráficos e Kanban */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SalesChart />
+              <SalesChart data={stats.last7Days} />
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm">
-                   <OrderKanban />
+                   <DefaultersList />
               </div>
           </div>
       </div>

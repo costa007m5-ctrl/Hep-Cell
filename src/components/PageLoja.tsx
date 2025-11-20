@@ -9,6 +9,8 @@ import ProductCarousel from './store/ProductCarousel';
 import BrandLogos from './store/BrandLogos';
 import ProductDetails from './store/ProductDetails';
 import Modal from './Modal';
+import { supabase } from '../services/clients';
+import { useToast } from './Toast';
 
 // --- Components Auxiliares ---
 
@@ -25,7 +27,7 @@ const StoriesRail = () => {
     return (
         <div className="flex space-x-4 overflow-x-auto pb-4 px-4 scrollbar-hide pt-2">
             {stories.map(story => (
-                <div key={story.id} className="flex flex-col items-center space-y-1 flex-shrink-0">
+                <div key={story.id} className="flex flex-col items-center space-y-1 flex-shrink-0 cursor-pointer">
                     <div className={`w-16 h-16 rounded-full p-[2px] ${story.active ? 'bg-gradient-to-tr from-yellow-400 to-pink-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
                         <img src={story.img} alt={story.name} className="w-full h-full rounded-full object-cover border-2 border-white dark:border-slate-900" />
                     </div>
@@ -37,46 +39,57 @@ const StoriesRail = () => {
 };
 
 // Cart Drawer
-const CartDrawer: React.FC<{ isOpen: boolean; onClose: () => void; cartItems: CartItem[]; onRemove: (id: string) => void }> = ({ isOpen, onClose, cartItems, onRemove }) => {
+const CartDrawer: React.FC<{ isOpen: boolean; onClose: () => void; cartItems: CartItem[]; onRemove: (id: string) => void; onCheckout: () => void; isCheckingOut: boolean }> = ({ isOpen, onClose, cartItems, onRemove, onCheckout, isCheckingOut }) => {
     if (!isOpen) return null;
     const total = cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
     return (
         <div className="fixed inset-0 z-[70] flex justify-end">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
             <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-up">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900">
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white">Meu Carrinho ({cartItems.length})</h2>
-                    <button onClick={onClose}><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {cartItems.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-                            <p>Seu carrinho está vazio</p>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 mb-4 text-slate-300 dark:text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                            <p className="font-medium">Seu carrinho está vazio</p>
+                            <button onClick={onClose} className="mt-4 text-indigo-600 font-semibold">Começar a comprar</button>
                         </div>
                     ) : (
                         cartItems.map(item => (
-                            <div key={item.id} className="flex gap-3 items-start">
-                                <img src={item.image_url || ''} className="w-16 h-16 rounded-md object-cover bg-slate-100" alt={item.name} />
+                            <div key={item.id} className="flex gap-3 items-start bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <img src={item.image_url || 'https://via.placeholder.com/80'} className="w-20 h-20 rounded-lg object-cover bg-white" alt={item.name} />
                                 <div className="flex-1">
-                                    <p className="text-sm font-medium text-slate-900 dark:text-white line-clamp-2">{item.name}</p>
-                                    <p className="text-xs text-slate-500 mt-1">Qtd: {item.quantity}</p>
-                                    <p className="text-sm font-bold text-indigo-600 mt-1">{item.price.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</p>
+                                    <p className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">{item.name}</p>
+                                    <div className="flex justify-between items-center mt-2">
+                                        <span className="text-xs text-slate-500 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">Qtd: {item.quantity}</span>
+                                        <p className="text-sm font-bold text-indigo-600">{item.price.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</p>
+                                    </div>
                                 </div>
-                                <button onClick={() => onRemove(item.id)} className="text-red-500 p-1"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button>
+                                <button onClick={() => onRemove(item.id)} className="text-slate-400 hover:text-red-500 p-1 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                </button>
                             </div>
                         ))
                     )}
                 </div>
                 {cartItems.length > 0 && (
-                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 pb-safe">
+                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 pb-safe shadow-top">
                         <div className="flex justify-between mb-4 text-lg font-bold text-slate-900 dark:text-white">
                             <span>Total</span>
                             <span>{total.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
                         </div>
-                        <button className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 transition-all">
-                            Finalizar Compra
+                        <button 
+                            onClick={onCheckout}
+                            disabled={isCheckingOut}
+                            className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+                        >
+                            {isCheckingOut ? <LoadingSpinner /> : 'Finalizar Compra'}
                         </button>
                     </div>
                 )}
@@ -98,6 +111,36 @@ const PageLoja: React.FC = () => {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [sortOption, setSortOption] = useState('relevance'); // relevance, price_asc, price_desc
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const { addToast } = useToast();
+
+  // Carrega carrinho do localStorage ao iniciar
+  useEffect(() => {
+      const savedCart = localStorage.getItem('relp_cart');
+      if (savedCart) {
+          try {
+              setCart(JSON.parse(savedCart));
+          } catch (e) {
+              console.error("Erro ao carregar carrinho", e);
+          }
+      }
+      
+      // Carrega wishlist
+      const savedWishlist = localStorage.getItem('relp_wishlist');
+      if (savedWishlist) {
+          setWishlist(new Set(JSON.parse(savedWishlist)));
+      }
+  }, []);
+
+  // Salva carrinho sempre que mudar
+  useEffect(() => {
+      localStorage.setItem('relp_cart', JSON.stringify(cart));
+  }, [cart]);
+  
+  // Salva wishlist
+  useEffect(() => {
+      localStorage.setItem('relp_wishlist', JSON.stringify(Array.from(wishlist)));
+  }, [wishlist]);
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -106,12 +149,15 @@ const PageLoja: React.FC = () => {
         const response = await fetch('/api/admin/products');
         if (!response.ok) throw new Error('Erro ao carregar loja.');
         const data = await response.json();
-        // Add fake ratings/reviews data for demo
+        
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.setDate(now.getDate() - 7));
+
         const enhancedData = data.map((p: any) => ({
             ...p, 
             rating: (Math.random() * 2 + 3).toFixed(1), 
             reviews_count: Math.floor(Math.random() * 200),
-            is_new: Math.random() > 0.8 
+            is_new: new Date(p.created_at) > sevenDaysAgo 
         }));
         setProducts(enhancedData);
       } catch (err: any) {
@@ -127,11 +173,84 @@ const PageLoja: React.FC = () => {
       setCart(prev => {
           const existing = prev.find(p => p.id === product.id);
           if (existing) {
+              if (existing.quantity >= product.stock) {
+                   addToast('Estoque máximo atingido!', 'error');
+                   return prev;
+              }
+              addToast('Quantidade atualizada!', 'success');
               return prev.map(p => p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p);
           }
+          if (product.stock <= 0) {
+              addToast('Produto fora de estoque.', 'error');
+              return prev;
+          }
+          addToast('Adicionado ao carrinho!', 'success');
+          // Feedback tátil
+          if (navigator.vibrate) navigator.vibrate(50);
           return [...prev, { ...product, quantity: 1 }];
       });
-      setIsCartOpen(true);
+  };
+
+  const handleCheckout = async () => {
+    setIsCheckingOut(true);
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            addToast('Faça login para finalizar.', 'error');
+            setIsCheckingOut(false);
+            return;
+        }
+
+        const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+
+        // 1. Cria o pedido na tabela 'orders'
+        const { data: order, error: orderError } = await supabase
+            .from('orders')
+            .insert({
+                user_id: user.id,
+                total: total,
+                status: 'pending'
+            })
+            .select()
+            .single();
+
+        if (orderError) throw orderError;
+
+        // 2. Cria os itens do pedido na tabela 'order_items'
+        const orderItems = cart.map(item => ({
+            order_id: order.id,
+            product_id: item.id,
+            quantity: item.quantity,
+            price: item.price,
+            product_name: item.name // redundancy for display
+        }));
+
+        const { error: itemsError } = await supabase
+            .from('order_items')
+            .insert(orderItems);
+
+        if (itemsError) throw itemsError;
+
+        // 3. Atualiza o estoque (Opcional, mas recomendado)
+        for (const item of cart) {
+             await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.quantity }).catch(() => {
+                 // Se a RPC não existir, tenta update manual (menos seguro concorrentemente mas ok para MVP)
+                 const newStock = Math.max(0, item.stock - item.quantity);
+                 supabase.from('products').update({ stock: newStock }).eq('id', item.id);
+             });
+        }
+
+        setCart([]); // Limpa carrinho
+        localStorage.removeItem('relp_cart');
+        setIsCartOpen(false);
+        addToast('Pedido realizado com sucesso!', 'success');
+
+    } catch (error: any) {
+        console.error('Erro no checkout:', error);
+        addToast('Erro ao processar pedido. Tente novamente.', 'error');
+    } finally {
+        setIsCheckingOut(false);
+    }
   };
 
   const toggleWishlist = (id: string) => {
@@ -146,8 +265,12 @@ const PageLoja: React.FC = () => {
   const filteredProducts = useMemo(() => {
       let result = [...products];
       if (activeCategory !== 'Todos') {
-          // Mock category filter based on name keyword for demo
-          result = result.filter(p => p.name.toLowerCase().includes(activeCategory.toLowerCase().slice(0, 4)));
+          // Basic category filter logic
+          result = result.filter(p => {
+              if (p.category) return p.category === activeCategory;
+              // Fallback to name match if category not set
+              return p.name.toLowerCase().includes(activeCategory.toLowerCase().slice(0, 4));
+          });
       }
       if (sortOption === 'price_asc') result.sort((a, b) => a.price - b.price);
       if (sortOption === 'price_desc') result.sort((a, b) => b.price - a.price);
@@ -180,7 +303,7 @@ const PageLoja: React.FC = () => {
                         </button>
                         <button onClick={() => setIsCartOpen(true)} className="p-2 text-slate-600 dark:text-slate-300 relative">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-                            {cart.length > 0 && <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">{cart.length}</span>}
+                            {cart.length > 0 && <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-bounce">{cart.length}</span>}
                         </button>
                     </div>
                 </div>
@@ -250,7 +373,7 @@ const PageLoja: React.FC = () => {
                                         onClick={() => handleAddToCart(product)}
                                         className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center gap-2"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                                         Adicionar
                                     </button>
                                 </div>
@@ -261,7 +384,14 @@ const PageLoja: React.FC = () => {
             )}
         </main>
 
-        <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cartItems={cart} onRemove={(id) => setCart(p => p.filter(i => i.id !== id))} />
+        <CartDrawer 
+            isOpen={isCartOpen} 
+            onClose={() => setIsCartOpen(false)} 
+            cartItems={cart} 
+            onRemove={(id) => setCart(p => p.filter(i => i.id !== id))}
+            onCheckout={handleCheckout}
+            isCheckingOut={isCheckingOut}
+        />
 
         {/* Filter Modal */}
         <Modal isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)}>
@@ -274,7 +404,7 @@ const PageLoja: React.FC = () => {
                             <button 
                                 key={opt}
                                 onClick={() => setSortOption(opt === 'Menor Preço' ? 'price_asc' : opt === 'Maior Preço' ? 'price_desc' : 'relevance')}
-                                className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                                     (sortOption === 'relevance' && opt === 'Relevância') || (sortOption === 'price_asc' && opt === 'Menor Preço') || (sortOption === 'price_desc' && opt === 'Maior Preço')
                                     ? 'bg-indigo-600 text-white border-indigo-600' 
                                     : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'
@@ -292,14 +422,14 @@ const PageLoja: React.FC = () => {
                              <button 
                                 key={cat}
                                 onClick={() => setActiveCategory(cat)}
-                                className={`px-3 py-1.5 rounded-full text-xs font-medium border ${activeCategory === cat ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${activeCategory === cat ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
                             >
                                 {cat}
                             </button>
                         ))}
                     </div>
                 </div>
-                <button onClick={() => setIsFilterOpen(false)} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold">Aplicar Filtros</button>
+                <button onClick={() => setIsFilterOpen(false)} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Aplicar Filtros</button>
             </div>
         </Modal>
     </div>

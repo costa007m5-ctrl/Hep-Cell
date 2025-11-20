@@ -3,7 +3,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
-// FIX: Import Buffer to resolve 'Cannot find name 'Buffer'' error.
 import { Buffer } from 'buffer';
 
 // --- Helper Functions ---
@@ -66,7 +65,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, u
 const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
     
-    -- Tabela de Configurações do Sistema (Juros, etc)
+    -- Tabela de Configurações do Sistema
     CREATE TABLE IF NOT EXISTS "public"."system_settings" (
         "key" "text" NOT NULL,
         "value" "text",
@@ -75,7 +74,7 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Perfis (Profiles) - Estrutura Robusta com ALTER TABLE
+    -- Tabela de Perfis (Profiles)
     CREATE TABLE IF NOT EXISTS "public"."profiles" (
         "id" "uuid" NOT NULL,
         "email" "text",
@@ -106,11 +105,55 @@ const SETUP_SQL = `
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "avatar_url" "text";
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
+    -- Tabela de Endereços (Addresses) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."addresses" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "user_id" "uuid" NOT NULL,
+        "street" "text" NOT NULL,
+        "number" "text" NOT NULL,
+        "neighborhood" "text" NOT NULL,
+        "city" "text" NOT NULL,
+        "state" "text" NOT NULL,
+        "zip_code" "text" NOT NULL,
+        "is_default" boolean DEFAULT false,
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "addresses_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "addresses_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."addresses" ENABLE ROW LEVEL SECURITY;
+
     -- Tabela de Produtos (Products)
-    CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
+    CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "category" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
+    ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "category" "text";
     ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Faturas (Invoices) - Estrutura Robusta com ALTER TABLE
+    -- Tabela de Pedidos (Orders) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."orders" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "user_id" "uuid" NOT NULL,
+        "status" "text" NOT NULL DEFAULT 'pending',
+        "total" numeric(10, 2) NOT NULL,
+        "tracking_code" "text",
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "orders_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "orders_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."orders" ENABLE ROW LEVEL SECURITY;
+
+    -- Itens do Pedido (Order Items) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."order_items" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "order_id" "uuid" NOT NULL,
+        "product_id" "uuid",
+        "quantity" integer NOT NULL,
+        "price" numeric(10, 2) NOT NULL,
+        "product_name" "text",
+        CONSTRAINT "order_items_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "public"."orders"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."order_items" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Faturas (Invoices)
     CREATE TABLE IF NOT EXISTS "public"."invoices" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid",
@@ -130,51 +173,82 @@ const SETUP_SQL = `
     ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "notes" "text";
     ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Logs de Ação (Action Logs)
+    -- Tabela de Logs de Ação
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY;
 
-    -- Políticas de Segurança para Clientes
-    DROP POLICY IF EXISTS "Allow users to read their own profile" ON "public"."profiles";
-    CREATE POLICY "Allow users to read their own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
-    DROP POLICY IF EXISTS "Allow users to update their own profile" ON "public"."profiles";
-    CREATE POLICY "Allow users to update their own profile" ON "public"."profiles" FOR UPDATE USING (("auth"."uid"() = "id"));
-    DROP POLICY IF EXISTS "Allow public read access to products" ON "public"."products";
-    CREATE POLICY "Allow public read access to products" ON "public"."products" FOR SELECT USING (true);
-    DROP POLICY IF EXISTS "Allow users to view their own invoices" ON "public"."invoices";
-    CREATE POLICY "Allow users to view their own invoices" ON "public"."invoices" FOR SELECT USING (("auth"."uid"() = "user_id"));
-    DROP POLICY IF EXISTS "Allow public read access to settings" ON "public"."system_settings";
-    CREATE POLICY "Allow public read access to settings" ON "public"."system_settings" FOR SELECT USING (true);
-
-    -- Políticas de Segurança para o Administrador (Acesso Total)
-    -- O ID do administrador está fixado no componente de login.
+    -- Políticas de Segurança (RLS)
+    
+    -- Admin
     CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$
     BEGIN
       RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
-    
+
+    -- Profiles
+    DROP POLICY IF EXISTS "Allow users to read their own profile" ON "public"."profiles";
+    CREATE POLICY "Allow users to read their own profile" ON "public"."profiles" FOR SELECT USING (("auth"."uid"() = "id"));
+    DROP POLICY IF EXISTS "Allow users to update their own profile" ON "public"."profiles";
+    CREATE POLICY "Allow users to update their own profile" ON "public"."profiles" FOR UPDATE USING (("auth"."uid"() = "id"));
     DROP POLICY IF EXISTS "Allow admin full access to profiles" ON "public"."profiles";
     CREATE POLICY "Allow admin full access to profiles" ON "public"."profiles" FOR ALL USING (is_admin());
-    
-    DROP POLICY IF EXISTS "Allow admin full access to invoices" ON "public"."invoices";
-    CREATE POLICY "Allow admin full access to invoices" ON "public"."invoices" FOR ALL USING (is_admin());
-    
+
+    -- Addresses
+    DROP POLICY IF EXISTS "Allow users access own addresses" ON "public"."addresses";
+    CREATE POLICY "Allow users access own addresses" ON "public"."addresses" FOR ALL USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin access addresses" ON "public"."addresses";
+    CREATE POLICY "Allow admin access addresses" ON "public"."addresses" FOR ALL USING (is_admin());
+
+    -- Orders
+    DROP POLICY IF EXISTS "Allow users access own orders" ON "public"."orders";
+    CREATE POLICY "Allow users access own orders" ON "public"."orders" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow users create own orders" ON "public"."orders";
+    CREATE POLICY "Allow users create own orders" ON "public"."orders" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin full access orders" ON "public"."orders";
+    CREATE POLICY "Allow admin full access orders" ON "public"."orders" FOR ALL USING (is_admin());
+
+    -- Order Items
+    DROP POLICY IF EXISTS "Allow users access own order items" ON "public"."order_items";
+    CREATE POLICY "Allow users access own order items" ON "public"."order_items" FOR SELECT USING (
+        EXISTS (SELECT 1 FROM public.orders WHERE orders.id = order_items.order_id AND orders.user_id = auth.uid())
+    );
+    DROP POLICY IF EXISTS "Allow users create order items" ON "public"."order_items";
+    CREATE POLICY "Allow users create order items" ON "public"."order_items" FOR INSERT WITH CHECK (
+        EXISTS (SELECT 1 FROM public.orders WHERE orders.id = order_items.order_id AND orders.user_id = auth.uid())
+    );
+    DROP POLICY IF EXISTS "Allow admin access order items" ON "public"."order_items";
+    CREATE POLICY "Allow admin access order items" ON "public"."order_items" FOR ALL USING (is_admin());
+
+    -- Products
+    DROP POLICY IF EXISTS "Allow public read access to products" ON "public"."products";
+    CREATE POLICY "Allow public read access to products" ON "public"."products" FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Allow admin full access to products" ON "public"."products";
     CREATE POLICY "Allow admin full access to products" ON "public"."products" FOR ALL USING (is_admin());
 
-    DROP POLICY IF EXISTS "Allow admin full access to action logs" ON "public"."action_logs";
-    CREATE POLICY "Allow admin full access to action logs" ON "public"."action_logs" FOR ALL USING (is_admin());
+    -- Invoices
+    DROP POLICY IF EXISTS "Allow users to view their own invoices" ON "public"."invoices";
+    CREATE POLICY "Allow users to view their own invoices" ON "public"."invoices" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin full access to invoices" ON "public"."invoices";
+    CREATE POLICY "Allow admin full access to invoices" ON "public"."invoices" FOR ALL USING (is_admin());
 
+    -- Settings
+    DROP POLICY IF EXISTS "Allow public read access to settings" ON "public"."system_settings";
+    CREATE POLICY "Allow public read access to settings" ON "public"."system_settings" FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Allow admin full access to settings" ON "public"."system_settings";
     CREATE POLICY "Allow admin full access to settings" ON "public"."system_settings" FOR ALL USING (is_admin());
 
-    -- Função para criar perfil ao registrar novo usuário
+    -- Action Logs
+    DROP POLICY IF EXISTS "Allow admin full access to action logs" ON "public"."action_logs";
+    CREATE POLICY "Allow admin full access to action logs" ON "public"."action_logs" FOR ALL USING (is_admin());
+
+    -- Função Handle New User
     CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
     RETURNS void AS $$
     BEGIN
       INSERT INTO public.profiles (id, email)
-      VALUES (user_id, user_email);
+      VALUES (user_id, user_email)
+      ON CONFLICT (id) DO NOTHING;
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
 `;
@@ -195,7 +269,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         }
 
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados configurado com sucesso! Tabelas e políticas de segurança foram aplicadas." });
+        res.status(200).json({ message: "Banco de dados configurado! Tabelas de e-commerce, endereços e políticas de segurança foram criadas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
@@ -389,8 +463,16 @@ async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelRes
             .from('profiles')
             .insert({ id: user.id, email, first_name, last_name });
         if (profileError) {
-            await supabase.auth.admin.deleteUser(user.id);
-            throw new Error(`Supabase Profile Error: ${profileError.message}`);
+            // Try to update if it already exists due to trigger
+             const { error: updateError } = await supabase
+                .from('profiles')
+                .update({ first_name, last_name })
+                .eq('id', user.id);
+             
+             if (updateError) {
+                 await supabase.auth.admin.deleteUser(user.id);
+                 throw new Error(`Supabase Profile Error: ${profileError.message}`);
+             }
         }
 
         const analyzedProfile = await runCreditAnalysis(supabase, genAI, user.id);
@@ -488,8 +570,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Missing required sale data.' });
         }
         
-        // O totalAmount já deve incluir juros calculados no frontend, mas para segurança
-        // poderíamos recalcular aqui. Para flexibilidade, confiamos no valor enviado por enquanto.
         const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
         const newInvoices = [];
         const today = new Date();
