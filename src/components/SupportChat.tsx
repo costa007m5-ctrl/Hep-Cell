@@ -9,6 +9,7 @@ const SupportChat: React.FC = () => {
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -23,6 +24,18 @@ const SupportChat: React.FC = () => {
         setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
         setInputText('');
         setLoading(true);
+
+        // Cancela requisição anterior se existir
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        // Timeout de segurança: se a API demorar mais de 15s, aborta.
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+        }, 15000);
 
         try {
              // Get User Context for "Smart" answers
@@ -45,22 +58,33 @@ const SupportChat: React.FC = () => {
                     message: userMsg,
                     context: context 
                 }),
+                signal: controller.signal
             });
+            
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                  throw new Error('Falha na comunicação com a IA.');
             }
 
             const data = await response.json();
-            const reply = data.reply || "Desculpe, não consegui processar sua resposta.";
+            const reply = data.reply || "Desculpe, tive um problema ao processar sua resposta. Tente novamente.";
 
             setMessages(prev => [...prev, { role: 'model', text: reply }]);
 
-        } catch (error) {
-            console.error(error);
-            setMessages(prev => [...prev, { role: 'model', text: "Estou com dificuldades de conexão no momento. Tente novamente em alguns instantes." }]);
+        } catch (error: any) {
+            console.error("Chat Error:", error);
+            let errorMsg = "Estou com dificuldades de conexão no momento. Tente novamente em alguns instantes.";
+            
+            if (error.name === 'AbortError') {
+                errorMsg = "A resposta demorou muito. Verifique sua conexão ou tente novamente.";
+            }
+            
+            setMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
         } finally {
             setLoading(false);
+            abortControllerRef.current = null;
+            clearTimeout(timeoutId);
         }
     };
 

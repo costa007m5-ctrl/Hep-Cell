@@ -19,7 +19,8 @@ function getSupabaseAdminClient(): SupabaseClient {
 function getGeminiClient() {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        throw new Error('Gemini API key (API_KEY) is not set.');
+        // Retorna null em vez de erro para permitir tratamento gracioso
+        return null; 
     }
     return new GoogleGenAI({ apiKey });
 }
@@ -40,11 +41,20 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
 }
 
 // Função de análise de crédito reutilizável
-async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, userId: string) {
+async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string) {
     const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (profileError) throw profileError;
     const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date').eq('user_id', userId);
     if (invoicesError) throw invoicesError;
+
+    // Fallback se o Gemini não estiver configurado
+    if (!genAI) {
+        return {
+            credit_score: 500,
+            credit_limit: 200.00,
+            credit_status: "Análise Manual Necessária (IA Indisponível)"
+        };
+    }
 
     const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
 
@@ -267,6 +277,12 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         if (!data) {
             await supabase.from('system_settings').insert({ key: 'interest_rate', value: '0' });
         }
+        
+        // Inicializa config de IA
+        const { data: aiData } = await supabase.from('system_settings').select('value').eq('key', 'chat_model').single();
+        if (!aiData) {
+            await supabase.from('system_settings').insert({ key: 'chat_model', value: 'gemini-2.5-flash' });
+        }
 
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
         res.status(200).json({ message: "Banco de dados configurado! Tabelas de e-commerce, endereços e políticas de segurança foram criadas." });
@@ -366,6 +382,7 @@ async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
 async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
     try {
         const genAI = getGeminiClient();
+        if (!genAI) throw new Error("Chave API_KEY não configurada.");
         await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: 'test' });
         res.status(200).json({ message: 'API do Gemini respondeu com sucesso.' });
     } catch (error: any) {
@@ -463,7 +480,6 @@ async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelRes
             .from('profiles')
             .insert({ id: user.id, email, first_name, last_name });
         if (profileError) {
-            // Try to update if it already exists due to trigger
              const { error: updateError } = await supabase
                 .from('profiles')
                 .update({ first_name, last_name })
@@ -512,10 +528,8 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
                     upsert: true
                 });
                 
-                // Se o bucket não existir, tenta criar (pode falhar se não tiver permissão de admin de storage, mas tentamos)
                 if (uploadError && uploadError.message.includes('Bucket not found')) {
                      await supabase.storage.createBucket(bucket, { public: true });
-                     // Retry upload
                      const { error: retryError } = await supabase.storage.from(bucket).upload(filePath, buffer, { contentType: `image/${fileExt}`, upsert: true });
                      if (retryError) throw new Error(`Supabase Storage Error: ${retryError.message}`);
                 } else if (uploadError) {
@@ -528,12 +542,10 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
             
             let error;
             if (req.method === 'PUT' && id) {
-                 // Update
                  const { error: updateError } = await supabase.from('products').update({ ...productData, image_url: imageUrl }).eq('id', id);
                  error = updateError;
                  await logAction(supabase, 'PRODUCT_UPDATED', 'SUCCESS', `Produto '${productData.name}' foi atualizado.`);
             } else {
-                 // Create
                  const { error: insertError } = await supabase.from('products').insert([{ ...productData, image_url: imageUrl }]);
                  error = insertError;
                  await logAction(supabase, 'PRODUCT_CREATED', 'SUCCESS', `Produto '${productData.name}' foi criado.`);
@@ -594,6 +606,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
     try {
         const genAI = getGeminiClient();
+        if (!genAI) return res.status(200).json({ diagnosis: "IA não configurada para diagnóstico." });
+
         const { errorMessage } = req.body;
         if (!errorMessage) {
             return res.status(400).json({ error: 'errorMessage is required.' });
@@ -601,7 +615,6 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
         
         const prompt = `An admin user of a web application is facing a database error. The error message is: "${errorMessage}". Based on this error, provide a diagnosis in Portuguese. Structure your response with markdown. Start with a title "### Diagnóstico do Erro". Then a section "### Causa Provável" explaining what the error likely means in the context of Supabase/PostgreSQL. Finally, a section "### Ações Recomendadas" with clear, actionable steps for the admin to resolve the issue, like checking RLS policies, table permissions, or function definitions in their Supabase dashboard. Keep the explanation clear and targeted at a developer/admin user.`;
 
-        // Alterado para flash para maior velocidade
         const response = await genAI.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
         res.status(200).json({ diagnosis: response.text });
     } catch (error: any) {
@@ -610,6 +623,10 @@ async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
+    // Resposta padrão de fallback caso a IA falhe
+    const fallbackReply = "Estou com uma pequena instabilidade para conectar com meu cérebro de IA, mas posso te adiantar: verifique suas faturas na aba 'Faturas' e nosso catálogo na aba 'Loja'. Se precisar de algo urgente, contate o suporte via WhatsApp.";
+    const supabase = getSupabaseAdminClient();
+
     try {
         const genAI = getGeminiClient();
         const { message, context } = req.body;
@@ -618,6 +635,18 @@ async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Message is required.' });
         }
 
+        // Se a chave da API não estiver configurada, retorna o fallback imediatamente
+        if (!genAI) {
+            console.warn("Chat: Gemini API key not set. Returning fallback.");
+            return res.status(200).json({ reply: "O sistema de IA não está configurado no momento (Chave API ausente), mas você pode navegar pelo app normalmente." });
+        }
+
+        // 1. Busca a configuração de modelo do banco de dados
+        // Usa uma query rápida para não travar o chat
+        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'chat_model').single();
+        // Se não achar, usa o flash padrão
+        const selectedModel = setting?.value || 'gemini-2.5-flash';
+
         const systemInstruction = `Você é o assistente virtual oficial da Relp Cell, uma loja de eletrônicos e serviços financeiros. 
         Seu tom é amigável, profissional e direto.
         Você pode responder sobre: status de faturas, produtos disponíveis na loja (iPhone, Samsung, Xiaomi, etc), limites de crédito e dúvidas gerais sobre o app.
@@ -625,18 +654,45 @@ async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
         Se não souber a resposta, oriente o usuário a entrar em contato com o suporte humano via WhatsApp.
         Contexto do Usuário: ${context || 'Visitante não logado'}`;
 
-        const response = await genAI.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: message,
-            config: {
-                systemInstruction: systemInstruction,
+        // Envolve a chamada da IA em um try-catch específico para garantir que
+        // erros da API do Google não derrubem a requisição sem resposta.
+        try {
+            const response = await genAI.models.generateContent({
+                model: selectedModel, // Usa o modelo configurado dinamicamente
+                contents: message,
+                config: {
+                    systemInstruction: systemInstruction,
+                }
+            });
+            
+            if (response && response.text) {
+                 res.status(200).json({ reply: response.text });
+            } else {
+                 throw new Error("Resposta vazia da IA");
             }
-        });
+        } catch (aiError: any) {
+            console.error(`Erro na chamada do Gemini (Modelo: ${selectedModel}):`, aiError);
+            // Se for erro de modelo não encontrado ou cota, tenta fallback para flash
+            if (selectedModel !== 'gemini-2.5-flash') {
+                 try {
+                    console.log("Tentando fallback para gemini-2.5-flash...");
+                    const fallbackResponse = await genAI.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: message,
+                        config: { systemInstruction }
+                    });
+                    return res.status(200).json({ reply: fallbackResponse.text });
+                 } catch (e) {
+                     // Se falhar de novo, vai para o erro final
+                 }
+            }
+            return res.status(200).json({ reply: fallbackReply });
+        }
 
-        res.status(200).json({ reply: response.text });
     } catch (error: any) {
-        console.error("Error in support chat:", error);
-        res.status(500).json({ error: 'Failed to generate chat response.', message: error.message });
+        console.error("Erro geral no endpoint de chat:", error);
+        // Garante que o frontend receba um JSON válido e pare de carregar
+        res.status(200).json({ reply: fallbackReply });
     }
 }
 

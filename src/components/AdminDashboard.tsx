@@ -6,6 +6,7 @@ import ClientsTab from './ClientsTab';
 import NewSaleTab from './NewSaleTab';
 import ActionLogTab from './ActionLogTab';
 import StatusTab from './StatusTab';
+import AiConfigTab from './AiConfigTab'; // Importar o novo componente
 import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
@@ -98,7 +99,8 @@ const Icons = {
     Financials: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     History: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Status: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-    Dev: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+    Dev: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>,
+    Ai: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> // Novo Ícone
 };
 
 const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: string; onClick: () => void }> = ({ title, icon, color, onClick }) => (
@@ -158,6 +160,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     { id: 'products', label: 'Produtos', icon: Icons.Products, color: 'bg-orange-500' },
     { id: 'financials', label: 'Finanças', icon: Icons.Financials, color: 'bg-green-500' },
     { id: 'history', label: 'Histórico', icon: Icons.History, color: 'bg-purple-500' },
+    { id: 'ai_config', label: 'IA & Chat', icon: Icons.Ai, color: 'bg-pink-500' }, // Novo item
     { id: 'status', label: 'Status', icon: Icons.Status, color: 'bg-teal-500' },
     { id: 'dev', label: 'Dev Tools', icon: Icons.Dev, color: 'bg-gray-700' },
   ];
@@ -214,6 +217,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'products': return <ProductsTab />;
           case 'new_sale': return <NewSaleTab />;
           case 'history': return <ActionLogTab />;
+          case 'ai_config': return <AiConfigTab />; // Nova renderização
           case 'status': return <StatusTab />;
           case 'dev': return <DeveloperTab />;
           default: return renderDashboardHome();
