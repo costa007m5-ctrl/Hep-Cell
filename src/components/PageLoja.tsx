@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, CartItem } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -109,8 +110,12 @@ const PageLoja: React.FC = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  
+  // Filtros
   const [activeCategory, setActiveCategory] = useState('Todos');
+  const [activeBrand, setActiveBrand] = useState('Todas');
   const [sortOption, setSortOption] = useState('relevance'); // relevance, price_asc, price_desc
+  
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const { addToast } = useToast();
 
@@ -264,18 +269,38 @@ const PageLoja: React.FC = () => {
 
   const filteredProducts = useMemo(() => {
       let result = [...products];
+
+      // Filtro de Categoria
       if (activeCategory !== 'Todos') {
-          // Basic category filter logic
           result = result.filter(p => {
+              // Se a categoria for "Ofertas", não temos uma lógica clara sem campo de desconto, 
+              // mas vamos assumir que se a categoria for explicitamente salva como "Ofertas", mostramos.
+              // Ou, se o nome contém "Promoção".
+              if (activeCategory === 'Ofertas') {
+                  return p.category === 'Ofertas' || p.name.toLowerCase().includes('oferta') || p.name.toLowerCase().includes('promo');
+              }
+              
               if (p.category) return p.category === activeCategory;
-              // Fallback to name match if category not set
+              // Fallback se categoria não estiver definida
               return p.name.toLowerCase().includes(activeCategory.toLowerCase().slice(0, 4));
           });
       }
+
+      // Filtro de Marca
+      if (activeBrand !== 'Todas') {
+          result = result.filter(p => {
+              if (p.brand) return p.brand.toLowerCase() === activeBrand.toLowerCase();
+              // Fallback
+              return p.name.toLowerCase().includes(activeBrand.toLowerCase());
+          });
+      }
+
+      // Ordenação
       if (sortOption === 'price_asc') result.sort((a, b) => a.price - b.price);
       if (sortOption === 'price_desc') result.sort((a, b) => b.price - a.price);
+      
       return result;
-  }, [products, activeCategory, sortOption]);
+  }, [products, activeCategory, activeBrand, sortOption]);
 
   if (selectedProduct) {
       return (
@@ -319,66 +344,80 @@ const PageLoja: React.FC = () => {
             </div>
             
             <div className="max-w-7xl mx-auto">
-                <CategoryIcons />
+                <CategoryIcons activeCategory={activeCategory} onSelect={setActiveCategory} />
             </div>
 
             {isLoading ? <div className="flex justify-center py-20"><LoadingSpinner /></div> : (
                 <>
-                    <ProductCarousel 
-                        title="🔥 Ofertas Relâmpago" 
-                        products={products.slice(0, 6)} 
-                        onProductClick={setSelectedProduct}
-                    />
+                    <div className="max-w-7xl mx-auto">
+                        <ProductCarousel 
+                            title="🔥 Ofertas Relâmpago" 
+                            products={products.filter(p => p.category === 'Ofertas' || p.name.toLowerCase().includes('promo')).slice(0, 6)} 
+                            onProductClick={setSelectedProduct}
+                        />
+                    </div>
 
                     <div className="max-w-7xl mx-auto pt-2">
-                        <BrandLogos />
+                        <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
                     </div>
 
                     <div className="max-w-7xl mx-auto px-4 pt-6">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Para Você</h2>
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                                {activeCategory !== 'Todos' ? activeCategory : 'Para Você'}
+                                {activeBrand !== 'Todas' && <span className="text-slate-500 dark:text-slate-400 text-sm ml-2">({activeBrand})</span>}
+                            </h2>
                             <button onClick={() => setIsFilterOpen(true)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Filtrar</button>
                         </div>
                         
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
-                            {filteredProducts.map(product => (
-                                <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden relative group">
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
-                                        className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 dark:bg-black/50 backdrop-blur-sm rounded-full text-slate-400 hover:text-red-500 transition-colors"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill={wishlist.has(product.id) ? "currentColor" : "none"} stroke="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
-                                    </button>
+                        {filteredProducts.length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+                                {filteredProducts.map(product => (
+                                    <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden relative group">
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
+                                            className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 dark:bg-black/50 backdrop-blur-sm rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill={wishlist.has(product.id) ? "currentColor" : "none"} stroke="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
+                                        </button>
 
-                                    {product.is_new && (
-                                        <span className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-sm">Novo</span>
-                                    )}
+                                        {product.is_new && (
+                                            <span className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-sm">Novo</span>
+                                        )}
 
-                                    <div onClick={() => setSelectedProduct(product)} className="relative aspect-square bg-white p-4 flex items-center justify-center cursor-pointer">
-                                        <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" loading="lazy" />
-                                    </div>
-
-                                    <div className="p-3" onClick={() => setSelectedProduct(product)}>
-                                        <div className="flex items-center gap-1 mb-1">
-                                            <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                                            <span className="text-[10px] text-slate-500 font-medium">{product.rating} ({product.reviews_count})</span>
+                                        <div onClick={() => setSelectedProduct(product)} className="relative aspect-square bg-white p-4 flex items-center justify-center cursor-pointer">
+                                            <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" loading="lazy" />
                                         </div>
-                                        <h3 className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 h-8 sm:h-10 leading-tight">{product.name}</h3>
-                                        <div className="mt-2">
-                                            <p className="text-base sm:text-lg font-bold text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                                            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">12x R$ {(product.price / 12).toFixed(2).replace('.', ',')}</p>
+
+                                        <div className="p-3" onClick={() => setSelectedProduct(product)}>
+                                            <div className="flex items-center gap-1 mb-1">
+                                                <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                                                <span className="text-[10px] text-slate-500 font-medium">{product.rating} ({product.reviews_count})</span>
+                                            </div>
+                                            <h3 className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 h-8 sm:h-10 leading-tight">{product.name}</h3>
+                                            <div className="mt-2">
+                                                <p className="text-base sm:text-lg font-bold text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                                                <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">12x R$ {(product.price / 12).toFixed(2).replace('.', ',')}</p>
+                                            </div>
                                         </div>
+                                        <button 
+                                            onClick={() => handleAddToCart(product)}
+                                            className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                            Adicionar
+                                        </button>
                                     </div>
-                                    <button 
-                                        onClick={() => handleAddToCart(product)}
-                                        className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                        Adicionar
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 text-slate-500 dark:text-slate-400">
+                                <p>Nenhum produto encontrado com esses filtros.</p>
+                                <button onClick={() => { setActiveCategory('Todos'); setActiveBrand('Todas'); }} className="mt-4 text-indigo-600 font-bold hover:underline">
+                                    Limpar Filtros
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </>
             )}
@@ -418,13 +457,27 @@ const PageLoja: React.FC = () => {
                  <div>
                     <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Categorias</p>
                     <div className="flex flex-wrap gap-2">
-                        {['Todos', 'Celulares', 'Fones', 'Acessórios', 'Smartwatch'].map(cat => (
+                        {['Todos', 'Celulares', 'Fones', 'Acessórios', 'Smartwatch', 'Ofertas'].map(cat => (
                              <button 
                                 key={cat}
                                 onClick={() => setActiveCategory(cat)}
                                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${activeCategory === cat ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
                             >
                                 {cat}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Marcas</p>
+                    <div className="flex flex-wrap gap-2">
+                        {['Todas', 'Apple', 'Samsung', 'Xiaomi', 'Motorola', 'LG', 'Asus'].map(brand => (
+                             <button 
+                                key={brand}
+                                onClick={() => setActiveBrand(brand)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${activeBrand === brand ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
+                            >
+                                {brand}
                             </button>
                         ))}
                     </div>

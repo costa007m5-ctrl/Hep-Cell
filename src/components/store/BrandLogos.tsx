@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 // SVGs de marcas populares para garantir que sempre carreguem e fiquem bonitos no tema escuro
@@ -27,16 +28,31 @@ const MotorolaLogo = () => (
     </svg>
 );
 
-const BrandCard: React.FC<{ name: string; icon: React.ReactNode }> = ({ name, icon }) => (
-     <div className="flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 transition-all active:scale-95 group">
-        <div className="text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+const BrandCard: React.FC<{ name: string; icon: React.ReactNode; isActive?: boolean; onClick?: () => void }> = ({ name, icon, isActive, onClick }) => (
+     <div 
+        onClick={onClick}
+        className={`flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 rounded-2xl shadow-sm border cursor-pointer transition-all active:scale-95 group ${isActive ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 dark:bg-indigo-900/30 dark:border-indigo-500 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800'}`}
+    >
+        <div className={`transition-colors ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400'}`}>
             {icon}
         </div>
-        <span className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300">{name}</span>
+        <span className={`mt-2 text-xs font-bold ${isActive ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300'}`}>{name}</span>
     </div>
 );
 
-const BrandLogos: React.FC = () => {
+interface BrandLogosProps {
+    activeBrand?: string;
+    onSelect?: (brand: string) => void;
+}
+
+const BrandLogos: React.FC<BrandLogosProps> = ({ activeBrand, onSelect }) => {
+    const handleSelect = (brand: string) => {
+        if (onSelect) {
+            // Toggle: se já estiver ativo, desativa (passa string vazia ou 'Todas')
+            onSelect(activeBrand === brand ? 'Todas' : brand);
+        }
+    };
+
     return (
         <section className="space-y-3 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
             <div className="flex items-center justify-between px-4">
@@ -44,17 +60,17 @@ const BrandLogos: React.FC = () => {
             </div>
            
             <div className="flex space-x-3 overflow-x-auto pb-4 px-4 scrollbar-hide snap-x">
-                <BrandCard name="Apple" icon={<AppleLogo />} />
-                <BrandCard name="Samsung" icon={<SamsungLogo />} />
-                <BrandCard name="Xiaomi" icon={<XiaomiLogo />} />
-                <BrandCard name="Motorola" icon={<MotorolaLogo />} />
+                <BrandCard name="Apple" icon={<AppleLogo />} isActive={activeBrand === 'Apple'} onClick={() => handleSelect('Apple')} />
+                <BrandCard name="Samsung" icon={<SamsungLogo />} isActive={activeBrand === 'Samsung'} onClick={() => handleSelect('Samsung')} />
+                <BrandCard name="Xiaomi" icon={<XiaomiLogo />} isActive={activeBrand === 'Xiaomi'} onClick={() => handleSelect('Xiaomi')} />
+                <BrandCard name="Motorola" icon={<MotorolaLogo />} isActive={activeBrand === 'Motorola'} onClick={() => handleSelect('Motorola')} />
                 
                 {/* Marcas genéricas com texto estilizado se não tiver SVG */}
-                 <div className="flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 cursor-pointer hover:shadow-md transition-all">
+                 <div onClick={() => handleSelect('LG')} className={`flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 rounded-2xl shadow-sm border cursor-pointer transition-all active:scale-95 ${activeBrand === 'LG' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 dark:bg-indigo-900/30' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:shadow-md'}`}>
                      <span className="text-xl font-black text-slate-800 dark:text-white tracking-tighter">LG</span>
                      <span className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">LG</span>
                  </div>
-                 <div className="flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 cursor-pointer hover:shadow-md transition-all">
+                 <div onClick={() => handleSelect('Asus')} className={`flex-shrink-0 flex flex-col items-center justify-center h-24 w-28 p-3 rounded-2xl shadow-sm border cursor-pointer transition-all active:scale-95 ${activeBrand === 'Asus' ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200 dark:bg-indigo-900/30' : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 hover:shadow-md'}`}>
                      <span className="text-xl font-black text-blue-600 tracking-tighter">ASUS</span>
                      <span className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">Asus</span>
                  </div>

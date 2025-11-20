@@ -72,10 +72,11 @@ export interface Product {
   price: number;
   stock: number;
   image_url: string | null;
-  category?: string; // Novo
-  rating?: number; // Novo
-  reviews_count?: number; // Novo
-  is_new?: boolean; // Novo
+  category?: string; 
+  brand?: string; // Novo campo
+  rating?: number; 
+  reviews_count?: number; 
+  is_new?: boolean; 
   created_at: string;
 }
 

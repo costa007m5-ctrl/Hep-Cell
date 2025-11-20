@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -147,6 +148,7 @@ const SETUP_SQL = `
     -- Tabela de Produtos (Products)
     CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "category" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "category" "text";
+    ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "brand" "text";
     ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
 
     -- Tabela de Pedidos (Orders)
@@ -400,6 +402,39 @@ async function handleSendNotification(req: VercelRequest, res: VercelResponse) {
         res.status(500).json({ error: error.message });
     }
 }
+
+async function handleGenerateProductDetails(req: VercelRequest, res: VercelResponse) {
+    const genAI = getGeminiClient();
+    if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' });
+
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
+
+    try {
+        const instruction = `Extract product details from the following user prompt: "${prompt}".
+        Return a JSON object with the following keys:
+        - name: The full commercial name of the product.
+        - description: A compelling technical and sales description in Portuguese (markdown supported).
+        - price: The price as a number (extract from text, e.g., "500 reais" -> 500).
+        - stock: The stock quantity as a number.
+        - brand: The brand of the product (e.g., Apple, Samsung, Xiaomi, Motorola). If not specified, infer from the name or set to "Genérica".
+        - category: The best category for this product. Must be one of: "Celulares", "Acessórios", "Fones", "Smartwatch", "Ofertas". If unsure or if it's a discount item, use "Ofertas". Default to "Celulares" if it's a phone.
+        
+        If any information is missing, make a reasonable guess based on common market standards for similar products or leave blank.`;
+        
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: instruction,
+            config: { responseMimeType: 'application/json' }
+        });
+
+        const productData = JSON.parse(response.text || '{}');
+        res.status(200).json(productData);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to generate product details.', message: error.message });
+    }
+}
+
 
 async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -853,7 +888,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
-                case '/api/admin/send-notification': return await handleSendNotification(req, res); // Novo
+                case '/api/admin/send-notification': return await handleSendNotification(req, res);
+                case '/api/admin/generate-product-details': return await handleGenerateProductDetails(req, res); // Novo Endpoint
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

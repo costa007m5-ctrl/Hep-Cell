@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 // Ícones SVG refinados
@@ -14,20 +15,35 @@ const categories = [
     { name: 'Smartwatch', icon: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>, bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-600 dark:text-indigo-400' },
 ];
 
-const CategoryIcons: React.FC = () => {
+interface CategoryIconsProps {
+    activeCategory?: string;
+    onSelect?: (category: string) => void;
+}
+
+const CategoryIcons: React.FC<CategoryIconsProps> = ({ activeCategory, onSelect }) => {
     return (
         <section className="pt-4 pb-2">
             <div className="flex space-x-4 overflow-x-auto pb-6 px-4 scrollbar-hide snap-x">
+                <button
+                    onClick={() => onSelect && onSelect('Todos')}
+                    className={`flex-shrink-0 flex flex-col items-center gap-2 group snap-start transition-opacity ${activeCategory === 'Todos' ? 'opacity-100' : 'opacity-70'}`}
+                >
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shadow-sm ${activeCategory === 'Todos' ? 'ring-2 ring-indigo-500' : ''}`}>
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                    </div>
+                    <span className={`text-xs font-medium text-slate-600 dark:text-slate-300 ${activeCategory === 'Todos' ? 'font-bold' : ''}`}>Todos</span>
+                </button>
                 {categories.map((category) => (
                     <button 
                         key={category.name} 
+                        onClick={() => onSelect && onSelect(category.name)}
                         className="flex-shrink-0 flex flex-col items-center gap-2 group snap-start"
                     >
                         {/* Container do ícone com gradiente sutil e efeito de anel */}
-                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${category.bg} ${category.text} shadow-sm group-active:scale-95 transition-all duration-200 ring-1 ring-transparent hover:ring-${category.text.split('-')[1]}-200 dark:hover:ring-${category.text.split('-')[1]}-800`}>
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${category.bg} ${category.text} shadow-sm group-active:scale-95 transition-all duration-200 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-900 ${activeCategory === category.name ? 'ring-2 ring-indigo-500 scale-110' : 'ring-0'}`}>
                             {category.icon}
                         </div>
-                        <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{category.name}</span>
+                        <span className={`text-xs font-medium text-slate-600 dark:text-slate-300 ${activeCategory === category.name ? 'font-bold text-indigo-600 dark:text-indigo-400' : ''}`}>{category.name}</span>
                     </button>
                 ))}
             </div>

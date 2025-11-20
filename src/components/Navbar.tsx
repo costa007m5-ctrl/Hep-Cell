@@ -31,7 +31,6 @@ const DocumentIcon: React.FC<IconProps> = ({ isActive }) => (
     ) : (
         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
     )}
-     {isActive && <path d="M12.971 1.816A5.23 5.23 0 0114.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 013.434 1.279 9.768 9.768 0 00-6.963-6.963z" />}
   </svg>
 );
 
@@ -60,7 +59,7 @@ const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
   const tabs = [
     { id: Tab.INICIO, label: 'Início', icon: HomeIcon },
     { id: Tab.FATURAS, label: 'Faturas', icon: DocumentIcon },
-    { id: Tab.LOJA, label: 'Loja', icon: StoreIcon }, // 'soon' removido
+    { id: Tab.LOJA, label: 'Loja', icon: StoreIcon },
     { id: Tab.PERFIL, label: 'Perfil', icon: UserIcon },
   ];
 
@@ -80,17 +79,15 @@ const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
               }`}
               aria-current={isActive ? 'page' : undefined}
             >
-              {/* Active Indicator (Top Line Glow) - Optional, removed for cleaner iOS look, keeping just icon color */}
-              
               <div className={`relative flex items-center justify-center transition-transform duration-300 ${isActive ? 'scale-110 -translate-y-1' : 'group-active:scale-95'}`}>
                  <IconComponent isActive={isActive} />
-                 {/* Glow effect behind active icon */}
+                 {/* Efeito de brilho atrás do ícone ativo */}
                  {isActive && (
-                    <div className="absolute inset-0 bg-indigo-500/20 blur-lg rounded-full w-6 h-6 -z-10"></div>
+                    <div className="absolute inset-0 bg-indigo-500/20 blur-lg rounded-full w-6 h-6 -z-10 opacity-50"></div>
                  )}
               </div>
               
-              <span className={`text-[10px] mt-1 font-medium transition-all duration-300 ${isActive ? 'opacity-100 translate-y-0' : 'opacity-80'}`}>
+              <span className={`text-[10px] mt-1 font-medium transition-all duration-300 ${isActive ? 'opacity-100 translate-y-0 font-bold' : 'opacity-80'}`}>
                 {tab.label}
               </span>
             </button>
