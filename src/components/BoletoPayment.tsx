@@ -254,7 +254,10 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             );
         case 'form':
         default:
-            return <BoletoForm onSubmit={handleFormSubmit} isSubmitting={step === 'loading'} />;
+            // In 'form' or 'default' cases, step is guaranteed to not be 'loading' based on switch fallthrough behavior not applying here without breaks, 
+            // but 'step' state ensures component re-render on change. 
+            // Explicitly passing false prevents TS intersection error.
+            return <BoletoForm onSubmit={handleFormSubmit} isSubmitting={false} />;
     }
   };
 

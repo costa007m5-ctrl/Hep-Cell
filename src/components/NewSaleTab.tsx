@@ -259,7 +259,7 @@ const NewSaleTab: React.FC = () => {
         <div className="space-y-4">
             {!showNewCustomerForm ? (
                 <>
-                    <InputField label="Buscar Cliente por Nome ou Email" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="Digite para buscar..."/>
+                    <InputField label="Buscar Cliente por Nome ou Email" name="customerSearch" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="Digite para buscar..."/>
                     {customerSearch && filteredProfiles.length > 0 && (
                         <ul className="border border-slate-300 dark:border-slate-600 rounded-md max-h-60 overflow-y-auto">
                            {filteredProfiles.map(p => (
@@ -280,9 +280,9 @@ const NewSaleTab: React.FC = () => {
             ) : (
                 <form onSubmit={handleCreateCustomer} className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg space-y-4 bg-white dark:bg-slate-800">
                     <h3 className="font-bold text-lg">Novo Cliente</h3>
-                    <InputField label="Primeiro Nome" value={newCustomer.first_name} onChange={e => setNewCustomer({...newCustomer, first_name: e.target.value})} required/>
-                    <InputField label="Sobrenome" value={newCustomer.last_name} onChange={e => setNewCustomer({...newCustomer, last_name: e.target.value})} />
-                    <InputField label="Email" type="email" value={newCustomer.email} onChange={e => setNewCustomer({...newCustomer, email: e.target.value})} required/>
+                    <InputField label="Primeiro Nome" name="firstName" value={newCustomer.first_name} onChange={e => setNewCustomer({...newCustomer, first_name: e.target.value})} required/>
+                    <InputField label="Sobrenome" name="lastName" value={newCustomer.last_name} onChange={e => setNewCustomer({...newCustomer, last_name: e.target.value})} />
+                    <InputField label="Email" name="email" type="email" value={newCustomer.email} onChange={e => setNewCustomer({...newCustomer, email: e.target.value})} required/>
                      <div className="flex gap-4">
                         <button type="button" onClick={() => setShowNewCustomerForm(false)} className="w-full py-2 px-4 border border-slate-300 rounded-md text-sm font-medium">Cancelar</button>
                         <button type="submit" disabled={isProcessing} className="w-full py-2 px-4 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
@@ -318,7 +318,7 @@ const NewSaleTab: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-                <InputField label="Buscar Produto" value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="Digite para buscar..."/>
+                <InputField label="Buscar Produto" name="productSearch" value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="Digite para buscar..."/>
                  {productSearch && filteredProducts.length > 0 && (
                     <ul className="border border-slate-300 dark:border-slate-600 rounded-md max-h-60 overflow-y-auto">
                         {filteredProducts.map(p => (
@@ -347,7 +347,7 @@ const NewSaleTab: React.FC = () => {
                         </div>
                     </div>
                     <InputField 
-                        label="Número de Parcelas" type="number" value={String(installments)} 
+                        label="Número de Parcelas" name="installments" type="number" value={String(installments)} 
                         onChange={e => setInstallments(Math.max(1, parseInt(e.target.value, 10)))} min="1" max="12" required
                     />
                      {installments > 0 && (

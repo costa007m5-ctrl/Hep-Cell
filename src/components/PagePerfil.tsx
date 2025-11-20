@@ -76,7 +76,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
     }
   }, [activeView, fetchUserProfile]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       let { name, value } = e.target;
       if (name === 'zip_code') {
           value = value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2').substring(0, 9);
@@ -130,7 +130,53 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
     await supabase.auth.signOut();
   };
   
-  const renderProfileDataView = () => { /* ... (sem alterações) ... */ };
+  const renderProfileDataView = () => {
+    if (isLoading) return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
+    
+    return (
+        <form onSubmit={handleSaveProfile} className="space-y-4 animate-fade-in text-left">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white text-center mb-6">Meus Dados</h2>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <InputField label="Nome" name="first_name" value={profile?.first_name || ''} onChange={handleInputChange} />
+                <InputField label="Sobrenome" name="last_name" value={profile?.last_name || ''} onChange={handleInputChange} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Tipo de Documento</label>
+                    <select name="identification_type" value={profile?.identification_type || 'CPF'} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="CPF">CPF</option>
+                    </select>
+                </div>
+                <InputField label="Número do Documento" name="identification_number" value={profile?.identification_number || ''} onChange={handleInputChange} placeholder="000.000.000-00" maxLength={14} />
+            </div>
+            <InputField label="CEP" name="zip_code" value={profile?.zip_code || ''} onChange={handleInputChange} placeholder="00000-000" maxLength={9} />
+            <InputField label="Rua / Avenida" name="street_name" value={profile?.street_name || ''} onChange={handleInputChange} />
+            <div className="grid grid-cols-3 gap-4">
+                <InputField label="Número" name="street_number" value={profile?.street_number || ''} onChange={handleInputChange} />
+                <div className="col-span-2">
+                    <InputField label="Bairro" name="neighborhood" value={profile?.neighborhood || ''} onChange={handleInputChange} />
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <InputField label="Cidade" name="city" value={profile?.city || ''} onChange={handleInputChange} />
+                <InputField label="UF" name="federal_unit" value={profile?.federal_unit || ''} onChange={handleInputChange} maxLength={2} />
+            </div>
+
+            {error && <Alert message={error} type="error" />}
+            {successMessage && <Alert message={successMessage} type="success" />}
+
+            <div className="flex flex-col sm:flex-row-reverse gap-3 pt-4">
+                <button type="submit" disabled={isSaving} className="w-full sm:w-auto flex justify-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
+                    {isSaving ? <LoadingSpinner /> : 'Salvar Alterações'}
+                </button>
+                <button type="button" onClick={() => setActiveView('main')} className="w-full sm:w-auto flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600">
+                    Voltar
+                </button>
+            </div>
+        </form>
+    );
+  };
   
   const renderNotificationsView = () => {
       if (isLoading) return <div className="flex justify-center p-8"><LoadingSpinner /></div>;

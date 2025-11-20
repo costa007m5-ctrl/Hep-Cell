@@ -137,16 +137,21 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-gradient-to-b dark:from-slate-900 dark:to-black">
-      <Header />
+    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900">
+      {/* Oculta o Header global na aba Loja para dar imersão total */}
+      {activeTab !== Tab.LOJA && <Header />}
+      
        {paymentNotification && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-md p-4 z-50 animate-fade-in-up">
               <Alert message={paymentNotification.message} type={paymentNotification.type} />
           </div>
       )}
-      <main className="flex-grow flex items-center justify-center p-4 pb-24">
+      
+      {/* Ajusta o container principal: Centralizado para a maioria das abas, Full-width para a Loja */}
+      <main className={activeTab === Tab.LOJA ? "flex-grow w-full pb-20" : "flex-grow flex items-center justify-center p-4 pb-24"}>
         {renderContent()}
       </main>
+      
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );
