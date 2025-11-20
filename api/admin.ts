@@ -66,6 +66,15 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI, u
 const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
     
+    -- Tabela de Configurações do Sistema (Juros, etc)
+    CREATE TABLE IF NOT EXISTS "public"."system_settings" (
+        "key" "text" NOT NULL,
+        "value" "text",
+        "updated_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key")
+    );
+    ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
+
     -- Tabela de Perfis (Profiles) - Estrutura Robusta com ALTER TABLE
     CREATE TABLE IF NOT EXISTS "public"."profiles" (
         "id" "uuid" NOT NULL,
@@ -133,6 +142,8 @@ const SETUP_SQL = `
     CREATE POLICY "Allow public read access to products" ON "public"."products" FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Allow users to view their own invoices" ON "public"."invoices";
     CREATE POLICY "Allow users to view their own invoices" ON "public"."invoices" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow public read access to settings" ON "public"."system_settings";
+    CREATE POLICY "Allow public read access to settings" ON "public"."system_settings" FOR SELECT USING (true);
 
     -- Políticas de Segurança para o Administrador (Acesso Total)
     -- O ID do administrador está fixado no componente de login.
@@ -154,6 +165,9 @@ const SETUP_SQL = `
     DROP POLICY IF EXISTS "Allow admin full access to action logs" ON "public"."action_logs";
     CREATE POLICY "Allow admin full access to action logs" ON "public"."action_logs" FOR ALL USING (is_admin());
 
+    DROP POLICY IF EXISTS "Allow admin full access to settings" ON "public"."system_settings";
+    CREATE POLICY "Allow admin full access to settings" ON "public"."system_settings" FOR ALL USING (is_admin());
+
     -- Função para criar perfil ao registrar novo usuário
     CREATE OR REPLACE FUNCTION public.handle_new_user_creation(user_id uuid, user_email text)
     RETURNS void AS $$
@@ -172,11 +186,53 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     try {
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SETUP_SQL });
         if (error) throw error;
+        
+        // Inicializa configuração padrão de juros se não existir
+        const { data } = await supabase.from('system_settings').select('value').eq('key', 'interest_rate').single();
+        if (!data) {
+            await supabase.from('system_settings').insert({ key: 'interest_rate', value: '0' });
+        }
+
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
         res.status(200).json({ message: "Banco de dados configurado com sucesso! Tabelas e políticas de segurança foram aplicadas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
+    }
+}
+
+async function handleSettings(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        if (req.method === 'GET') {
+            const { data, error } = await supabase.from('system_settings').select('*');
+            if (error) throw error;
+            // Transforma array em objeto { key: value }
+            const settings = data.reduce((acc: any, item: any) => {
+                acc[item.key] = item.value;
+                return acc;
+            }, {});
+            return res.status(200).json(settings);
+        }
+
+        if (req.method === 'POST') {
+            const { key, value } = req.body;
+            if (!key) return res.status(400).json({ error: 'Key is required' });
+
+            const { error } = await supabase
+                .from('system_settings')
+                .upsert({ key, value, updated_at: new Date().toISOString() });
+            
+            if (error) throw error;
+            await logAction(supabase, 'SETTINGS_UPDATE', 'SUCCESS', `Configuração '${key}' atualizada para '${value}'.`);
+            return res.status(200).json({ message: 'Configuração salva.' });
+        }
+        
+        res.setHeader('Allow', ['GET', 'POST']);
+        return res.status(405).end(`Method ${req.method} Not Allowed`);
+
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
     }
 }
 
@@ -412,6 +468,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Missing required sale data.' });
         }
         
+        // O totalAmount já deve incluir juros calculados no frontend, mas para segurança
+        // poderíamos recalcular aqui. Para flexibilidade, confiamos no valor enviado por enquanto.
         const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
         const newInvoices = [];
         const today = new Date();
@@ -425,7 +483,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { error } = await supabase.from('invoices').insert(newInvoices);
         if (error) throw error;
 
-        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas.`);
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas. Valor total: ${totalAmount}`);
         res.status(201).json({ message: 'Venda criada e faturas geradas.' });
     } catch (error: any) {
         await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body });
@@ -479,6 +537,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             switch (path) {
                 case '/api/admin/get-logs': return await handleGetLogs(req, res);
                 case '/api/admin/profiles': return await handleGetProfiles(req, res);
+                case '/api/admin/settings': return await handleSettings(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -495,6 +554,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res);
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
+                case '/api/admin/settings': return await handleSettings(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

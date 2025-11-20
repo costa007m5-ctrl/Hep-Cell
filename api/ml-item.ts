@@ -86,22 +86,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
         }
         
-        // Helper function to extract attribute value
+        // Helper function to extract attribute value based on ID
         const getAttribute = (attrId: string) => {
             const attribute = itemData.attributes?.find((attr: any) => attr.id === attrId);
             return attribute?.value_name || null;
         }
 
+        // Extrair atributos comuns para celular/eletrônicos
         const finalData = {
             title: itemData.title,
             description: description,
             price: itemData.price,
             available_quantity: itemData.available_quantity,
-            pictures: itemData.pictures, // Return all pictures
+            pictures: itemData.pictures,
             category: categoryName,
             brand: getAttribute('BRAND'),
             model: getAttribute('MODEL'),
-            color: getAttribute('COLOR'),
+            color: getAttribute('COLOR') || getAttribute('MAIN_COLOR'),
+            memory_ram: getAttribute('RAM'),
+            storage: getAttribute('INTERNAL_MEMORY'),
         };
 
         res.status(200).json(finalData);

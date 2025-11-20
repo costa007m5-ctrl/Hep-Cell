@@ -58,6 +58,7 @@ const NewSaleTab: React.FC = () => {
     const [allProducts, setAllProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [interestRate, setInterestRate] = useState(0);
 
     // Step 1 states
     const [customerSearch, setCustomerSearch] = useState('');
@@ -78,10 +79,20 @@ const NewSaleTab: React.FC = () => {
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [profilesRes, productsRes] = await Promise.all([ fetch('/api/admin/profiles'), fetch('/api/admin/products') ]);
+            const [profilesRes, productsRes, settingsRes] = await Promise.all([ 
+                fetch('/api/admin/profiles'), 
+                fetch('/api/admin/products'),
+                fetch('/api/admin/settings')
+            ]);
+            
             if (!profilesRes.ok || !productsRes.ok) throw new Error('Falha ao carregar dados iniciais.');
             setAllProfiles(await profilesRes.json());
             setAllProducts(await productsRes.json());
+            
+            if(settingsRes.ok) {
+                const settings = await settingsRes.json();
+                setInterestRate(parseFloat(settings.interest_rate) || 0);
+            }
         } catch (err: any) { setError(err.message); } 
         finally { setIsLoading(false); }
     }, []);
@@ -99,10 +110,18 @@ const NewSaleTab: React.FC = () => {
         p.name.toLowerCase().includes(productSearch.toLowerCase())
     ) : [], [productSearch, allProducts]);
 
+    // Cálculo de Juros Compostos para Venda Admin
+    const totalWithInterest = useMemo(() => {
+        if (!selectedProduct || installments <= 1 || interestRate <= 0) {
+            return selectedProduct?.price || 0;
+        }
+        return selectedProduct.price * Math.pow(1 + (interestRate/100), installments);
+    }, [selectedProduct, installments, interestRate]);
+
     const installmentValue = useMemo(() => {
-        if (!selectedProduct || installments < 1) return 0;
-        return selectedProduct.price / installments;
-    }, [selectedProduct, installments]);
+        if (installments < 1) return 0;
+        return totalWithInterest / installments;
+    }, [totalWithInterest, installments]);
 
     const exceedsLimit = useMemo(() => {
         if (!selectedProfile || !selectedProduct) return false;
@@ -179,7 +198,7 @@ const NewSaleTab: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     userId: selectedProfile.id, 
-                    totalAmount: selectedProduct.price, 
+                    totalAmount: totalWithInterest, // Valor COM juros
                     installments, 
                     productName: selectedProduct.name 
                 }),
@@ -222,7 +241,6 @@ const NewSaleTab: React.FC = () => {
         // Add Image
         if (selectedProduct.image_url) {
             try {
-                // Use a proxy if CORS is an issue, or ensure images are served with correct headers.
                 const imgResponse = await fetch(selectedProduct.image_url);
                 const blob = await imgResponse.blob();
                 const reader = new FileReader();
@@ -249,8 +267,13 @@ const NewSaleTab: React.FC = () => {
             doc.setFontSize(11);
             doc.setFont('helvetica', 'normal');
             doc.text(`Produto: ${selectedProduct!.name}`, 70, 90);
-            doc.text(`Valor Total: ${selectedProduct!.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 70, 96);
-            doc.text(`Condição: ${installments}x de ${(selectedProduct!.price / installments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 70, 102);
+            doc.text(`Valor Original: ${selectedProduct!.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 70, 96);
+            
+            if (interestRate > 0 && installments > 1) {
+                 doc.text(`Valor Final (c/ Juros): ${totalWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 70, 102);
+            }
+            
+            doc.text(`Condição: ${installments}x de ${installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 70, 108);
         }
     };
     
@@ -343,7 +366,10 @@ const NewSaleTab: React.FC = () => {
                         <img src={selectedProduct.image_url || 'https://via.placeholder.com/100'} alt={selectedProduct.name} className="w-24 h-24 rounded object-cover"/>
                         <div>
                             <p><strong>Produto:</strong> {selectedProduct.name}</p>
-                            <p><strong>Valor Total:</strong> {selectedProduct.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                            <p><strong>Valor Original:</strong> {selectedProduct.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                            {interestRate > 0 && installments > 1 && (
+                                <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">Taxa de Juros aplicada: {interestRate}% a.m.</p>
+                            )}
                         </div>
                     </div>
                     <InputField 
@@ -355,7 +381,12 @@ const NewSaleTab: React.FC = () => {
                            <p className="font-semibold">
                                 {installments}x de {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </p>
-                            <p className="text-xs">
+                             {interestRate > 0 && installments > 1 && (
+                                <p className="text-xs mt-1 opacity-80">
+                                    Total com Juros: {totalWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </p>
+                            )}
+                            <p className="text-xs mt-2 pt-2 border-t border-black/10">
                                 Limite por parcela: {(selectedProfile?.credit_limit ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </p>
                         </div>

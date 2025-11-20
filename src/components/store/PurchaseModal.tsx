@@ -17,6 +17,23 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [installments, setInstallments] = useState<number>(1);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [interestRate, setInterestRate] = useState(0);
+
+    // Carregar taxa de juros
+    useEffect(() => {
+        const fetchInterest = async () => {
+            try {
+                const res = await fetch('/api/admin/settings');
+                if(res.ok) {
+                    const data = await res.json();
+                    setInterestRate(parseFloat(data.interest_rate) || 0);
+                }
+            } catch (e) {
+                console.error("Erro ao carregar juros", e);
+            }
+        };
+        fetchInterest();
+    }, []);
 
     // Constantes
     const MAX_INSTALLMENTS = 8;
@@ -24,8 +41,18 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     
     // Cálculos reativos
     const downPaymentValue = parseFloat(downPayment) || 0;
-    const financedAmount = Math.max(0, product.price - downPaymentValue);
-    const installmentValue = financedAmount / installments;
+    const principalAmount = Math.max(0, product.price - downPaymentValue);
+    
+    // Cálculo de Juros Compostos: M = P * (1 + i)^n
+    // Se parcelas = 1, não aplicamos juros (assumindo à vista/1x sem juros no saldo restante)
+    // Se parcelas > 1, aplica juros.
+    const totalFinancedWithInterest = useMemo(() => {
+        if (installments <= 1 || interestRate <= 0) return principalAmount;
+        const rateDecimal = interestRate / 100;
+        return principalAmount * Math.pow(1 + rateDecimal, installments);
+    }, [principalAmount, installments, interestRate]);
+
+    const installmentValue = totalFinancedWithInterest / installments;
     
     // Validação
     const isLimitExceeded = installmentValue > creditLimit;
@@ -34,20 +61,20 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const suggestion = useMemo(() => {
         if (!isLimitExceeded) return null;
 
-        // Opção 1: Aumentar parcelas (se possível)
-        if (installments < MAX_INSTALLMENTS) {
-            const neededInstallments = Math.ceil(financedAmount / creditLimit);
-            if (neededInstallments <= MAX_INSTALLMENTS) {
-                return {
-                    type: 'installments',
-                    text: `Tente parcelar em ${neededInstallments}x para caber no seu limite.`
-                };
-            }
+        // Opção 2: Aumentar a entrada
+        // Cálculo reverso aproximado: Quanto de entrada para que a parcela seja <= limite?
+        // (Price - Entry) * factor / installments <= Limit
+        // Price - Entry <= (Limit * installments) / factor
+        // Entry >= Price - (Limit * installments / factor)
+        
+        let minEntry = 0;
+        if (installments > 1 && interestRate > 0) {
+             const factor = Math.pow(1 + (interestRate/100), installments);
+             minEntry = product.price - ((creditLimit * installments) / factor);
+        } else {
+             minEntry = product.price - (creditLimit * installments);
         }
 
-        // Opção 2: Aumentar a entrada
-        // Math: (Price - Entry) / Installments <= Limit  =>  Entry >= Price - (Limit * Installments)
-        const minEntry = product.price - (creditLimit * installments);
         if (minEntry > 0) {
             return {
                 type: 'entry',
@@ -56,7 +83,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         }
 
         return { type: 'none', text: 'Limite insuficiente para esta compra.' };
-    }, [isLimitExceeded, installments, financedAmount, creditLimit, product.price]);
+    }, [isLimitExceeded, installments, interestRate, creditLimit, product.price]);
 
     const handleConfirmPurchase = async () => {
         if (isLimitExceeded) return;
@@ -65,29 +92,19 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         setError(null);
 
         try {
-            // 1. Se houver entrada, idealmente processaríamos o pagamento dela aqui.
-            // Para este exemplo, vamos assumir que a entrada será gerada como uma fatura imediata ou paga no ato.
-            
-            // 2. Criar a venda no backend (usando a API existente ou lógica similar)
-            // Vamos chamar o endpoint create-sale mas passando apenas o valor financiado
-            // NOTA: O endpoint admin/create-sale espera 'totalAmount'. Vamos adaptar.
-            
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: profile.id,
                     productName: product.name,
-                    totalAmount: financedAmount, // Apenas o valor financiado vira faturas futuras
+                    totalAmount: totalFinancedWithInterest, // Valor total com juros
                     installments: installments
                 }),
             });
 
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Erro ao processar compra.');
-
-            // Se houve entrada, precisariamos registrar isso. 
-            // Por enquanto, focamos no parcelamento do restante conforme solicitado.
             
             onSuccess();
         } catch (err: any) {
@@ -145,7 +162,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                             />
                         </div>
                         <p className="text-xs text-slate-500 mt-1 text-right">
-                            Restante a financiar: {financedAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </p>
                     </div>
 
@@ -169,6 +186,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                                 </button>
                             ))}
                         </div>
+                        {interestRate > 0 && installments > 1 && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">
+                                *Inclui juros de {interestRate}% a.m.
+                            </p>
+                        )}
                     </div>
 
                     {/* Resultado da Simulação */}
@@ -197,6 +219,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                             )}
                         </div>
                         
+                        {interestRate > 0 && installments > 1 && (
+                            <p className="text-xs text-slate-500 mt-2">
+                                Total financiado com juros: {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </p>
+                        )}
+                        
                         {isLimitExceeded && (
                             <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-800/30">
                                 <p className="text-sm text-red-700 dark:text-red-300">
@@ -218,12 +246,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 rounded-b-2xl">
                     <button 
                         onClick={handleConfirmPurchase}
-                        disabled={isLimitExceeded || isProcessing || financedAmount <= 0}
+                        disabled={isLimitExceeded || isProcessing || principalAmount <= 0}
                         className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
                     >
                         {isProcessing ? <LoadingSpinner /> : 'Confirmar Compra'}
                     </button>
-                    {financedAmount <= 0 && (
+                    {principalAmount <= 0 && (
                         <p className="text-xs text-center text-red-500 mt-2">O valor financiado deve ser maior que zero.</p>
                     )}
                 </div>
