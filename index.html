@@ -3,19 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Relp Cell - Pagamento de Faturas</title>
+    <title>Relp Cell</title>
     <!-- PWA Tags -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#4f46e5" />
+    
+    <!-- Tema: Define a cor da barra de status do navegador -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    
+    <!-- iOS PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Relp Cell">
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
-        darkMode: 'class', // ALTERADO DE 'media' PARA 'class' PARA O BOTÃO FUNCIONAR
+        darkMode: 'class', 
         theme: {
           extend: {
             colors: {
@@ -70,18 +75,22 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overscroll-none">
+  <body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overscroll-none selection:bg-indigo-500 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
     <!-- PWA Service Worker Registration -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').then(registration => {
-            console.log('SW registered: ', registration);
-          }).catch(registrationError => {
-            console.log('SW registration failed: ', registrationError);
-          });
+          navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+              console.log('SW registered: ', registration);
+              // Check for updates
+              registration.update();
+            })
+            .catch(registrationError => {
+              console.log('SW registration failed: ', registrationError);
+            });
         });
       }
     </script>

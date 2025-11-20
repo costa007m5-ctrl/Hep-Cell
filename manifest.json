@@ -1,14 +1,15 @@
 {
-  "name": "Relp Cell Pagamentos",
+  "name": "Relp Cell",
   "short_name": "Relp Cell",
-  "description": "Gerencie suas faturas e compras na Relp Cell com facilidade.",
-  "id": "relp-cell-app-v1",
-  "start_url": "/",
+  "description": "Gerencie suas faturas, compras e pagamentos na Relp Cell com facilidade.",
+  "id": "relp-cell-app-v2",
+  "start_url": "/?source=pwa",
   "display": "standalone",
   "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
+  "theme_color": "#ffffff",
   "orientation": "portrait",
   "scope": "/",
+  "categories": ["finance", "shopping", "productivity"],
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
