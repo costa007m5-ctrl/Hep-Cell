@@ -161,7 +161,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
 
         const paymentData = req.body;
         if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
-            return res.status(400).json({ message: 'Dados de pagamento incompletos.' });
+            return res.status(400).json({ message: 'Dados de pagamento incompletos. Verifique token, email e valor.' });
         }
         
         const payment = new Payment(client);
@@ -169,6 +169,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         // Garante que a external_reference seja string (invoice ID)
         const payload = { ...paymentData, external_reference: String(paymentData.external_reference || '') };
 
+        // IMPORTANTE: O Brick envia tudo que precisa. Não devemos recriar o objeto do zero se ele já vem completo.
         const result = await payment.create({ body: payload });
         
         const invoiceId = result.external_reference;
@@ -176,17 +177,17 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         if (result.status === 'approved') {
             await supabase.from('invoices').update({ status: 'Paga', payment_id: String(result.id), payment_date: new Date().toISOString() }).eq('id', invoiceId);
             await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} APROVADO para fatura ${invoiceId}.`);
-            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento aprovado.' });
+            return res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento aprovado.' });
         } else if (result.status === 'in_process' || result.status === 'pending') {
             await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} PENDENTE para fatura ${invoiceId}.`);
-            res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento pendente de processamento.' });
+            return res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento pendente de processamento.' });
         } else {
              // Pagamento recusado
              const failMessage = getPaymentErrorMessage(result.status_detail || 'unknown');
              await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${invoiceId} falhou. Motivo: ${result.status_detail}`, { result });
             
-            // Retorna 400 para o frontend saber que falhou
-            res.status(400).json({ 
+            // Retorna 200 para que o frontend possa ler a mensagem de recusa e exibir
+            return res.status(200).json({ 
                 status: result.status, 
                 message: failMessage,
                 detail: result.status_detail 
@@ -195,7 +196,8 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     } catch (error: any) {
         await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Erro no endpoint process-payment.`, { error: error.message });
         console.error('Erro ao processar pagamento com Mercado Pago:', error);
-        res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno no servidor de pagamento.' });
+        // Retorna 500, mas com JSON, para o frontend não quebrar no .json()
+        return res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno no servidor de pagamento.' });
     }
 }
 
@@ -266,12 +268,18 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             return res.status(400).json({ error: 'Dados da fatura e do pagador são obrigatórios.' });
         }
         
+        // Sanitização rigorosa para Boleto
+        // CEP deve ser apenas números
+        const zipCodeClean = payer.zipCode.replace(/\D/g, '');
+        // Número da casa deve ser preenchido. Se vazio, coloca 'S/N'
+        const streetNumberClean = payer.streetNumber || 'S/N';
+        
         const payment = new Payment(client);
         const result = await payment.create({
             body: {
                 transaction_amount: amount,
                 description: description,
-                payment_method_id: 'bolbradesco',
+                payment_method_id: 'bolbradesco', // Usando Bradesco como padrão, geralmente o mais estável
                 external_reference: invoiceId,
                 payer: {
                     email: payer.email,
@@ -279,9 +287,9 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                     last_name: payer.lastName,
                     identification: { type: 'CPF', number: payer.identificationNumber.replace(/\D/g, '') },
                     address: {
-                        zip_code: payer.zipCode.replace(/\D/g, ''), // Remove formatação, apenas números
+                        zip_code: zipCodeClean,
                         street_name: payer.streetName,
-                        street_number: payer.streetNumber,
+                        street_number: streetNumberClean,
                         neighborhood: payer.neighborhood,
                         city: payer.city,
                         federal_unit: payer.federalUnit,
@@ -304,15 +312,15 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             responseData.point_of_interaction?.transaction_data?.bar_code;
         
         if (!result.id || !boletoUrl) {
-            console.error("Não foi possível encontrar a URL do boleto na resposta do Mercado Pago:", JSON.stringify(result, null, 2));
-            throw new Error('A resposta do Mercado Pago não continha o link do boleto. Verifique os dados do endereço e CPF.');
+            console.error("Erro: Boleto não gerado. Resposta do MP:", JSON.stringify(result, null, 2));
+            throw new Error('O Mercado Pago não retornou o link do boleto. Verifique se o endereço e CEP estão corretos.');
         }
 
         await supabase.from('invoices').update({
             payment_id: String(result.id),
             status: 'Boleto Gerado',
             boleto_url: boletoUrl,
-            boleto_barcode: boletoBarcode || null, // Se não tiver código de barras, salva como null
+            boleto_barcode: boletoBarcode || null,
         }).eq('id', invoiceId);
 
         await logAction(supabase, 'BOLETO_CREATED', 'SUCCESS', `Boleto gerado para fatura ${invoiceId}.`);
@@ -320,7 +328,8 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
 
     } catch (error: any) {
         await logAction(supabase, 'BOLETO_CREATED', 'FAILURE', `Falha ao gerar boleto.`, { error: error.message, body: req.body });
-        res.status(500).json({ error: 'Falha ao gerar boleto.', message: error.message });
+        console.error("Erro no handler Boleto:", error);
+        res.status(500).json({ error: 'Falha ao gerar boleto.', message: error.message || 'Erro de comunicação com o Mercado Pago.' });
     }
 }
 

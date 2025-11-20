@@ -92,7 +92,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
             } else {
                 setFormData(prev => ({
                     ...prev,
-                    streetName: data.logouro,
+                    streetName: data.logradouro,
                     neighborhood: data.bairro,
                     city: data.localidade,
                     federalUnit: data.uf,
@@ -181,12 +181,16 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             throw new Error('Sessão expirada. Por favor, recarregue a página.');
         }
 
+        // Garantir que o CEP vá limpo para a API (só números)
+        const cleanZip = formData.zipCode.replace(/\D/g, '');
+
         const payload = {
             invoiceId: invoice.id,
             amount: invoice.amount,
             description: `Fatura Relp Cell - ${invoice.month}`,
             payer: {
                 ...formData,
+                zipCode: cleanZip,
                 email: user.email,
             }
         };
@@ -254,9 +258,6 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             );
         case 'form':
         default:
-            // In 'form' or 'default' cases, step is guaranteed to not be 'loading' based on switch fallthrough behavior not applying here without breaks, 
-            // but 'step' state ensures component re-render on change. 
-            // Explicitly passing false prevents TS intersection error.
             return <BoletoForm onSubmit={handleFormSubmit} isSubmitting={false} />;
     }
   };

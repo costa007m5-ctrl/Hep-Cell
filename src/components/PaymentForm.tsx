@@ -68,7 +68,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       }
     };
     
-    createPreference();
+    if (payerEmail) {
+        createPreference();
+    }
   }, [invoice, payerEmail]);
 
   // Inicializa o Payment Brick
@@ -94,10 +96,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             hidePaymentButton: false, 
           },
           paymentMethods: {
-            // Configuração para exibir APENAS cartões
-            ticket: [],         // Array vazio oculta Boleto
-            bankTransfer: [],   // Array vazio oculta Pix
-            atm: [],            // Array vazio oculta ATM
+            ticket: [],         // Oculta Boleto (usamos componente separado)
+            bankTransfer: [],   // Oculta Pix (usamos componente separado)
+            atm: [],           
             creditCard: 'all',
             debitCard: 'all',
             mercadoPago: 'all',
@@ -108,48 +109,59 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           onReady: () => {
             setIsLoading(false);
           },
-          onSubmit: async (formData: any) => {
-            setStatus(PaymentStatus.PENDING);
-            setMessage('');
-            
-            if (!formData.external_reference) {
-                formData.external_reference = invoice.id;
-            }
+          onSubmit: (formData: any) => {
+            // RETORNAR UMA PROMISE É OBRIGATÓRIO PARA O BRICK NÃO TRAVAR
+            return new Promise<void>(async (resolve, reject) => {
+                setStatus(PaymentStatus.PENDING);
+                setMessage('');
+                
+                if (!formData.external_reference) {
+                    formData.external_reference = invoice.id;
+                }
 
-            try {
-              const response = await fetch('/api/mercadopago/process-payment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
-              });
-              
-              const paymentResult = await response.json();
+                try {
+                  const response = await fetch('/api/mercadopago/process-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData),
+                  });
+                  
+                  const paymentResult = await response.json();
 
-              if (!response.ok) {
-                 throw new Error(paymentResult.message || 'O pagamento foi recusado.');
-              }
+                  if (!response.ok) {
+                     // Se der erro 400/500, lançamos erro para cair no catch
+                     throw new Error(paymentResult.message || 'O pagamento foi recusado.');
+                  }
 
-              if (paymentResult.status === 'approved') {
-                const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
-                setMessage(successMsg);
-                setStatus(PaymentStatus.SUCCESS);
-                setTimeout(() => {
-                  onPaymentSuccess(paymentResult.id);
-                }, 4000);
-              } else if (paymentResult.status === 'in_process') {
-                 setMessage("Seu pagamento está em análise. Você será notificado em breve.");
-                 setStatus(PaymentStatus.SUCCESS);
-                 setTimeout(() => {
-                    onPaymentSuccess(paymentResult.id);
-                 }, 4000);
-              } else {
-                 throw new Error(paymentResult.message || 'Pagamento não aprovado.');
-              }
-            } catch (error: any) {
-              console.error('Erro no processamento:', error);
-              setStatus(PaymentStatus.ERROR);
-              setMessage(error.message || 'Erro ao processar pagamento. Verifique os dados do cartão.');
-            }
+                  if (paymentResult.status === 'approved') {
+                    // Pagamento Aprovado
+                    const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
+                    setMessage(successMsg);
+                    setStatus(PaymentStatus.SUCCESS);
+                    setTimeout(() => {
+                      onPaymentSuccess(paymentResult.id);
+                    }, 4000);
+                    resolve();
+                  } else if (paymentResult.status === 'in_process') {
+                     // Pagamento em Análise
+                     setMessage("Seu pagamento está em análise. Você será notificado em breve.");
+                     setStatus(PaymentStatus.SUCCESS);
+                     setTimeout(() => {
+                        onPaymentSuccess(paymentResult.id);
+                     }, 4000);
+                     resolve();
+                  } else {
+                     // Recusado pelo banco (mas API retornou 200)
+                     throw new Error(paymentResult.message || 'Pagamento não aprovado.');
+                  }
+                } catch (error: any) {
+                  console.error('Erro no processamento:', error);
+                  setStatus(PaymentStatus.ERROR);
+                  setMessage(error.message || 'Erro ao processar pagamento. Verifique os dados do cartão.');
+                  // IMPORTANTE: Rejeitar a promise avisa o Brick que houve erro
+                  reject();
+                }
+            });
           },
           onError: (error: any) => {
             console.error('Payment Brick Error:', error);
