@@ -1,4 +1,4 @@
-const CACHE_NAME = 'relp-cell-v6';
+const CACHE_NAME = 'relp-cell-v7';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
