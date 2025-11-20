@@ -5,6 +5,7 @@ import PageInicio from './components/PageInicio';
 import PageFaturas from './components/PageFaturas';
 import PageLoja from './components/PageLoja';
 import PagePerfil from './components/PagePerfil';
+import PageNotifications from './components/PageNotifications'; // Novo
 import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
@@ -13,7 +14,7 @@ import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
 import LoadingSpinner from './components/LoadingSpinner';
 import { ToastProvider, useToast } from './components/Toast';
-import SupportChat from './components/SupportChat'; // Componente Novo
+import SupportChat from './components/SupportChat';
 
 // A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
@@ -119,13 +120,17 @@ const AppContent: React.FC = () => {
       case Tab.FATURAS: return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
       case Tab.LOJA: return <PageLoja />;
       case Tab.PERFIL: return <PagePerfil session={session} />;
+      case Tab.NOTIFICATIONS: return <PageNotifications onBack={() => setActiveTab(Tab.INICIO)} />;
       default: return <PageInicio setActiveTab={setActiveTab} />;
     }
   };
 
+  // Se estiver na tela de notificações, escondemos o cabeçalho padrão para usar o cabeçalho da própria página
+  const showHeader = activeTab !== Tab.LOJA && activeTab !== Tab.NOTIFICATIONS;
+
   return (
     <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
-      {activeTab !== Tab.LOJA && <Header toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
+      {showHeader && <Header toggleTheme={toggleTheme} isDarkMode={isDarkMode} setActiveTab={setActiveTab} />}
       
       <main className={activeTab === Tab.LOJA ? "flex-grow w-full pb-20" : "flex-grow flex items-center justify-center p-4 pb-24"}>
         {renderContent()}

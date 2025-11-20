@@ -1,19 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../services/clients';
-import { AppNotification } from '../types';
-import NotificationCenter from './NotificationCenter';
+import { AppNotification, Tab } from '../types';
 
 interface HeaderProps {
   toggleTheme?: () => void;
   isDarkMode?: boolean;
+  setActiveTab?: (tab: Tab) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
+const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode, setActiveTab }) => {
   const [unreadCount, setUnreadCount] = useState(0);
-  
-  // Rastreia o ID da última notificação para evitar disparar alertas repetidos
   const lastNotificationIdRef = useRef<string | null>(null);
 
   // Solicita permissão para notificações do sistema ao carregar
@@ -30,11 +26,11 @@ const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
         navigator.serviceWorker.ready.then(registration => {
           registration.showNotification(notification.title, {
             body: notification.message,
-            icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp', // Ícone do app
-            badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R', // Ícone monocromático para barra de status (Android)
+            icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+            badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
             vibrate: [200, 100, 200],
-            tag: notification.id, // Evita duplicatas na barra
-            data: { url: '/' } // Dados para o evento de clique
+            tag: notification.id,
+            data: { url: '/' }
           } as any);
         });
       } else {
@@ -58,7 +54,6 @@ const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
             .limit(20);
         
         if (data && data.length > 0) {
-            setNotifications(data);
             setUnreadCount(data.filter(n => !n.read).length);
 
             // Verifica se a notificação mais recente é diferente da última vista e se não foi lida
@@ -71,7 +66,6 @@ const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
                 lastNotificationIdRef.current = latest.id;
             }
         } else {
-            // Caso não tenha dados, define o ref como string vazia para inicializar
             if (lastNotificationIdRef.current === null) {
                 lastNotificationIdRef.current = '';
             }
@@ -110,7 +104,7 @@ const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
 
         <div className="flex items-center gap-3">
              <button 
-                onClick={() => setIsNotifOpen(true)}
+                onClick={() => setActiveTab && setActiveTab(Tab.NOTIFICATIONS)}
                 className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors focus:outline-none relative"
                 aria-label="Notificações"
             >
@@ -141,13 +135,6 @@ const Header: React.FC<HeaderProps> = ({ toggleTheme, isDarkMode }) => {
             )}
         </div>
       </div>
-      
-      <NotificationCenter 
-        isOpen={isNotifOpen} 
-        onClose={() => setIsNotifOpen(false)} 
-        notifications={notifications}
-        refreshNotifications={fetchNotifications}
-      />
     </header>
   );
 };

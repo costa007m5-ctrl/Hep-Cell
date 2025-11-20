@@ -12,6 +12,7 @@ export enum Tab {
   FATURAS,
   LOJA,
   PERFIL,
+  NOTIFICATIONS, // Nova aba
 }
 
 export interface Invoice {
