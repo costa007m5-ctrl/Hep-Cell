@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import DeveloperTab from './DeveloperTab';
 import FinancialDashboard from './FinancialDashboard';
 import ProductsTab from './ProductsTab';
@@ -6,7 +6,7 @@ import ClientsTab from './ClientsTab';
 import NewSaleTab from './NewSaleTab';
 import ActionLogTab from './ActionLogTab';
 import StatusTab from './StatusTab';
-import AiConfigTab from './AiConfigTab'; // Importar o novo componente
+import AiConfigTab from './AiConfigTab'; 
 import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
@@ -118,6 +118,59 @@ const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: s
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [stats, setStats] = useState({ today: 0, orders: 0, ticket: 0, last7Days: [0,0,0,0,0,0,0] });
+  
+  // Lógica de Notificação para o Admin (para fins de teste na aba Status)
+  const lastNotificationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+
+    const checkNotifications = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { data } = await supabase
+                .from('notifications')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(1);
+            
+            if (data && data.length > 0) {
+                const latest = data[0];
+                // Se a notificação é nova e não foi lida
+                if (latest.id !== lastNotificationIdRef.current) {
+                    if (lastNotificationIdRef.current !== null && !latest.read) {
+                         if (Notification.permission === 'granted') {
+                            if ('serviceWorker' in navigator) {
+                                navigator.serviceWorker.ready.then(registration => {
+                                    registration.showNotification(latest.title, {
+                                        body: latest.message,
+                                        icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+                                        badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
+                                        vibrate: [200, 100, 200],
+                                        tag: latest.id
+                                    } as any);
+                                });
+                            } else {
+                                new Notification(latest.title, { body: latest.message });
+                            }
+                        }
+                    }
+                    lastNotificationIdRef.current = latest.id;
+                }
+            } else if (lastNotificationIdRef.current === null) {
+                lastNotificationIdRef.current = '';
+            }
+        }
+    };
+
+    // Polling a cada 10 segundos enquanto estiver no painel
+    const interval = setInterval(checkNotifications, 10000);
+    checkNotifications(); // Check imediato
+    return () => clearInterval(interval);
+  }, []);
+
 
   useEffect(() => {
       const fetchStats = async () => {
@@ -217,7 +270,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'products': return <ProductsTab />;
           case 'new_sale': return <NewSaleTab />;
           case 'history': return <ActionLogTab />;
-          case 'ai_config': return <AiConfigTab />; // Nova renderização
+          case 'ai_config': return <AiConfigTab />; 
           case 'status': return <StatusTab />;
           case 'dev': return <DeveloperTab />;
           default: return renderDashboardHome();

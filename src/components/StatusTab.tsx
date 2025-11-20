@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import LoadingSpinner from './LoadingSpinner';
+import { supabase } from '../services/clients';
+import Alert from './Alert';
 
 type Status = 'idle' | 'testing' | 'success' | 'error';
 
@@ -69,6 +71,90 @@ const ServiceStatusCard: React.FC<ServiceStatusCardProps> = ({ title, descriptio
   );
 };
 
+const PushNotificationTester: React.FC = () => {
+    const [title, setTitle] = useState('Teste de Notificação');
+    const [message, setMessage] = useState('Se você está vendo isso, o sistema de notificações está funcionando!');
+    const [isSending, setIsSending] = useState(false);
+    const [feedback, setFeedback] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+
+    const handleSendTest = async () => {
+        setIsSending(true);
+        setFeedback(null);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Usuário não identificado.');
+
+            const response = await fetch('/api/admin/send-notification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: user.id,
+                    title: title,
+                    message: message,
+                    type: 'info'
+                })
+            });
+
+            if (!response.ok) throw new Error('Falha na API de envio.');
+            
+            setFeedback({ text: 'Notificação enviada! Verifique a barra de notificações do seu dispositivo.', type: 'success' });
+        } catch (error: any) {
+            setFeedback({ text: error.message, type: 'error' });
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mt-8">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600 dark:text-indigo-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Testar Notificações Push</h3>
+            </div>
+            
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Envie uma notificação real para o seu dispositivo atual para verificar se a integração com o navegador/Android está funcionando. 
+                <strong>Nota:</strong> Você precisa permitir as notificações no navegador quando solicitado.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Título</label>
+                    <input 
+                        type="text" 
+                        value={title}
+                        onChange={e => setTitle(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    />
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Mensagem</label>
+                    <input 
+                        type="text" 
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+                    />
+                </div>
+            </div>
+
+            {feedback && <div className="mb-4"><Alert message={feedback.text} type={feedback.type} /></div>}
+
+            <button 
+                onClick={handleSendTest}
+                disabled={isSending}
+                className="w-full sm:w-auto flex justify-center items-center py-2 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-md transition-colors disabled:opacity-50"
+            >
+                {isSending ? <LoadingSpinner /> : 'Enviar para Mim (Admin)'}
+            </button>
+        </div>
+    );
+};
+
 const StatusTab: React.FC = () => {
   return (
     <div className="p-4 space-y-8">
@@ -99,6 +185,8 @@ const StatusTab: React.FC = () => {
             endpoint="/api/admin/test-mercadolivre"
           />
         </div>
+
+        <PushNotificationTester />
       </section>
     </div>
   );
