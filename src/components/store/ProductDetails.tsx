@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Profile } from '../../types';
+import { Product, Profile, Review } from '../../types';
 import ProductCarousel from './ProductCarousel';
 import jsPDF from 'jspdf';
 import LoadingSpinner from '../LoadingSpinner';
@@ -15,14 +15,83 @@ interface ProductDetailsProps {
     onProductClick: (product: Product) => void;
 }
 
+// Componente de Avaliações
+const ReviewList: React.FC<{ reviews: Review[] }> = ({ reviews }) => (
+    <div className="space-y-4">
+        {reviews.map(review => (
+            <div key={review.id} className="border-b border-slate-100 dark:border-slate-800 pb-4 last:border-0">
+                <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-sm text-slate-800 dark:text-slate-200">{review.userName}</span>
+                    <span className="text-xs text-slate-400">{review.date}</span>
+                </div>
+                <div className="flex text-yellow-400 text-xs mb-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <svg key={i} className={`w-3 h-3 ${i < review.rating ? 'fill-current' : 'text-slate-300 dark:text-slate-600'}`} viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                    ))}
+                </div>
+                <p className="text-sm text-slate-600 dark:text-slate-400">{review.comment}</p>
+            </div>
+        ))}
+    </div>
+);
+
+const ShippingCalculator = () => {
+    const [cep, setCep] = useState('');
+    const [shipping, setShipping] = useState<{ price: string; days: string } | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    const calculate = () => {
+        if (cep.length < 8) return;
+        setLoading(true);
+        setTimeout(() => {
+            setShipping({ price: 'R$ 25,90', days: '3 a 5 dias úteis' });
+            setLoading(false);
+        }, 1000);
+    };
+
+    return (
+        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl mt-4">
+            <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Calcular Frete e Prazo</p>
+            <div className="flex gap-2">
+                <input 
+                    type="text" 
+                    placeholder="00000-000" 
+                    maxLength={9}
+                    value={cep}
+                    onChange={(e) => setCep(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                />
+                <button onClick={calculate} className="px-4 py-2 bg-slate-800 dark:bg-slate-600 text-white rounded-lg text-xs font-bold">OK</button>
+            </div>
+            {loading && <p className="text-xs text-slate-500 mt-2">Calculando...</p>}
+            {shipping && (
+                <div className="mt-3 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-slate-600 dark:text-slate-300">Expresso</span>
+                        <span className="font-bold text-slate-800 dark:text-white">{shipping.price}</span>
+                    </div>
+                    <p className="text-xs text-green-600 mt-1">Chega em {shipping.days}</p>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, onBack, onProductClick }) => {
-    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+    const [activeTab, setActiveTab] = useState<'details' | 'reviews'>('details');
     const [showPurchaseModal, setShowPurchaseModal] = useState(false);
     const [userProfile, setUserProfile] = useState<Profile | null>(null);
     const [isLoadingProfile, setIsLoadingProfile] = useState(false);
     const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-    // Busca o perfil do usuário para ter o limite de crédito atualizado
+    // Mock Reviews
+    const reviews: Review[] = [
+        { id: '1', userName: 'Carlos Silva', rating: 5, comment: 'Excelente produto, chegou super rápido!', date: '10/05/2024' },
+        { id: '2', userName: 'Ana Souza', rating: 4, comment: 'Gostei muito, mas a caixa veio um pouco amassada.', date: '12/05/2024' },
+        { id: '3', userName: 'Pedro Santos', rating: 5, comment: 'Melhor custo benefício do mercado.', date: '15/05/2024' }
+    ];
+
     useEffect(() => {
         const fetchUser = async () => {
             setIsLoadingProfile(true);
@@ -30,264 +99,123 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
                     const profile = await getProfile(user.id);
-                    if (profile) {
-                        setUserProfile({ ...profile, id: user.id, email: user.email });
-                    }
+                    if (profile) setUserProfile({ ...profile, id: user.id, email: user.email });
                 }
-            } catch (error) {
-                console.error("Erro ao buscar perfil para compra:", error);
-            } finally {
-                setIsLoadingProfile(false);
-            }
+            } catch (error) { console.error(error); } 
+            finally { setIsLoadingProfile(false); }
         };
         fetchUser();
     }, []);
 
-    // Filtra produtos relacionados (excluindo o atual)
-    const relatedProducts = allProducts
-        .filter(p => p.id !== product.id)
-        .slice(0, 6);
+    const relatedProducts = allProducts.filter(p => p.id !== product.id).slice(0, 6);
 
     const handleGenerateQuote = async () => {
         setIsGeneratingPdf(true);
-        await new Promise(resolve => setTimeout(resolve, 500)); 
-
+        await new Promise(resolve => setTimeout(resolve, 500));
         const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-
-        // Cabeçalho
-        doc.setFillColor(79, 70, 229); // Indigo-600
-        doc.rect(0, 0, pageWidth, 40, 'F');
-        
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Relp Cell', 20, 20);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Soluções em Tecnologia', 20, 30);
-        
-        doc.text(`Data: ${new Date().toLocaleDateString('pt-BR')}`, pageWidth - 60, 20);
-
-        // Info Produto
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text(product.name, 20, 60);
-
-        // Caixa de Preço
-        doc.setDrawColor(200, 200, 200);
-        doc.setFillColor(245, 245, 245);
-        doc.roundedRect(20, 70, pageWidth - 40, 40, 3, 3, 'FD');
-
-        doc.setFontSize(14);
-        doc.text('Valor:', 30, 85);
-        doc.setFontSize(20);
-        doc.setTextColor(79, 70, 229); 
-        doc.text(product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }), pageWidth - 80, 85);
-
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(12);
-        doc.text('Condição:', 30, 100);
-        const installmentVal = (product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-        doc.text(`12x de ${installmentVal}`, pageWidth - 80, 100);
-
-        // Descrição
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Detalhes do Produto:', 20, 140);
-        
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'normal');
-        
-        const splitDesc = doc.splitTextToSize(product.description || 'Sem descrição adicional.', pageWidth - 40);
-        doc.text(splitDesc, 20, 150);
-
-        // Rodapé
-        doc.setFontSize(10);
-        doc.setTextColor(100, 100, 100);
-        doc.text('Orçamento válido por 5 dias.', 20, 270);
-        doc.text('Relp Cell - Contato: contato@relpcell.com.br', 20, 275);
-
-        doc.save(`Orcamento_${product.name.replace(/\s+/g, '_')}.pdf`);
+        doc.text(`Orçamento: ${product.name}`, 10, 10);
+        doc.text(`Preço: R$ ${product.price}`, 10, 20);
+        doc.save('orcamento.pdf');
         setIsGeneratingPdf(false);
     };
 
     const handleBuyClick = () => {
-        if (userProfile) {
-            setShowPurchaseModal(true);
-        } else {
-            // Se não tiver perfil carregado, tenta recarregar ou alerta
-            const confirmLogin = window.confirm("Para usar seu saldo do crediário, você precisa estar logado. Deseja ir para o login?");
-            if(confirmLogin) {
-                window.location.reload();
-            }
-        }
-    };
-
-    const handlePurchaseSuccess = () => {
-        setShowPurchaseModal(false);
-        setPurchaseSuccess(true);
-        window.scrollTo(0, 0);
+        if (userProfile) setShowPurchaseModal(true);
+        else if (window.confirm("Faça login para continuar.")) window.location.reload();
     };
 
     if (purchaseSuccess) {
         return (
             <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
-                <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6 animate-bounce-slow">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
+                <div className="w-24 h-24 mb-6 relative">
+                     {/* Confetti CSS effect implied here or simulated with simple dots */}
+                     <div className="absolute inset-0 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center animate-bounce-slow">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                     </div>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Compra Realizada!</h2>
-                <p className="text-slate-500 dark:text-slate-400 mb-8 max-w-sm">
-                    Seu pedido do <strong>{product.name}</strong> foi recebido. As faturas do parcelamento já estão disponíveis na sua conta.
-                </p>
-                <div className="flex flex-col gap-3 w-full max-w-xs">
-                    <button onClick={onBack} className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-colors">
-                        Continuar Comprando
-                    </button>
-                     <button onClick={() => window.location.reload()} className="py-3 px-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-semibold transition-colors">
-                        Ver Minhas Faturas
-                    </button>
-                </div>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pedido Realizado!</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-8">Você receberá atualizações no seu perfil.</p>
+                <button onClick={onBack} className="py-3 px-8 bg-indigo-600 text-white rounded-lg font-bold">Continuar Comprando</button>
             </div>
-        )
+        );
     }
 
-    // Alteração principal: fixed inset-0 z-[60] para cobrir o Header e o Navbar
     return (
-        <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 animate-fade-in flex flex-col overflow-y-auto overflow-x-hidden">
-            {/* Header de Navegação Transparente com Blur */}
-            <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between p-4 pointer-events-none">
-                <button 
-                    onClick={onBack}
-                    className="p-2.5 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white pointer-events-auto shadow-lg border border-white/10"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
+        <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col overflow-y-auto">
+             {/* Nav Float */}
+            <div className="fixed top-4 left-4 z-50">
+                <button onClick={onBack} className="p-2 bg-white/80 dark:bg-black/50 backdrop-blur rounded-full shadow-lg border border-white/20 text-slate-800 dark:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
             </div>
 
-            {/* Conteúdo Scrollável */}
-            <div className="flex-grow pb-32"> 
-                {/* Imagem Principal Full Bleed */}
-                <div className="w-full bg-slate-100 dark:bg-slate-800 aspect-square relative flex justify-center items-center overflow-hidden">
-                     <img 
-                        src={product.image_url || 'https://via.placeholder.com/600'} 
-                        alt={product.name}
-                        className="w-full h-full object-contain mix-blend-multiply dark:mix-blend-normal"
-                    />
+            <div className="flex-grow pb-36">
+                <div className="w-full bg-slate-100 dark:bg-slate-800 aspect-square relative flex justify-center items-center p-8">
+                     <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain mix-blend-multiply dark:mix-blend-normal" />
                 </div>
 
-                {/* Informações Principais */}
-                <div className="px-6 pt-8 space-y-6 -mt-8 relative z-10 bg-white dark:bg-slate-900 rounded-t-3xl shadow-[0_-10px_40px_-10px_rgba(0,0,0,0.1)] dark:shadow-none min-h-[60vh]">
-                    {/* Barra de arraste decorativa */}
-                    <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-4 opacity-50"></div>
+                <div className="px-6 py-6 -mt-6 relative z-10 bg-white dark:bg-slate-900 rounded-t-3xl min-h-[50vh] shadow-top">
+                    <div className="w-12 h-1 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6" />
                     
-                    <div className="space-y-2">
-                        <div className="flex justify-between items-start gap-4">
-                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white leading-tight">
-                                {product.name}
-                            </h2>
-                            {/* Badge Estoque */}
-                            <span className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${product.stock > 0 ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                {product.stock > 0 ? 'Disponível' : 'Esgotado'}
-                            </span>
-                        </div>
-                        
-                        <div className="flex flex-col">
-                            <span className="text-3xl font-extrabold text-slate-900 dark:text-white">
-                                {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                à vista ou parcelado
-                            </p>
+                    <div className="flex justify-between items-start mb-4">
+                        <h1 className="text-2xl font-bold text-slate-900 dark:text-white w-3/4 leading-tight">{product.name}</h1>
+                        <div className="flex flex-col items-end">
+                             <div className="flex text-yellow-400 text-xs mb-1">
+                                {Array.from({length:5}).map((_,i)=><svg key={i} className={`w-3 h-3 ${i<4?'fill-current':'text-slate-300'}`} viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>)}
+                             </div>
+                             <span className="text-xs text-slate-400 underline">Ver avaliações</span>
                         </div>
                     </div>
 
-                    {/* Garantia Card */}
-                    <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                         <div className="p-2 bg-white dark:bg-slate-700 rounded-full text-indigo-600 dark:text-indigo-400 shadow-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                         </div>
-                         <div>
-                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Compra Garantida Relp</p>
-                             <p className="text-xs text-slate-500 dark:text-slate-400">Receba o produto que está esperando ou devolvemos o dinheiro.</p>
-                         </div>
+                    <div className="flex items-end gap-2 mb-6">
+                        <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                        <span className="text-sm text-slate-500 mb-1">à vista</span>
                     </div>
 
-                    {/* Descrição */}
-                    <div className="pt-2">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3">Ficha Técnica</h3>
-                        <div className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl">
-                            {product.description || 'Descrição detalhada não disponível para este produto.'}
+                    {/* Tabs */}
+                    <div className="flex border-b border-slate-200 dark:border-slate-800 mb-6">
+                        <button onClick={() => setActiveTab('details')} className={`flex-1 pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'details' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Detalhes</button>
+                        <button onClick={() => setActiveTab('reviews')} className={`flex-1 pb-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'reviews' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Avaliações ({reviews.length})</button>
+                    </div>
+
+                    {activeTab === 'details' ? (
+                        <div className="animate-fade-in">
+                            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-line">{product.description || 'Sem descrição.'}</p>
+                            <ShippingCalculator />
                         </div>
-                    </div>
-                </div>
-
-                 {/* Produtos Relacionados */}
-                 {relatedProducts.length > 0 && (
-                     <div className="mt-4 pt-6 px-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                         <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 px-1">Quem viu, comprou também</h3>
-                        <ProductCarousel 
-                            title="" 
-                            products={relatedProducts} 
-                            onProductClick={onProductClick}
-                        />
-                     </div>
-                 )}
-            </div>
-
-            {/* Sticky Footer Actions (Barra fixa de compra com efeito Glass) */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 z-[70] pb-safe">
-                <div className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border-t border-slate-200/50 dark:border-slate-800/50 shadow-2xl shadow-black/10"></div>
-                <div className="relative max-w-4xl mx-auto flex flex-col gap-3">
-                     {/* Card de Resumo da Parcela */}
-                    <div className="flex justify-between items-center px-2">
-                        <div className="flex flex-col">
-                            <span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold tracking-wider">Melhor Condição</span>
-                             <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                                12x de {(product.price / 12).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
+                    ) : (
+                        <div className="animate-fade-in">
+                            <ReviewList reviews={reviews} />
                         </div>
-                        <button 
-                            onClick={handleGenerateQuote}
-                            className="text-xs font-medium text-slate-500 hover:text-indigo-600 underline decoration-2 underline-offset-2"
-                            disabled={isGeneratingPdf}
-                        >
-                            {isGeneratingPdf ? 'Gerando...' : 'Baixar Orçamento'}
-                        </button>
-                    </div>
-
-                    <button 
-                        onClick={handleBuyClick}
-                        disabled={isLoadingProfile || product.stock <= 0}
-                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-2xl font-bold text-lg shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] disabled:opacity-70 disabled:grayscale disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                     >
-                        {isLoadingProfile ? <LoadingSpinner /> : (
-                            <>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                                </svg>
-                                <span>Comprar no Crediário</span>
-                            </>
-                        )}
-                    </button>
+                    )}
+                    
+                    {relatedProducts.length > 0 && (
+                        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                            <h3 className="font-bold text-slate-900 dark:text-white mb-4">Relacionados</h3>
+                            <ProductCarousel title="" products={relatedProducts} onProductClick={onProductClick} />
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Purchase Modal */}
-            {showPurchaseModal && userProfile && (
+            {/* Footer Actions */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-t border-slate-200 dark:border-slate-800 z-[70] pb-safe">
+                <div className="max-w-4xl mx-auto flex gap-3">
+                     <button onClick={handleGenerateQuote} disabled={isGeneratingPdf} className="flex-1 py-3 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold text-sm">
+                        {isGeneratingPdf ? '...' : 'Orçamento PDF'}
+                     </button>
+                     <button onClick={handleBuyClick} disabled={product.stock <= 0 || isLoadingProfile} className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">
+                        {isLoadingProfile ? <LoadingSpinner /> : 'Comprar Agora'}
+                     </button>
+                </div>
+            </div>
+
+             {showPurchaseModal && userProfile && (
                 <PurchaseModal 
                     product={product}
                     profile={userProfile}
                     onClose={() => setShowPurchaseModal(false)}
-                    onSuccess={handlePurchaseSuccess}
+                    onSuccess={() => { setShowPurchaseModal(false); setPurchaseSuccess(true); }}
                 />
             )}
         </div>

@@ -18,20 +18,21 @@ export interface Invoice {
   id: string;
   user_id: string; 
   month: string;
-  due_date: string; // Corrigido de dueDate para due_date
+  due_date: string;
   amount: number;
   status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado';
   payment_method?: string | null;
   payment_date?: string | null;
-  payment_id?: string | null; // ID do pagamento no Mercado Pago
-  boleto_url?: string | null; // URL para visualizar o boleto
-  boleto_barcode?: string | null; // Código de barras do boleto
+  payment_id?: string | null;
+  boleto_url?: string | null;
+  boleto_barcode?: string | null;
   notes?: string | null;
+  discountValue?: number; // Adicionado para interface
   created_at: string;
 }
 
 export interface Profile {
-  id: string; // Corresponde a auth.users.id
+  id: string;
   email?: string;
   first_name?: string | null;
   last_name?: string | null;
@@ -46,21 +47,12 @@ export interface Profile {
   credit_score?: number | null;
   credit_limit?: number | null;
   credit_status?: string | null;
-  last_limit_request_date?: string | null; // Data da última solicitação de aumento
+  last_limit_request_date?: string | null;
   notify_due_date?: boolean;
   notify_new_invoice?: boolean;
   notify_promotions?: boolean;
   avatar_url?: string | null;
 }
-
-export interface ScoreHistory {
-  id: number;
-  date: string;
-  reason: string;
-  change: number;
-  newScore: number;
-}
-
 
 export interface Product {
   id: string;
@@ -69,5 +61,49 @@ export interface Product {
   price: number;
   stock: number;
   image_url: string | null;
+  category?: string; // Novo
+  rating?: number; // Novo
+  reviews_count?: number; // Novo
+  is_new?: boolean; // Novo
   created_at: string;
+}
+
+export interface CartItem extends Product {
+    quantity: number;
+}
+
+export interface Address {
+    id: string;
+    street: string;
+    number: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    isDefault: boolean;
+}
+
+export interface Order {
+    id: string;
+    date: string;
+    status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+    total: number;
+    items: { name: string; quantity: number; price: number }[];
+    trackingCode?: string;
+}
+
+export interface Review {
+    id: string;
+    userName: string;
+    rating: number;
+    comment: string;
+    date: string;
+}
+
+export interface ScoreHistory {
+  id: number;
+  date: string;
+  reason: string;
+  change: number;
+  newScore: number;
 }
