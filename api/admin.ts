@@ -115,7 +115,7 @@ const SETUP_SQL = `
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "avatar_url" "text";
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Endereços (Addresses) - NOVO
+    -- Tabela de Endereços (Addresses)
     CREATE TABLE IF NOT EXISTS "public"."addresses" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid" NOT NULL,
@@ -137,7 +137,7 @@ const SETUP_SQL = `
     ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "category" "text";
     ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Pedidos (Orders) - NOVO
+    -- Tabela de Pedidos (Orders)
     CREATE TABLE IF NOT EXISTS "public"."orders" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid" NOT NULL,
@@ -150,7 +150,7 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."orders" ENABLE ROW LEVEL SECURITY;
 
-    -- Itens do Pedido (Order Items) - NOVO
+    -- Itens do Pedido (Order Items)
     CREATE TABLE IF NOT EXISTS "public"."order_items" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "order_id" "uuid" NOT NULL,
@@ -182,6 +182,20 @@ const SETUP_SQL = `
     ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "boleto_barcode" "text";
     ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "notes" "text";
     ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
+
+    -- Tabela de Notificações (Notifications) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."notifications" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "user_id" "uuid" NOT NULL,
+        "title" "text" NOT NULL,
+        "message" "text" NOT NULL,
+        "type" "text" NOT NULL DEFAULT 'info', -- info, warning, success, alert
+        "read" boolean NOT NULL DEFAULT false,
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+    );
+    ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
     -- Tabela de Logs de Ação
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
@@ -242,6 +256,14 @@ const SETUP_SQL = `
     DROP POLICY IF EXISTS "Allow admin full access to invoices" ON "public"."invoices";
     CREATE POLICY "Allow admin full access to invoices" ON "public"."invoices" FOR ALL USING (is_admin());
 
+    -- Notifications - NOVO
+    DROP POLICY IF EXISTS "Allow users to read their own notifications" ON "public"."notifications";
+    CREATE POLICY "Allow users to read their own notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow users to update their own notifications" ON "public"."notifications";
+    CREATE POLICY "Allow users to update their own notifications" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = "user_id"));
+    DROP POLICY IF EXISTS "Allow admin full access to notifications" ON "public"."notifications";
+    CREATE POLICY "Allow admin full access to notifications" ON "public"."notifications" FOR ALL USING (is_admin());
+
     -- Settings
     DROP POLICY IF EXISTS "Allow public read access to settings" ON "public"."system_settings";
     CREATE POLICY "Allow public read access to settings" ON "public"."system_settings" FOR SELECT USING (true);
@@ -259,6 +281,10 @@ const SETUP_SQL = `
       INSERT INTO public.profiles (id, email)
       VALUES (user_id, user_email)
       ON CONFLICT (id) DO NOTHING;
+      
+      -- Envia notificação de boas-vindas
+      INSERT INTO public.notifications (user_id, title, message, type)
+      VALUES (user_id, 'Bem-vindo à Relp Cell!', 'Estamos felizes em tê-lo conosco. Configure seu perfil para começar.', 'success');
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
 `;
@@ -285,10 +311,36 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         }
 
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados configurado! Tabelas de e-commerce, endereços e políticas de segurança foram criadas." });
+        res.status(200).json({ message: "Banco de dados configurado! Tabelas de e-commerce, endereços, notificações e políticas de segurança foram criadas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
+    }
+}
+
+async function handleSendNotification(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId, title, message, type } = req.body;
+
+        if (!userId || !title || !message) {
+            return res.status(400).json({ error: 'Missing required fields: userId, title, message' });
+        }
+
+        const { error } = await supabase.from('notifications').insert({
+            user_id: userId,
+            title,
+            message,
+            type: type || 'info'
+        });
+
+        if (error) throw error;
+
+        await logAction(supabase, 'NOTIFICATION_SENT', 'SUCCESS', `Notificação enviada para ${userId}: ${title}`);
+        res.status(200).json({ message: 'Notificação enviada com sucesso.' });
+    } catch (error: any) {
+        await logAction(supabase, 'NOTIFICATION_SENT', 'FAILURE', `Falha ao enviar notificação.`, { error: error.message });
+        res.status(500).json({ error: error.message });
     }
 }
 
@@ -744,6 +796,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
+                case '/api/admin/send-notification': return await handleSendNotification(req, res); // Novo
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

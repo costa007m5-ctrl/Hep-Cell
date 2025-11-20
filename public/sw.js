@@ -1,4 +1,4 @@
-const CACHE_NAME = 'relp-cell-v11';
+const CACHE_NAME = 'relp-cell-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -63,6 +63,28 @@ self.addEventListener('fetch', (event) => {
       return cachedResponse || fetch(event.request).then((networkResponse) => {
         return networkResponse;
       });
+    })
+  );
+});
+
+// Lidar com o clique na notificação
+self.addEventListener('notificationclick', function(event) {
+  console.log('[SW] Notification click Received.', event.notification.data);
+  
+  event.notification.close();
+
+  // Foca na janela do app se estiver aberta, ou abre uma nova
+  event.waitUntil(
+    clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(clientList) {
+      for (var i = 0; i < clientList.length; i++) {
+        var client = clientList[i];
+        if (client.url.indexOf('/') > -1 && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
     })
   );
 });

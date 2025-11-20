@@ -31,6 +31,16 @@ export interface Invoice {
   created_at: string;
 }
 
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  read: boolean;
+  created_at: string;
+}
+
 export interface Profile {
   id: string;
   email?: string;
