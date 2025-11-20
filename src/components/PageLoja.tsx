@@ -99,22 +99,130 @@ const CartDrawer: React.FC<{ isOpen: boolean; onClose: () => void; cartItems: Ca
     );
 };
 
+// --- Sub-Page: Collection View (Category/Brand Specific) ---
+interface CollectionPageProps {
+    title: string;
+    type: 'category' | 'brand';
+    products: Product[];
+    onBack: () => void;
+    onProductClick: (product: Product) => void;
+    wishlist: Set<string>;
+    toggleWishlist: (id: string) => void;
+    handleAddToCart: (product: Product) => void;
+}
+
+const CollectionPage: React.FC<CollectionPageProps> = ({ title, type, products, onBack, onProductClick, wishlist, toggleWishlist, handleAddToCart }) => {
+    const [sortOption, setSortOption] = useState('relevance');
+
+    const sortedProducts = useMemo(() => {
+        let result = [...products];
+        if (sortOption === 'price_asc') result.sort((a, b) => a.price - b.price);
+        if (sortOption === 'price_desc') result.sort((a, b) => b.price - a.price);
+        return result;
+    }, [products, sortOption]);
+
+    return (
+        <div className="fixed inset-0 z-40 bg-slate-50 dark:bg-slate-900 flex flex-col animate-fade-in pb-safe">
+            {/* Collection Header */}
+            <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-4 flex items-center gap-3 shadow-sm z-10">
+                <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <h1 className="text-lg font-bold text-slate-900 dark:text-white capitalize truncate">{title}</h1>
+            </div>
+
+            {/* Filters/Sort Toolbar */}
+            <div className="bg-white dark:bg-slate-900 px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto scrollbar-hide">
+                 <button 
+                    onClick={() => setSortOption('relevance')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${sortOption === 'relevance' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'}`}
+                 >
+                    Relevância
+                 </button>
+                 <button 
+                    onClick={() => setSortOption('price_asc')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${sortOption === 'price_asc' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'}`}
+                 >
+                    Menor Preço
+                 </button>
+                 <button 
+                    onClick={() => setSortOption('price_desc')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border whitespace-nowrap transition-colors ${sortOption === 'price_desc' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'}`}
+                 >
+                    Maior Preço
+                 </button>
+            </div>
+
+            {/* Product Grid */}
+            <div className="flex-1 overflow-y-auto p-4">
+                 {sortedProducts.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+                        {sortedProducts.map(product => (
+                            <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden relative group">
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
+                                    className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 dark:bg-black/50 backdrop-blur-sm rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill={wishlist.has(product.id) ? "currentColor" : "none"} stroke="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
+                                </button>
+
+                                {product.is_new && (
+                                    <span className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-sm">Novo</span>
+                                )}
+
+                                <div onClick={() => onProductClick(product)} className="relative aspect-square bg-white p-4 flex items-center justify-center cursor-pointer">
+                                    <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" loading="lazy" />
+                                </div>
+
+                                <div className="p-3" onClick={() => onProductClick(product)}>
+                                    <div className="flex items-center gap-1 mb-1">
+                                        <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                                        <span className="text-[10px] text-slate-500 font-medium">{product.rating} ({product.reviews_count})</span>
+                                    </div>
+                                    <h3 className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 h-8 sm:h-10 leading-tight">{product.name}</h3>
+                                    <div className="mt-2">
+                                        <p className="text-base sm:text-lg font-bold text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                                        <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">12x R$ {(product.price / 12).toFixed(2).replace('.', ',')}</p>
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => handleAddToCart(product)}
+                                    className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                                    Adicionar
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-20 text-slate-500 dark:text-slate-400">
+                        <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                        <p className="font-medium">Nenhum produto encontrado.</p>
+                        <p className="text-sm mt-1">Tente buscar em outra categoria.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
 const PageLoja: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   
-  // Novos Estados
+  // View State: Main Logic for Navigation
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [activeCollection, setActiveCollection] = useState<{ type: 'category' | 'brand', value: string } | null>(null);
+  
+  // Cart & Wishlist States
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  
-  // Filtros
-  const [activeCategory, setActiveCategory] = useState('Todos');
-  const [activeBrand, setActiveBrand] = useState('Todas');
-  const [sortOption, setSortOption] = useState('relevance'); // relevance, price_asc, price_desc
   
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const { addToast } = useToast();
@@ -130,7 +238,6 @@ const PageLoja: React.FC = () => {
           }
       }
       
-      // Carrega wishlist
       const savedWishlist = localStorage.getItem('relp_wishlist');
       if (savedWishlist) {
           setWishlist(new Set(JSON.parse(savedWishlist)));
@@ -190,7 +297,6 @@ const PageLoja: React.FC = () => {
               return prev;
           }
           addToast('Adicionado ao carrinho!', 'success');
-          // Feedback tátil
           if (navigator.vibrate) navigator.vibrate(50);
           return [...prev, { ...product, quantity: 1 }];
       });
@@ -208,51 +314,39 @@ const PageLoja: React.FC = () => {
 
         const total = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-        // 1. Cria o pedido na tabela 'orders'
         const { data: order, error: orderError } = await supabase
             .from('orders')
-            .insert({
-                user_id: user.id,
-                total: total,
-                status: 'pending'
-            })
-            .select()
-            .single();
+            .insert({ user_id: user.id, total: total, status: 'pending' })
+            .select().single();
 
         if (orderError) throw orderError;
 
-        // 2. Cria os itens do pedido na tabela 'order_items'
         const orderItems = cart.map(item => ({
             order_id: order.id,
             product_id: item.id,
             quantity: item.quantity,
             price: item.price,
-            product_name: item.name // redundancy for display
+            product_name: item.name
         }));
 
-        const { error: itemsError } = await supabase
-            .from('order_items')
-            .insert(orderItems);
-
+        const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
         if (itemsError) throw itemsError;
 
-        // 3. Atualiza o estoque (Opcional, mas recomendado)
         for (const item of cart) {
              await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.quantity }).catch(() => {
-                 // Se a RPC não existir, tenta update manual (menos seguro concorrentemente mas ok para MVP)
                  const newStock = Math.max(0, item.stock - item.quantity);
                  supabase.from('products').update({ stock: newStock }).eq('id', item.id);
              });
         }
 
-        setCart([]); // Limpa carrinho
+        setCart([]);
         localStorage.removeItem('relp_cart');
         setIsCartOpen(false);
         addToast('Pedido realizado com sucesso!', 'success');
 
     } catch (error: any) {
         console.error('Erro no checkout:', error);
-        addToast('Erro ao processar pedido. Tente novamente.', 'error');
+        addToast('Erro ao processar pedido.', 'error');
     } finally {
         setIsCheckingOut(false);
     }
@@ -267,40 +361,46 @@ const PageLoja: React.FC = () => {
       });
   };
 
-  const filteredProducts = useMemo(() => {
-      let result = [...products];
-
-      // Filtro de Categoria
-      if (activeCategory !== 'Todos') {
-          result = result.filter(p => {
-              // Se a categoria for "Ofertas", não temos uma lógica clara sem campo de desconto, 
-              // mas vamos assumir que se a categoria for explicitamente salva como "Ofertas", mostramos.
-              // Ou, se o nome contém "Promoção".
-              if (activeCategory === 'Ofertas') {
+  const collectionProducts = useMemo(() => {
+      if (!activeCollection) return [];
+      const { type, value } = activeCollection;
+      
+      return products.filter(p => {
+          if (type === 'category') {
+               if (value === 'Ofertas') {
                   return p.category === 'Ofertas' || p.name.toLowerCase().includes('oferta') || p.name.toLowerCase().includes('promo');
               }
-              
-              if (p.category) return p.category === activeCategory;
-              // Fallback se categoria não estiver definida
-              return p.name.toLowerCase().includes(activeCategory.toLowerCase().slice(0, 4));
-          });
-      }
+              return p.category === value || p.name.toLowerCase().includes(value.toLowerCase().slice(0, 4));
+          }
+          if (type === 'brand') {
+              if (value === 'Todas') return true;
+              return p.brand?.toLowerCase() === value.toLowerCase() || p.name.toLowerCase().includes(value.toLowerCase());
+          }
+          return false;
+      });
+  }, [products, activeCollection]);
 
-      // Filtro de Marca
-      if (activeBrand !== 'Todas') {
-          result = result.filter(p => {
-              if (p.brand) return p.brand.toLowerCase() === activeBrand.toLowerCase();
-              // Fallback
-              return p.name.toLowerCase().includes(activeBrand.toLowerCase());
-          });
-      }
 
-      // Ordenação
-      if (sortOption === 'price_asc') result.sort((a, b) => a.price - b.price);
-      if (sortOption === 'price_desc') result.sort((a, b) => b.price - a.price);
-      
-      return result;
-  }, [products, activeCategory, activeBrand, sortOption]);
+  // --- Navigation Handlers ---
+  
+  const navigateToCategory = (category: string) => {
+      if (category === 'Todos') {
+          // Reset or keep on main page
+          setActiveCollection(null);
+      } else {
+          setActiveCollection({ type: 'category', value: category });
+      }
+  };
+
+  const navigateToBrand = (brand: string) => {
+       if (brand === 'Todas') {
+          setActiveCollection(null);
+      } else {
+          setActiveCollection({ type: 'brand', value: brand });
+      }
+  };
+
+  // --- Render Logic ---
 
   if (selectedProduct) {
       return (
@@ -309,6 +409,21 @@ const PageLoja: React.FC = () => {
               allProducts={products} 
               onBack={() => setSelectedProduct(null)} 
               onProductClick={setSelectedProduct}
+          />
+      );
+  }
+
+  if (activeCollection) {
+      return (
+          <CollectionPage 
+              title={activeCollection.value}
+              type={activeCollection.type}
+              products={collectionProducts}
+              onBack={() => setActiveCollection(null)}
+              onProductClick={setSelectedProduct}
+              wishlist={wishlist}
+              toggleWishlist={toggleWishlist}
+              handleAddToCart={handleAddToCart}
           />
       );
   }
@@ -323,9 +438,6 @@ const PageLoja: React.FC = () => {
                         <h1 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">Relp Store</h1>
                     </div>
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setIsFilterOpen(true)} className="p-2 text-slate-600 dark:text-slate-300">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-                        </button>
                         <button onClick={() => setIsCartOpen(true)} className="p-2 text-slate-600 dark:text-slate-300 relative">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                             {cart.length > 0 && <span className="absolute top-1 right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-bounce">{cart.length}</span>}
@@ -344,7 +456,7 @@ const PageLoja: React.FC = () => {
             </div>
             
             <div className="max-w-7xl mx-auto">
-                <CategoryIcons activeCategory={activeCategory} onSelect={setActiveCategory} />
+                <CategoryIcons activeCategory={activeCollection?.type === 'category' ? activeCollection.value : 'Todos'} onSelect={navigateToCategory} />
             </div>
 
             {isLoading ? <div className="flex justify-center py-20"><LoadingSpinner /></div> : (
@@ -358,66 +470,32 @@ const PageLoja: React.FC = () => {
                     </div>
 
                     <div className="max-w-7xl mx-auto pt-2">
-                        <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
+                        <BrandLogos activeBrand={activeCollection?.type === 'brand' ? activeCollection.value : 'Todas'} onSelect={navigateToBrand} />
                     </div>
-
-                    <div className="max-w-7xl mx-auto px-4 pt-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                                {activeCategory !== 'Todos' ? activeCategory : 'Para Você'}
-                                {activeBrand !== 'Todas' && <span className="text-slate-500 dark:text-slate-400 text-sm ml-2">({activeBrand})</span>}
-                            </h2>
-                            <button onClick={() => setIsFilterOpen(true)} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Filtrar</button>
-                        </div>
-                        
-                        {filteredProducts.length > 0 ? (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
-                                {filteredProducts.map(product => (
-                                    <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden relative group">
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }}
-                                            className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 dark:bg-black/50 backdrop-blur-sm rounded-full text-slate-400 hover:text-red-500 transition-colors"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill={wishlist.has(product.id) ? "currentColor" : "none"} stroke="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
-                                        </button>
-
-                                        {product.is_new && (
-                                            <span className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-sm">Novo</span>
-                                        )}
-
-                                        <div onClick={() => setSelectedProduct(product)} className="relative aspect-square bg-white p-4 flex items-center justify-center cursor-pointer">
-                                            <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" loading="lazy" />
-                                        </div>
-
-                                        <div className="p-3" onClick={() => setSelectedProduct(product)}>
-                                            <div className="flex items-center gap-1 mb-1">
-                                                <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                                                <span className="text-[10px] text-slate-500 font-medium">{product.rating} ({product.reviews_count})</span>
-                                            </div>
-                                            <h3 className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 h-8 sm:h-10 leading-tight">{product.name}</h3>
-                                            <div className="mt-2">
-                                                <p className="text-base sm:text-lg font-bold text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                                                <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">12x R$ {(product.price / 12).toFixed(2).replace('.', ',')}</p>
-                                            </div>
-                                        </div>
-                                        <button 
-                                            onClick={() => handleAddToCart(product)}
-                                            className="w-full py-2 bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center gap-2"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                                            Adicionar
-                                        </button>
+                    
+                    {/* Recomendados (Produtos Gerais se nada selecionado) */}
+                    <div className="max-w-7xl mx-auto px-4 pt-4">
+                        <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Recomendados para Você</h2>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+                            {products.slice(0, 10).map(product => (
+                                <div key={product.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden relative group">
+                                    {/* Wishlist Button */}
+                                    <button onClick={(e) => { e.stopPropagation(); toggleWishlist(product.id); }} className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 dark:bg-black/50 backdrop-blur-sm rounded-full text-slate-400 hover:text-red-500 transition-colors">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill={wishlist.has(product.id) ? "currentColor" : "none"} stroke="currentColor"><path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" /></svg>
+                                    </button>
+                                    <div onClick={() => setSelectedProduct(product)} className="relative aspect-square bg-white p-4 flex items-center justify-center cursor-pointer">
+                                        <img src={product.image_url || ''} alt={product.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" loading="lazy" />
                                     </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-20 text-slate-500 dark:text-slate-400">
-                                <p>Nenhum produto encontrado com esses filtros.</p>
-                                <button onClick={() => { setActiveCategory('Todos'); setActiveBrand('Todas'); }} className="mt-4 text-indigo-600 font-bold hover:underline">
-                                    Limpar Filtros
-                                </button>
-                            </div>
-                        )}
+                                    <div className="p-3" onClick={() => setSelectedProduct(product)}>
+                                        <h3 className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 line-clamp-2 h-8 sm:h-10 leading-tight">{product.name}</h3>
+                                        <div className="mt-2">
+                                            <p className="text-base sm:text-lg font-bold text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                                            <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">12x R$ {(product.price / 12).toFixed(2).replace('.', ',')}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </>
             )}
@@ -431,60 +509,6 @@ const PageLoja: React.FC = () => {
             onCheckout={handleCheckout}
             isCheckingOut={isCheckingOut}
         />
-
-        {/* Filter Modal */}
-        <Modal isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)}>
-            <div className="space-y-4">
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Filtros</h3>
-                <div>
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Ordenar por</p>
-                    <div className="flex flex-wrap gap-2">
-                        {['Relevância', 'Menor Preço', 'Maior Preço'].map(opt => (
-                            <button 
-                                key={opt}
-                                onClick={() => setSortOption(opt === 'Menor Preço' ? 'price_asc' : opt === 'Maior Preço' ? 'price_desc' : 'relevance')}
-                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                                    (sortOption === 'relevance' && opt === 'Relevância') || (sortOption === 'price_asc' && opt === 'Menor Preço') || (sortOption === 'price_desc' && opt === 'Maior Preço')
-                                    ? 'bg-indigo-600 text-white border-indigo-600' 
-                                    : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'
-                                }`}
-                            >
-                                {opt}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                 <div>
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Categorias</p>
-                    <div className="flex flex-wrap gap-2">
-                        {['Todos', 'Celulares', 'Fones', 'Acessórios', 'Smartwatch', 'Ofertas'].map(cat => (
-                             <button 
-                                key={cat}
-                                onClick={() => setActiveCategory(cat)}
-                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${activeCategory === cat ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
-                            >
-                                {cat}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <div>
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Marcas</p>
-                    <div className="flex flex-wrap gap-2">
-                        {['Todas', 'Apple', 'Samsung', 'Xiaomi', 'Motorola', 'LG', 'Asus'].map(brand => (
-                             <button 
-                                key={brand}
-                                onClick={() => setActiveBrand(brand)}
-                                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${activeBrand === brand ? 'bg-indigo-600 text-white border-indigo-600' : 'border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300'}`}
-                            >
-                                {brand}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <button onClick={() => setIsFilterOpen(false)} className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700">Aplicar Filtros</button>
-            </div>
-        </Modal>
     </div>
   );
 };

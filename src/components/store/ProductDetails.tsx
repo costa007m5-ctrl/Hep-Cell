@@ -91,8 +91,9 @@ const DescriptionSection: React.FC<{ description: string }> = ({ description }) 
                 if (title.toLowerCase().includes('ficha') || title.toLowerCase().includes('técnica') || title.toLowerCase().includes('specs')) {
                      const specs = content.split('\n').filter(line => line.trim().length > 0);
                      return (
-                        <div key={index} className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                             <h3 className="bg-slate-100 dark:bg-slate-700/80 px-4 py-2 text-sm font-bold text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-600">
+                        <div key={index} className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+                             <h3 className="bg-slate-100 dark:bg-slate-700/80 px-4 py-2 text-sm font-bold text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-600 flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" /></svg>
                                 {title}
                              </h3>
                              <div className="text-sm">
@@ -108,6 +109,38 @@ const DescriptionSection: React.FC<{ description: string }> = ({ description }) 
                              </div>
                         </div>
                      )
+                }
+
+                // Layout Exclusivo para Destaques
+                if (title.toLowerCase().includes('destaques') || title.toLowerCase().includes('highlights') || title.toLowerCase().includes('principais')) {
+                    const points = content.split('\n').filter(line => line.trim().length > 0);
+                    return (
+                         <div key={index} className="bg-gradient-to-br from-indigo-50 to-white dark:from-slate-800 dark:to-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/50 p-5 shadow-sm relative overflow-hidden">
+                            {/* Detalhe decorativo */}
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-bl-full -mr-4 -mt-4 z-0"></div>
+                            
+                            <h3 className="text-lg font-bold text-indigo-900 dark:text-indigo-200 mb-4 flex items-center gap-2 relative z-10">
+                                <span className="bg-yellow-400 rounded-full p-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
+                                </span>
+                                {title}
+                            </h3>
+                            <ul className="grid grid-cols-1 gap-2 relative z-10">
+                                {points.map((point, i) => {
+                                    // Remove bullet chars like -, *, •
+                                    const cleanPoint = point.replace(/^[-*•]\s*/, '').trim();
+                                    return (
+                                        <li key={i} className="flex items-start gap-3 p-2.5 rounded-lg bg-white/80 dark:bg-slate-800/80 border border-indigo-50 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
+                                            <div className="flex-shrink-0 w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center mt-0.5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-green-600 dark:text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                            </div>
+                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300 leading-tight pt-0.5">{cleanPoint}</span>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+                    )
                 }
 
                 // Layout Padrão para outras seções (Card Simples)
