@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
-import { CardSkeleton } from './Skeleton'; // Usando Skeleton
+import { CardSkeleton } from './Skeleton'; 
 import CreditScoreGauge from './CreditScoreGauge';
 import InfoCarousel from './InfoCarousel';
 import Modal from './Modal';
@@ -31,6 +31,27 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalView, setModalView] = useState<'score' | 'limit' | null>(null);
+  
+  // Estado para instalação PWA
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
   
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -106,6 +127,19 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                 )}
             </div>
         </div>
+        
+        {/* Install App Button */}
+        {deferredPrompt && (
+            <button 
+                onClick={handleInstallClick}
+                className="w-full py-3 px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 animate-fade-in-up"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                Instalar Aplicativo
+            </button>
+        )}
 
         {/* Payment Progress */}
         {totalDebt > 0 && (
