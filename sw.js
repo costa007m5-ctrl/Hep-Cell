@@ -1,8 +1,10 @@
-const CACHE_NAME = 'relp-cell-v8';
+const CACHE_NAME = 'relp-cell-v9';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
 ];
 
 // Instalação: Cacheia o Shell do App (HTML + Assets básicos)
@@ -37,37 +39,32 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // 1. Ignora requisições API, Chrome Extensions, ou métodos não-GET
+  // Nota: Permitimos requisições cross-origin para imagens (placehold.co) passarem
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.protocol.startsWith('chrome-extension')) {
     return;
   }
 
   // 2. Tratamento de Navegação (HTML)
-  // Tenta pegar da rede. Se falhar (offline), retorna o index.html do cache.
-  // Isso permite que rotas como /faturas ou /loja funcionem offline.
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
           return caches.open(CACHE_NAME).then((cache) => {
-            // Atualiza o cache do index.html em segundo plano
             cache.put('/', networkResponse.clone());
             return networkResponse;
           });
         })
         .catch(() => {
-          console.log('[SW] Offline navigation fallback');
           return caches.match('/') || caches.match('/index.html');
         })
     );
     return;
   }
 
-  // 3. Tratamento de Assets (JS, CSS, Imagens, Fonts)
-  // Stale-While-Revalidate: Retorna o cache rápido, mas busca atualização no fundo.
+  // 3. Tratamento de Assets
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
-        // Check if we received a valid response
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             caches.open(CACHE_NAME).then((cache) => {
                 cache.put(event.request, networkResponse.clone());
@@ -75,7 +72,7 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Se falhar o fetch (offline) e não tiver cache, não faz nada
+        // Falha de rede silenciosa para assets secundários
       });
 
       return cachedResponse || fetchPromise;
