@@ -211,7 +211,7 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Histórico de Score (Score History) - NOVO
+    -- Tabela de Histórico de Score (Score History)
     CREATE TABLE IF NOT EXISTS "public"."score_history" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid" NOT NULL,
@@ -224,7 +224,7 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."score_history" ENABLE ROW LEVEL SECURITY;
 
-    -- Tabela de Solicitações de Limite (Limit Requests) - NOVO
+    -- Tabela de Solicitações de Limite (Limit Requests)
     CREATE TABLE IF NOT EXISTS "public"."limit_requests" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "user_id" "uuid" NOT NULL,
@@ -238,6 +238,17 @@ const SETUP_SQL = `
     );
     ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY;
 
+    -- Tabela de Banners da Loja (Store Banners) - NOVO
+    CREATE TABLE IF NOT EXISTS "public"."store_banners" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "image_url" "text" NOT NULL,
+        "prompt" "text",
+        "active" boolean DEFAULT true,
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "store_banners_pkey" PRIMARY KEY ("id")
+    );
+    ALTER TABLE "public"."store_banners" ENABLE ROW LEVEL SECURITY;
+
     -- Tabela de Logs de Ação
     CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") );
     ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY;
@@ -250,6 +261,12 @@ const SETUP_SQL = `
       RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+    -- Banners RLS
+    DROP POLICY IF EXISTS "Allow public read access to banners" ON "public"."store_banners";
+    CREATE POLICY "Allow public read access to banners" ON "public"."store_banners" FOR SELECT USING (true);
+    DROP POLICY IF EXISTS "Allow admin full access to banners" ON "public"."store_banners";
+    CREATE POLICY "Allow admin full access to banners" ON "public"."store_banners" FOR ALL USING (is_admin());
 
     -- Score History RLS
     DROP POLICY IF EXISTS "Allow users to view their own score history" ON "public"."score_history";
@@ -448,6 +465,130 @@ async function handleGenerateProductDetails(req: VercelRequest, res: VercelRespo
     }
 }
 
+// --- Endpoint para Geração de Banners ---
+async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
+    const genAI = getGeminiClient();
+    if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' });
+
+    const { prompt, imageBase64 } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'Image is required.' });
+
+    try {
+        // Passo 1: Descrever a imagem enviada (para que a IA entenda o produto)
+        const descriptionResponse = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                { inlineData: { mimeType: 'image/jpeg', data: imageBase64.split(',')[1] } },
+                { text: "Describe this product in detail (color, type, key features) for an image generator prompt. Be concise." }
+            ]
+        });
+        const productDescription = descriptionResponse.text || "a product";
+
+        // Passo 2: Gerar o Banner
+        // Usamos o gemini-2.5-flash-image para gerar uma nova imagem baseada na descrição + contexto do usuário
+        // Nota: O ideal seria usar 'imagen-3.0-generate-001' se disponível, mas seguiremos a regra do modelo 2.5-flash-image
+        const bannerPrompt = `A professional, high-quality e-commerce banner (wide aspect ratio 16:9) featuring: ${productDescription}. 
+        Context/Offer Text idea: ${prompt || 'Special Offer'}. 
+        Style: Modern, sleek, commercial lighting, vibrant background, 4k resolution. 
+        Make it look like a premium advertisement on a tech store.`;
+
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: { parts: [{ text: bannerPrompt }] },
+            config: {
+                // Nota: gemini-2.5-flash-image gera imagens quando solicitado, mas retorna no formato inlineData
+                // Não definimos responseMimeType para imagem, o modelo infere.
+            }
+        });
+        
+        // Extrair a imagem gerada
+        const generatedPart = response.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+        
+        if (generatedPart && generatedPart.inlineData) {
+            const base64Image = `data:${generatedPart.inlineData.mimeType};base64,${generatedPart.inlineData.data}`;
+            res.status(200).json({ image: base64Image });
+        } else {
+             // Fallback: Se o modelo recusar gerar imagem diretamente (algumas versões de preview tem restrições),
+             // retornamos erro claro.
+             throw new Error("O modelo não retornou uma imagem válida. Tente simplificar o prompt.");
+        }
+
+    } catch (error: any) {
+        console.error("Error generating banner:", error);
+        res.status(500).json({ error: 'Failed to generate banner.', message: error.message });
+    }
+}
+
+// --- Endpoint para Gerenciar Banners (Salvar/Listar/Deletar) ---
+async function handleBanners(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+
+    try {
+        if (req.method === 'GET') {
+            const { data, error } = await supabase.from('store_banners').select('*').order('created_at', { ascending: false });
+            if (error) throw error;
+            return res.status(200).json(data);
+        }
+
+        if (req.method === 'POST') {
+            const { image_base64, prompt } = req.body;
+            if (!image_base64) return res.status(400).json({ error: 'Image data required' });
+
+            // Upload para Storage
+            const bucket = 'banner-images';
+            const fileExt = image_base64.substring(image_base64.indexOf('/') + 1, image_base64.indexOf(';base64'));
+            const filePath = `banner-${Date.now()}.${fileExt}`;
+            const base64Data = image_base64.replace(/^data:image\/\w+;base64,/, "");
+            const buffer = Buffer.from(base64Data, 'base64');
+
+            const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, buffer, {
+                contentType: `image/${fileExt}`,
+                upsert: true
+            });
+
+            if (uploadError) {
+                 // Tenta criar o bucket se não existir (auto-fix)
+                 if (uploadError.message.includes('Bucket not found')) {
+                     await supabase.storage.createBucket(bucket, { public: true });
+                     // Retry upload
+                     await supabase.storage.from(bucket).upload(filePath, buffer, { contentType: `image/${fileExt}`, upsert: true });
+                 } else {
+                     throw uploadError;
+                 }
+            }
+
+            const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+            const imageUrl = publicUrlData.publicUrl;
+
+            // Salvar no DB
+            const { data, error: dbError } = await supabase.from('store_banners').insert({
+                image_url: imageUrl,
+                prompt: prompt,
+                active: true
+            }).select().single();
+
+            if (dbError) throw dbError;
+
+            return res.status(201).json({ message: 'Banner salvo e ativado!', banner: data });
+        }
+
+        if (req.method === 'DELETE') {
+            const { id } = req.body;
+            if (!id) return res.status(400).json({ error: 'ID required' });
+            
+            const { error } = await supabase.from('store_banners').delete().eq('id', id);
+            if (error) throw error;
+            
+            return res.status(200).json({ message: 'Banner removido.' });
+        }
+
+        res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
+        return res.status(405).end(`Method ${req.method} Not Allowed`);
+
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+}
 
 async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -883,6 +1024,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/get-logs': return await handleGetLogs(req, res);
                 case '/api/admin/profiles': return await handleGetProfiles(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
+                case '/api/admin/banners': return await handleBanners(req, res); // Novo Endpoint GET
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -902,11 +1044,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
                 case '/api/admin/send-notification': return await handleSendNotification(req, res);
-                case '/api/admin/generate-product-details': return await handleGenerateProductDetails(req, res); // Novo Endpoint
+                case '/api/admin/generate-product-details': return await handleGenerateProductDetails(req, res);
+                case '/api/admin/generate-banner': return await handleGenerateBanner(req, res); // Novo Endpoint
+                case '/api/admin/banners': return await handleBanners(req, res); // Novo Endpoint POST (Save)
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }
-        res.setHeader('Allow', ['GET', 'POST']);
+        if (req.method === 'DELETE') {
+            if (path === '/api/admin/banners') {
+                 return await handleBanners(req, res);
+            }
+        }
+        res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (e: any) {
         console.error(`Error in admin API handler for path ${path}:`, e);

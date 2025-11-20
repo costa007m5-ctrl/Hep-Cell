@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import DeveloperTab from './DeveloperTab';
 import FinancialDashboard from './FinancialDashboard';
@@ -7,6 +8,7 @@ import NewSaleTab from './NewSaleTab';
 import ActionLogTab from './ActionLogTab';
 import StatusTab from './StatusTab';
 import AiConfigTab from './AiConfigTab'; 
+import AdvertisingTab from './AdvertisingTab'; // Importa a nova aba
 import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
@@ -100,7 +102,8 @@ const Icons = {
     History: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Status: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Dev: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>,
-    Ai: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> // Novo Ícone
+    Ai: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+    Ads: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>
 };
 
 const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: string; onClick: () => void }> = ({ title, icon, color, onClick }) => (
@@ -211,9 +214,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     { id: 'clients', label: 'Clientes', icon: Icons.Clients, color: 'bg-blue-500' },
     { id: 'new_sale', label: 'Nova Venda', icon: Icons.NewSale, color: 'bg-indigo-500' },
     { id: 'products', label: 'Produtos', icon: Icons.Products, color: 'bg-orange-500' },
+    { id: 'ads', label: 'Publicidade', icon: Icons.Ads, color: 'bg-rose-500' }, // Nova Aba
     { id: 'financials', label: 'Finanças', icon: Icons.Financials, color: 'bg-green-500' },
     { id: 'history', label: 'Histórico', icon: Icons.History, color: 'bg-purple-500' },
-    { id: 'ai_config', label: 'IA & Chat', icon: Icons.Ai, color: 'bg-pink-500' }, // Novo item
+    { id: 'ai_config', label: 'IA & Chat', icon: Icons.Ai, color: 'bg-pink-500' },
     { id: 'status', label: 'Status', icon: Icons.Status, color: 'bg-teal-500' },
     { id: 'dev', label: 'Dev Tools', icon: Icons.Dev, color: 'bg-gray-700' },
   ];
@@ -268,6 +272,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'clients': return <ClientsTab allInvoices={[]} isLoading={false} errorInfo={null} />; 
           case 'financials': return <FinancialDashboard invoices={[]} isLoading={false} />;
           case 'products': return <ProductsTab />;
+          case 'ads': return <AdvertisingTab />;
           case 'new_sale': return <NewSaleTab />;
           case 'history': return <ActionLogTab />;
           case 'ai_config': return <AiConfigTab />; 
