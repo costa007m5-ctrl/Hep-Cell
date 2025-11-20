@@ -20,6 +20,7 @@ const AdvertisingTab: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [generateError, setGenerateError] = useState<string | null>(null);
+    const [isProcessingImage, setIsProcessingImage] = useState(false);
 
     // Saving State
     const [isSaving, setIsSaving] = useState(false);
@@ -47,14 +48,68 @@ const AdvertisingTab: React.FC = () => {
         }
     };
 
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Função para converter qualquer formato de imagem (AVIF, WebP, etc) para JPEG compatível
+    const processImageFile = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    // Redimensiona se for muito grande para economizar tokens e evitar timeouts
+                    const maxDimension = 1024; 
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDimension || height > maxDimension) {
+                        if (width > height) {
+                            height *= maxDimension / width;
+                            width = maxDimension;
+                        } else {
+                            width *= maxDimension / height;
+                            height = maxDimension;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        // Fundo branco para PNGs transparentes
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Converte sempre para JPEG
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                        resolve(dataUrl);
+                    } else {
+                        reject(new Error("Falha ao processar imagem no canvas."));
+                    }
+                };
+                img.onerror = (err) => reject(err);
+                img.src = event.target?.result as string;
+            };
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setSelectedImage(reader.result as string);
-            };
-            reader.readAsDataURL(file);
+            setIsProcessingImage(true);
+            setGenerateError(null);
+            try {
+                const processedBase64 = await processImageFile(file);
+                setSelectedImage(processedBase64);
+            } catch (error) {
+                console.error("Erro ao processar imagem:", error);
+                setGenerateError("Erro ao processar o arquivo de imagem. Tente outro formato.");
+            } finally {
+                setIsProcessingImage(false);
+            }
         }
     };
 
@@ -79,7 +134,7 @@ const AdvertisingTab: React.FC = () => {
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || data.message || "Erro ao gerar banner.");
+                throw new Error(data.message || data.error || "Erro ao gerar banner.");
             }
 
             setGeneratedImage(data.image);
@@ -153,17 +208,23 @@ const AdvertisingTab: React.FC = () => {
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">1. Foto do Produto</label>
                         <div className="flex items-center justify-center w-full">
-                            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative overflow-hidden">
+                            <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50 cursor-wait' : ''}`}>
                                 {selectedImage ? (
                                     <img src={selectedImage} className="absolute inset-0 w-full h-full object-contain p-2" alt="Preview" />
                                 ) : (
                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                                        <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
-                                        <p className="text-xs text-slate-500">PNG, JPG (Celular, Fone, etc)</p>
+                                        {isProcessingImage ? (
+                                            <LoadingSpinner />
+                                        ) : (
+                                            <>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                                <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
+                                                <p className="text-xs text-slate-500">PNG, JPG, AVIF (Convertido auto.)</p>
+                                            </>
+                                        )}
                                     </div>
                                 )}
-                                <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" />
+                                <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" disabled={isProcessingImage} />
                             </label>
                         </div>
                     </div>
@@ -182,7 +243,7 @@ const AdvertisingTab: React.FC = () => {
 
                     <button 
                         onClick={handleGenerate} 
-                        disabled={isGenerating || !selectedImage}
+                        disabled={isGenerating || !selectedImage || isProcessingImage}
                         className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {isGenerating ? <LoadingSpinner /> : (
