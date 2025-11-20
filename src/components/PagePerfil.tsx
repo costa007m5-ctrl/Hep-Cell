@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
@@ -45,6 +45,8 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Detecta evento de instalar PWA
   useEffect(() => {
@@ -155,6 +157,38 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
       }
   };
 
+  const handleAvatarClick = () => {
+      fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !profile) return;
+
+      // Valida tamanho (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+          alert("A imagem deve ter no máximo 2MB.");
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+          const base64String = reader.result as string;
+          
+          // Atualiza estado local para feedback imediato
+          setProfile(prev => prev ? { ...prev, avatar_url: base64String } : null);
+          
+          // Salva no banco
+          try {
+              await updateProfile({ ...profile, avatar_url: base64String });
+          } catch (error) {
+              console.error("Erro ao salvar avatar:", error);
+              alert("Erro ao salvar foto de perfil.");
+          }
+      };
+      reader.readAsDataURL(file);
+  };
+
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -261,11 +295,31 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
 
   const renderMainView = () => (
     <div className="flex flex-col items-center text-center animate-fade-in">
-        <div className="w-20 h-20 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4">
-             <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+        <div className="relative group cursor-pointer" onClick={handleAvatarClick}>
+            <div className="w-24 h-24 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4 overflow-hidden ring-4 ring-white dark:ring-slate-800 shadow-lg">
+                 {profile?.avatar_url ? (
+                     <img src={profile.avatar_url} alt="Perfil" className="w-full h-full object-cover" />
+                 ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                 )}
+            </div>
+            <div className="absolute bottom-4 right-0 bg-indigo-600 text-white p-1.5 rounded-full shadow-md hover:bg-indigo-700 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </div>
+            <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={handleFileChange}
+            />
         </div>
+
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Seu Perfil</h2>
         <p className="text-slate-500 dark:text-slate-400 mt-2 break-all">{session.user.email}</p>
         

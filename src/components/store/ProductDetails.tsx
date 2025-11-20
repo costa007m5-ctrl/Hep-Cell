@@ -134,7 +134,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
 
     if (purchaseSuccess) {
         return (
-            <div className="min-h-screen bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+            <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
                 <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-6 animate-bounce-slow">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -156,10 +156,11 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
         )
     }
 
+    // Alteração principal: fixed inset-0 z-[60] para cobrir o Header e o Navbar
     return (
-        <div className="bg-white dark:bg-slate-900 min-h-screen animate-fade-in flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-white dark:bg-slate-900 animate-fade-in flex flex-col overflow-y-auto overflow-x-hidden">
             {/* Header de Navegação Transparente com Blur */}
-            <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between p-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
+            <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between p-4 pointer-events-none">
                 <button 
                     onClick={onBack}
                     className="p-2.5 rounded-full bg-white/20 backdrop-blur-md hover:bg-white/30 transition-colors text-white pointer-events-auto shadow-lg border border-white/10"
@@ -171,7 +172,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
             </div>
 
             {/* Conteúdo Scrollável */}
-            <div className="flex-grow pb-40"> 
+            <div className="flex-grow pb-32"> 
                 {/* Imagem Principal Full Bleed */}
                 <div className="w-full bg-slate-100 dark:bg-slate-800 aspect-square relative flex justify-center items-center overflow-hidden">
                      <img 
@@ -243,7 +244,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
             </div>
 
             {/* Sticky Footer Actions (Barra fixa de compra com efeito Glass) */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 z-40 pb-safe">
+            <div className="fixed bottom-0 left-0 right-0 p-4 z-[70] pb-safe">
                 <div className="absolute inset-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border-t border-slate-200/50 dark:border-slate-800/50 shadow-2xl shadow-black/10"></div>
                 <div className="relative max-w-4xl mx-auto flex flex-col gap-3">
                      {/* Card de Resumo da Parcela */}
@@ -279,9 +280,6 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, allProducts, o
                     </button>
                 </div>
             </div>
-
-            {/* Padding extra no final para compensar o footer fixo e a navbar inferior */}
-            <div className="h-20"></div>
 
             {/* Purchase Modal */}
             {showPurchaseModal && userProfile && (

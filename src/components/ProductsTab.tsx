@@ -12,6 +12,7 @@ const ProductsTab: React.FC = () => {
     
     // States do formulário principal
     const [formState, setFormState] = useState({
+        id: '', // Adicionado ID para edição
         name: '',
         description: '',
         price: '',
@@ -21,6 +22,7 @@ const ProductsTab: React.FC = () => {
     const [imageBase64, setImageBase64] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitMessage, setSubmitMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
 
     // States para importação do Mercado Livre
     const [mercadoLivreUrl, setMercadoLivreUrl] = useState('');
@@ -62,19 +64,17 @@ const ProductsTab: React.FC = () => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 setImageBase64(reader.result as string);
-                // Não limpamos a image_url aqui para permitir fallback, 
-                // mas no submit o base64 terá prioridade se existir.
             };
             reader.readAsDataURL(file);
         }
     };
 
-    const handleCreateProduct = async (e: React.FormEvent) => {
+    const handleCreateOrUpdateProduct = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSubmitting(true);
         setSubmitMessage(null);
         try {
-            const priceNum = parseFloat(formState.price.replace(',', '.')); // Aceita virgula
+            const priceNum = parseFloat(formState.price.toString().replace(',', '.'));
             const stockNum = parseInt(formState.stock, 10);
 
             if (isNaN(priceNum)) throw new Error("O preço inválido.");
@@ -86,26 +86,23 @@ const ProductsTab: React.FC = () => {
                 stock: stockNum,
             };
             
-            // Se houver upload de imagem, enviamos o base64
             if (imageBase64) {
                 payload.image_base64 = imageBase64;
-            } 
-            // Se não houver upload, mas tivermos URL (da importação), ela já está no ...formState
+            }
 
+            const method = isEditing ? 'PUT' : 'POST';
+            
             const response = await fetch('/api/admin/products', {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Erro ao criar produto.');
+            if (!response.ok) throw new Error(data.error || 'Erro ao salvar produto.');
 
-            setSubmitMessage({ text: 'Produto criado com sucesso!', type: 'success' });
+            setSubmitMessage({ text: isEditing ? 'Produto atualizado!' : 'Produto criado com sucesso!', type: 'success' });
             setShowCreateForm(false);
-            setFormState({ name: '', description: '', price: '', stock: '', image_url: '' });
-            setImageBase64(null);
-            setMercadoLivreUrl('');
-            setShopeeUrl('');
+            resetForm();
             fetchProducts();
         } catch (err: any) {
             setSubmitMessage({ text: err.message, type: 'error' });
@@ -114,9 +111,31 @@ const ProductsTab: React.FC = () => {
         }
     };
     
+    const resetForm = () => {
+        setFormState({ id: '', name: '', description: '', price: '', stock: '', image_url: '' });
+        setImageBase64(null);
+        setMercadoLivreUrl('');
+        setShopeeUrl('');
+        setIsEditing(false);
+    };
+
+    const handleEditClick = (product: Product) => {
+        setFormState({
+            id: product.id,
+            name: product.name,
+            description: product.description || '',
+            price: String(product.price),
+            stock: String(product.stock),
+            image_url: product.image_url || '',
+        });
+        setImageBase64(null);
+        setIsEditing(true);
+        setShowCreateForm(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    
     const handleFetchMercadoLivreProduct = async () => {
         setMlError(null);
-        // Regex para aceitar URL completa ou apenas o ID (MLB...)
         const idMatch = mercadoLivreUrl.match(/(MLB-?\d+)/i) || mercadoLivreUrl.match(/MLB\d+/i);
         
         if (!idMatch) {
@@ -124,7 +143,6 @@ const ProductsTab: React.FC = () => {
             return;
         }
         
-        // Remove o hífen se existir para padronizar (MLB-123 -> MLB123)
         const productId = idMatch[0].replace('-', '').toUpperCase();
 
         setIsFetchingML(true);
@@ -136,9 +154,7 @@ const ProductsTab: React.FC = () => {
             }
             const itemData = await response.json();
             
-            // Formatação da Descrição Rica
             let detailedDescription = itemData.description || '';
-            
             const specs = [];
             if (itemData.brand) specs.push(`Marca: ${itemData.brand}`);
             if (itemData.model) specs.push(`Modelo: ${itemData.model}`);
@@ -150,13 +166,14 @@ const ProductsTab: React.FC = () => {
                 detailedDescription = `--- FICHA TÉCNICA ---\n${specs.join('\n')}\n\n--- DESCRIÇÃO ---\n${detailedDescription}`;
             }
             
-            setFormState({
+            setFormState(prev => ({
+                ...prev,
                 name: itemData.title || '',
                 description: detailedDescription.trim(),
                 price: String(itemData.price || ''),
                 stock: String(itemData.available_quantity || '1'),
                 image_url: itemData.pictures?.[0]?.secure_url || '',
-            });
+            }));
 
             setImageBase64(null);
             setSubmitMessage({ text: 'Produto importado! Revise os dados e clique em Salvar.', type: 'success' });
@@ -185,20 +202,20 @@ const ProductsTab: React.FC = () => {
             }
             
             let detailedDescription = data.descricao || '';
-            // A API da Shopee às vezes retorna a descrição com caracteres de escape
             detailedDescription = detailedDescription.replace(/\\n/g, '\n');
 
             if (data.marca || data.estoque) {
                  detailedDescription = `--- FICHA TÉCNICA ---\nMarca: ${data.marca || 'Genérica'}\nEstoque Original: ${data.estoque}\n\n--- DESCRIÇÃO ---\n${detailedDescription}`;
             }
 
-            setFormState({
+            setFormState(prev => ({
+                ...prev,
                 name: data.nome || '',
                 description: detailedDescription.trim(),
                 price: String(data.preco || ''),
                 stock: String(data.estoque || '1'),
                 image_url: data.imagens?.[0] || '',
-            });
+            }));
 
             setImageBase64(null); 
             setSubmitMessage({ text: 'Produto importado! Revise os dados e clique em Salvar.', type: 'success' });
@@ -223,80 +240,70 @@ const ProductsTab: React.FC = () => {
                 <div>
                     <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Gerenciar Produtos</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        Adicione e visualize os produtos que aparecerão na loja do aplicativo.
+                        Adicione, edite e visualize os produtos da loja.
                     </p>
                 </div>
-                <button onClick={() => setShowCreateForm(prev => !prev)} className="flex-shrink-0 py-2 px-4 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm">
+                <button onClick={() => { setShowCreateForm(prev => !prev); if (!showCreateForm) resetForm(); }} className="flex-shrink-0 py-2 px-4 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm">
                     {showCreateForm ? 'Cancelar' : '+ Adicionar Produto'}
                 </button>
             </div>
 
             {showCreateForm && (
-                <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in">
+                <div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-fade-in border border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-4">{isEditing ? 'Editar Produto' : 'Novo Produto'}</h3>
                     
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                        {/* Importar Mercado Livre */}
-                        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-md border border-yellow-200 dark:border-yellow-700 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-yellow-800 dark:text-yellow-200">Mercado Livre</span>
-                                <span className="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200 px-2 py-0.5 rounded-full">Importação Rápida</span>
-                            </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-400">Cole o link do anúncio ou o código MLB (ex: MLB123456789).</p>
-                            <div className="flex flex-col sm:flex-row gap-2 items-end">
-                                <div className="flex-grow w-full">
-                                    <input
-                                        type="text"
-                                        value={mercadoLivreUrl}
-                                        onChange={(e) => setMercadoLivreUrl(e.target.value)}
-                                        placeholder="Link ou código MLB..."
-                                        className="block w-full px-3 py-2 border rounded-md shadow-sm border-yellow-300 dark:border-yellow-600 bg-white dark:bg-slate-800 text-sm focus:ring-yellow-500 focus:border-yellow-500"
-                                    />
+                    {!isEditing && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                            {/* Importar Mercado Livre */}
+                            <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-md border border-yellow-200 dark:border-yellow-700 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-yellow-800 dark:text-yellow-200">Mercado Livre</span>
+                                    <span className="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200 px-2 py-0.5 rounded-full">Importação Rápida</span>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handleFetchMercadoLivreProduct}
-                                    disabled={isFetchingML}
-                                    className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50"
-                                >
-                                    {isFetchingML ? <LoadingSpinner /> : 'Importar'}
-                                </button>
-                            </div>
-                            {mlError && <p className="text-xs text-red-600 mt-1">{mlError}</p>}
-                        </div>
-
-                        {/* Importar Shopee */}
-                        <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-md border border-orange-200 dark:border-orange-700 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-orange-800 dark:text-orange-200">Shopee</span>
-                                <span className="text-xs bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 px-2 py-0.5 rounded-full">BETA</span>
-                            </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-400">Cole o link completo do produto da Shopee.</p>
-                            <div className="flex flex-col sm:flex-row gap-2 items-end">
-                                <div className="flex-grow w-full">
-                                    <input
-                                        type="text"
-                                        value={shopeeUrl}
-                                        onChange={(e) => setShopeeUrl(e.target.value)}
-                                        placeholder="https://shopee.com.br/..."
-                                        className="block w-full px-3 py-2 border rounded-md shadow-sm border-orange-300 dark:border-orange-600 bg-white dark:bg-slate-800 text-sm focus:ring-orange-500 focus:border-orange-500"
-                                    />
+                                <div className="flex flex-col sm:flex-row gap-2 items-end">
+                                    <div className="flex-grow w-full">
+                                        <input
+                                            type="text"
+                                            value={mercadoLivreUrl}
+                                            onChange={(e) => setMercadoLivreUrl(e.target.value)}
+                                            placeholder="Link ou código MLB..."
+                                            className="block w-full px-3 py-2 border rounded-md shadow-sm border-yellow-300 dark:border-yellow-600 bg-white dark:bg-slate-800 text-sm focus:ring-yellow-500 focus:border-yellow-500"
+                                        />
+                                    </div>
+                                    <button onClick={handleFetchMercadoLivreProduct} disabled={isFetchingML} className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50">
+                                        {isFetchingML ? <LoadingSpinner /> : 'Importar'}
+                                    </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handleFetchShopeeProduct}
-                                    disabled={isFetchingShopee}
-                                    className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50"
-                                >
-                                    {isFetchingShopee ? <LoadingSpinner /> : 'Importar'}
-                                </button>
+                                {mlError && <p className="text-xs text-red-600 mt-1">{mlError}</p>}
                             </div>
-                            {shopeeError && <p className="text-xs text-red-600 mt-1">{shopeeError}</p>}
-                        </div>
-                    </div>
 
-                    <form onSubmit={handleCreateProduct} className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-6">
+                            {/* Importar Shopee */}
+                            <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-md border border-orange-200 dark:border-orange-700 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-orange-800 dark:text-orange-200">Shopee</span>
+                                    <span className="text-xs bg-orange-200 dark:bg-orange-800 text-orange-800 dark:text-orange-200 px-2 py-0.5 rounded-full">BETA</span>
+                                </div>
+                                <div className="flex flex-col sm:flex-row gap-2 items-end">
+                                    <div className="flex-grow w-full">
+                                        <input
+                                            type="text"
+                                            value={shopeeUrl}
+                                            onChange={(e) => setShopeeUrl(e.target.value)}
+                                            placeholder="https://shopee.com.br/..."
+                                            className="block w-full px-3 py-2 border rounded-md shadow-sm border-orange-300 dark:border-orange-600 bg-white dark:bg-slate-800 text-sm focus:ring-orange-500 focus:border-orange-500"
+                                        />
+                                    </div>
+                                    <button onClick={handleFetchShopeeProduct} disabled={isFetchingShopee} className="w-full sm:w-auto flex-shrink-0 h-[38px] flex items-center justify-center px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 disabled:opacity-50">
+                                        {isFetchingShopee ? <LoadingSpinner /> : 'Importar'}
+                                    </button>
+                                </div>
+                                {shopeeError && <p className="text-xs text-red-600 mt-1">{shopeeError}</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    <form onSubmit={handleCreateOrUpdateProduct} className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-6">
                         {submitMessage && <Alert message={submitMessage.text} type={submitMessage.type} />}
-                        <h3 className="font-bold text-lg text-slate-800 dark:text-white">Dados do Produto</h3>
                         
                         <InputField label="Nome do Produto" name="name" value={formState.name} onChange={handleInputChange} required placeholder="Ex: iPhone 15 Pro Max" />
                         
@@ -326,9 +333,14 @@ const ProductsTab: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="flex justify-end pt-4">
+                        <div className="flex justify-end pt-4 gap-3">
+                             {isEditing && (
+                                <button type="button" onClick={() => { setIsEditing(false); setShowCreateForm(false); resetForm(); }} className="py-3 px-6 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800">
+                                    Cancelar
+                                </button>
+                             )}
                              <button type="submit" disabled={isSubmitting} className="w-full sm:w-auto py-3 px-8 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                                {isSubmitting ? <LoadingSpinner /> : 'Salvar Produto na Loja'}
+                                {isSubmitting ? <LoadingSpinner /> : (isEditing ? 'Atualizar Produto' : 'Salvar Produto')}
                             </button>
                         </div>
                     </form>
@@ -342,6 +354,7 @@ const ProductsTab: React.FC = () => {
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Produto</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Preço</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Estoque</th>
+                            <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Ações</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -357,9 +370,12 @@ const ProductsTab: React.FC = () => {
                                         {product.stock} unid.
                                     </span>
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <button onClick={() => handleEditClick(product)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300">Editar</button>
+                                </td>
                             </tr>
                         )) : (
-                            <tr><td colSpan={3} className="text-center p-8 text-slate-500 dark:text-slate-400">Nenhum produto cadastrado.</td></tr>
+                            <tr><td colSpan={4} className="text-center p-8 text-slate-500 dark:text-slate-400">Nenhum produto cadastrado.</td></tr>
                         )}
                     </tbody>
                 </table>

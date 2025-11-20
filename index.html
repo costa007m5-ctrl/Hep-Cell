@@ -2,21 +2,25 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Relp Cell - Pagamento de Faturas</title>
     <!-- PWA Tags -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Relp Cell">
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
-        darkMode: 'media', // ou 'class'
+        darkMode: 'class', // ALTERADO DE 'media' PARA 'class' PARA O BOTÃO FUNCIONAR
         theme: {
           extend: {
+            colors: {
+              primary: '#4f46e5',
+            },
             keyframes: {
               'fade-in': {
                 '0%': { opacity: '0' },
@@ -32,10 +36,15 @@
                   transform: 'translateY(0)',
                 },
               },
+              'bounce-slow': {
+                '0%, 100%': { transform: 'translateY(-5%)' },
+                '50%': { transform: 'translateY(0)' },
+              }
             },
             animation: {
-              'fade-in': 'fade-in 0.5s ease-out forwards',
-              'fade-in-up': 'fade-in-up 0.5s ease-out forwards',
+              'fade-in': 'fade-in 0.3s ease-out forwards',
+              'fade-in-up': 'fade-in-up 0.4s ease-out forwards',
+              'bounce-slow': 'bounce-slow 2s infinite',
             },
           },
         },
@@ -61,7 +70,7 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 dark:bg-slate-900">
+  <body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300 overscroll-none">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
     <!-- PWA Service Worker Registration -->

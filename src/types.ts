@@ -50,6 +50,7 @@ export interface Profile {
   notify_due_date?: boolean;
   notify_new_invoice?: boolean;
   notify_promotions?: boolean;
+  avatar_url?: string | null;
 }
 
 export interface ScoreHistory {

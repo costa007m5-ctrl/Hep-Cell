@@ -103,6 +103,7 @@ const SETUP_SQL = `
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_due_date" boolean DEFAULT true;
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_new_invoice" boolean DEFAULT true;
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "notify_promotions" boolean DEFAULT true;
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "avatar_url" "text";
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
     -- Tabela de Produtos (Products)
@@ -411,8 +412,10 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
             if (error) throw error;
             return res.status(200).json(data);
         }
-        if (req.method === 'POST') {
-            const { image_base64, ...productData } = req.body;
+        
+        // Create or Update Product
+        if (req.method === 'POST' || req.method === 'PUT') {
+            const { id, image_base64, ...productData } = req.body;
             let imageUrl = productData.image_url;
 
             if (image_base64) {
@@ -426,25 +429,42 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
                     contentType: `image/${fileExt}`,
                     upsert: true
                 });
-                if (uploadError) throw new Error(`Supabase Storage Error: ${uploadError.message}`);
+                
+                // Se o bucket não existir, tenta criar (pode falhar se não tiver permissão de admin de storage, mas tentamos)
+                if (uploadError && uploadError.message.includes('Bucket not found')) {
+                     await supabase.storage.createBucket(bucket, { public: true });
+                     // Retry upload
+                     const { error: retryError } = await supabase.storage.from(bucket).upload(filePath, buffer, { contentType: `image/${fileExt}`, upsert: true });
+                     if (retryError) throw new Error(`Supabase Storage Error: ${retryError.message}`);
+                } else if (uploadError) {
+                    throw new Error(`Supabase Storage Error: ${uploadError.message}`);
+                }
 
                 const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
                 imageUrl = publicUrlData.publicUrl;
             }
-
-            const { error } = await supabase.from('products').insert([{ ...productData, image_url: imageUrl }]);
-            if (error) throw error;
-
-            await logAction(supabase, 'PRODUCT_CREATED', 'SUCCESS', `Produto '${productData.name}' foi criado.`);
             
-            return res.status(201).json({ message: "Product created." });
+            let error;
+            if (req.method === 'PUT' && id) {
+                 // Update
+                 const { error: updateError } = await supabase.from('products').update({ ...productData, image_url: imageUrl }).eq('id', id);
+                 error = updateError;
+                 await logAction(supabase, 'PRODUCT_UPDATED', 'SUCCESS', `Produto '${productData.name}' foi atualizado.`);
+            } else {
+                 // Create
+                 const { error: insertError } = await supabase.from('products').insert([{ ...productData, image_url: imageUrl }]);
+                 error = insertError;
+                 await logAction(supabase, 'PRODUCT_CREATED', 'SUCCESS', `Produto '${productData.name}' foi criado.`);
+            }
+
+            if (error) throw error;
+            
+            return res.status(201).json({ message: req.method === 'PUT' ? "Product updated." : "Product created." });
         }
-        res.setHeader('Allow', ['GET', 'POST']);
+        res.setHeader('Allow', ['GET', 'POST', 'PUT']);
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (error: any) {
-        if (req.method === 'POST') {
-            await logAction(supabase, 'PRODUCT_CREATED', 'FAILURE', 'Falha ao criar produto.', { error: error.message, productData: req.body });
-        }
+        await logAction(supabase, 'PRODUCT_OPERATION', 'FAILURE', 'Falha ao criar/editar produto.', { error: error.message, productData: req.body });
         return res.status(500).json({ error: error.message });
     }
 }
