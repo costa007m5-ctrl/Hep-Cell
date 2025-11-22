@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
 import { supabase } from '../services/clients';
@@ -23,6 +23,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
+  const [paymentMethodInfo, setPaymentMethodInfo] = useState<{ id: string; name: string; thumbnail: string } | null>(null);
   
   // Busca email do usuário logado
   useEffect(() => {
@@ -40,97 +41,121 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   useEffect(() => {
     if (!payerEmail || !mpPublicKey) return;
 
-    // Limpa container anterior se existir (embora React lide com isso, o SDK injeta iframes)
+    // Verifica se já montou para evitar duplicação ou loops
     const container = document.getElementById('form-checkout__cardNumber');
-    if (container && container.innerHTML !== '') return;
-
-    const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+    if (!container) return; // Se o componente desmontou, para.
     
-    // Inicializa o CardForm
-    const cardForm = mp.cardForm({
-      amount: String(invoice.amount),
-      iframe: true,
-      form: {
-        id: "form-checkout",
-        cardNumber: { id: "form-checkout__cardNumber", placeholder: "Número do cartão" },
-        expirationDate: { id: "form-checkout__expirationDate", placeholder: "MM/YY" },
-        securityCode: { id: "form-checkout__securityCode", placeholder: "CVC" },
-        cardholderName: { id: "form-checkout__cardholderName", placeholder: "Titular do cartão" },
-        issuer: { id: "form-checkout__issuer", placeholder: "Banco emissor" },
-        installments: { id: "form-checkout__installments", placeholder: "Parcelas" },
-        identificationType: { id: "form-checkout__identificationType", placeholder: "Tipo de documento" },
-        identificationNumber: { id: "form-checkout__identificationNumber", placeholder: "Número do documento" },
-        cardholderEmail: { id: "form-checkout__cardholderEmail", placeholder: "E-mail" },
-      },
-      callbacks: {
-        onFormMounted: (error: any) => {
-          if (error) return console.warn("Erro ao montar formulário:", error);
-        },
-        onSubmit: (event: any) => {
-          event.preventDefault();
-          setStatus(PaymentStatus.PENDING);
-          setMessage('');
+    // Se já tiver conteúdo (iframes), não reinicializa
+    if (container.innerHTML.trim() !== '') return;
 
-          const {
-            paymentMethodId,
-            issuerId,
-            cardholderEmail,
-            amount,
-            token,
-            installments,
-            identificationNumber,
-            identificationType,
-          } = cardForm.getCardFormData();
-
-          // Mapeamento Explícito para garantir snake_case no backend
-          const payload = {
-            token,
-            issuer_id: issuerId,
-            payment_method_id: paymentMethodId,
-            transaction_amount: Number(amount),
-            installments: Number(installments),
-            description: `Fatura ${invoice.month}`,
-            payer: {
-              email: cardholderEmail || payerEmail,
-              identification: { type: identificationType, number: identificationNumber }
+    try {
+        const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+        
+        const cardForm = mp.cardForm({
+          amount: String(invoice.amount),
+          iframe: true,
+          form: {
+            id: "form-checkout",
+            cardNumber: { id: "form-checkout__cardNumber", placeholder: "Número do cartão" },
+            expirationDate: { id: "form-checkout__expirationDate", placeholder: "MM/YY" },
+            securityCode: { id: "form-checkout__securityCode", placeholder: "CVC" },
+            cardholderName: { id: "form-checkout__cardholderName", placeholder: "Titular do cartão" },
+            issuer: { id: "form-checkout__issuer", placeholder: "Banco emissor" },
+            installments: { id: "form-checkout__installments", placeholder: "Parcelas" },
+            identificationType: { id: "form-checkout__identificationType", placeholder: "Tipo de documento" },
+            identificationNumber: { id: "form-checkout__identificationNumber", placeholder: "Número do documento" },
+            cardholderEmail: { id: "form-checkout__cardholderEmail", placeholder: "E-mail" },
+          },
+          callbacks: {
+            onFormMounted: (error: any) => {
+              if (error) console.warn("Erro ao montar formulário:", error);
             },
-            external_reference: invoice.id
-          };
-
-          // Envia para o backend
-          fetch('/api/mercadopago/process-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-          .then(async (response) => {
-              const result = await response.json();
-              if (!response.ok) throw new Error(result.message || 'Erro ao processar pagamento.');
+            onPaymentMethodChange: (data: any) => {
+                // Atualiza estado para mostrar bandeira
+                if (data) {
+                    setPaymentMethodInfo({
+                        id: data.id,
+                        name: data.name,
+                        thumbnail: data.secure_thumbnail || data.thumbnail
+                    });
+                }
+            },
+            onSubmit: (event: any) => {
+              event.preventDefault();
               
-              if (result.status === 'approved') {
-                  const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
-                  setMessage(successMsg);
-                  setStatus(PaymentStatus.SUCCESS);
-                  setTimeout(() => onPaymentSuccess(result.id), 4000);
-              } else if (result.status === 'in_process') {
-                  setMessage("Seu pagamento está em análise.");
-                  setStatus(PaymentStatus.SUCCESS);
-                  setTimeout(() => onPaymentSuccess(result.id), 4000);
-              } else {
-                  throw new Error(result.message || 'Pagamento recusado.');
+              const {
+                paymentMethodId,
+                issuerId,
+                cardholderEmail,
+                amount,
+                token,
+                installments,
+                identificationNumber,
+                identificationType,
+              } = cardForm.getCardFormData();
+
+              if (!token || !paymentMethodId || !amount || !installments) {
+                  setMessage('Verifique se todos os campos estão preenchidos corretamente.');
+                  return;
               }
-          })
-          .catch((error: any) => {
-              console.error('Erro:', error);
-              setStatus(PaymentStatus.ERROR);
-              setMessage(error.message || 'Erro ao processar. Verifique os dados.');
-          });
-        },
-        onFetching: (resource: string) => {
-           // Pode usar para mostrar loading em campos específicos se necessário
-        }
-      }
-    });
+
+              setStatus(PaymentStatus.PENDING);
+              setMessage('');
+
+              // Mapeamento Explícito para garantir snake_case no backend
+              const payload = {
+                token,
+                issuer_id: issuerId,
+                payment_method_id: paymentMethodId,
+                transaction_amount: Number(amount),
+                installments: Number(installments),
+                description: `Fatura ${invoice.month}`,
+                payer: {
+                  email: cardholderEmail || payerEmail,
+                  identification: { type: identificationType, number: identificationNumber }
+                },
+                external_reference: invoice.id
+              };
+
+              // Envia para o backend
+              fetch('/api/mercadopago/process-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              })
+              .then(async (response) => {
+                  const result = await response.json();
+                  if (!response.ok) throw new Error(result.message || result.error || 'Erro ao processar pagamento.');
+                  
+                  if (result.status === 'approved') {
+                      const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
+                      setMessage(successMsg);
+                      setStatus(PaymentStatus.SUCCESS);
+                      setTimeout(() => onPaymentSuccess(result.id), 4000);
+                  } else if (result.status === 'in_process') {
+                      setMessage("Seu pagamento está em análise.");
+                      setStatus(PaymentStatus.SUCCESS);
+                      setTimeout(() => onPaymentSuccess(result.id), 4000);
+                  } else {
+                      throw new Error(result.message || 'Pagamento recusado.');
+                  }
+              })
+              .catch((error: any) => {
+                  console.error('Erro:', error);
+                  setStatus(PaymentStatus.ERROR);
+                  setMessage(error.message || 'Erro ao processar. Verifique os dados.');
+              });
+            },
+            onFetching: (resource: string) => {
+               // Loading interno do SDK se necessário
+            }
+          }
+        });
+    } catch (e) {
+        console.error("Erro ao inicializar MP:", e);
+        setMessage("Erro ao carregar sistema de pagamento. Tente recarregar a página.");
+        setStatus(PaymentStatus.ERROR);
+    }
   }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess]);
 
   const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
@@ -159,9 +184,14 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         <form id="form-checkout" className="space-y-4">
             {status === PaymentStatus.ERROR && <Alert message={message} type="error" />}
             
-            <div>
+            <div className="relative">
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão</label>
                 <div id="form-checkout__cardNumber" className={containerStyle}></div>
+                {paymentMethodInfo && (
+                    <div className="absolute top-7 right-3 pointer-events-none bg-white dark:bg-slate-700 pl-2">
+                        <img src={paymentMethodInfo.thumbnail} alt={paymentMethodInfo.name} className="h-6 w-auto" />
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -177,22 +207,27 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
             <div>
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Titular do Cartão</label>
-                <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Como no cartão" />
+                <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Nome como no cartão" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4 hidden">
-                 {/* Ocultos pois o SDK controla, mas precisam existir no DOM */}
-                <select id="form-checkout__issuer" className={inputStyle}></select>
-                <select id="form-checkout__identificationType" className={inputStyle}></select>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Banco Emissor</label>
+                    <select id="form-checkout__issuer" className={inputStyle}></select>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Tipo Doc.</label>
+                    <select id="form-checkout__identificationType" className={inputStyle}></select>
+                </div>
             </div>
 
             <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">CPF do Titular</label>
-                <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="000.000.000-00" />
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Documento</label>
+                <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="CPF do titular" />
             </div>
 
             <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parcelas</label>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parcelamento</label>
                 <select id="form-checkout__installments" className={inputStyle}></select>
             </div>
 
@@ -210,7 +245,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in overflow-hidden">
        <div className="text-center p-6 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito</h2>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito/Débito</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Ambiente seguro Mercado Pago
         </p>
