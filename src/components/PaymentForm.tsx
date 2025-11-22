@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
@@ -22,7 +23,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [preferenceId, setPreferenceId] = useState<string | null>(null);
   const [payerEmail, setPayerEmail] = useState<string>('');
   
   const paymentBrickRef = useRef<HTMLDivElement>(null);
@@ -34,55 +34,29 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         const { data: { user } } = await supabase.auth.getUser();
         if (user && user.email) {
             setPayerEmail(user.email);
+        } else {
+            // Fallback para evitar erro se o email demorar a carregar
+            setPayerEmail('cliente@relpcell.com');
         }
+        setIsLoading(false); // Libera o carregamento inicial após obter o email
     };
     fetchUser();
   }, []);
 
-  // Cria a preferência de pagamento
+  // Inicializa o Payment Brick DIRETAMENTE (Sem Create Preference)
   useEffect(() => {
-    const createPreference = async () => {
-      setIsLoading(true);
-      setStatus(PaymentStatus.IDLE);
-      try {
-        const response = await fetch('/api/mercadopago/create-preference', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: invoice.id,
-            description: `Fatura Relp Cell - ${invoice.month}`,
-            amount: invoice.amount,
-            payerEmail: payerEmail
-          }),
-        });
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Falha ao criar a preferência de pagamento.');
-        }
-        const data = await response.json();
-        setPreferenceId(data.id);
-      } catch (error: any) {
-        setStatus(PaymentStatus.ERROR);
-        setMessage(error.message || 'Não foi possível iniciar o pagamento. Tente novamente mais tarde.');
-        setIsLoading(false);
+    if (!isLoading && payerEmail && mpPublicKey && paymentBrickRef.current) {
+      // Limpa instância anterior se houver
+      if (brickInstance.current) {
+          brickInstance.current.unmount();
       }
-    };
-    
-    if (payerEmail) {
-        createPreference();
-    }
-  }, [invoice, payerEmail]);
 
-  // Inicializa o Payment Brick
-  useEffect(() => {
-    if (preferenceId && mpPublicKey && paymentBrickRef.current) {
       const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
       const bricks = mp.bricks();
 
       const settings = {
         initialization: {
-          amount: invoice.amount,
-          preferenceId: preferenceId,
+          amount: invoice.amount, // Valor direto
           payer: {
             email: payerEmail,
           },
@@ -107,7 +81,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         },
         callbacks: {
           onReady: () => {
-            setIsLoading(false);
+            // Brick carregado
           },
           onSubmit: (formData: any) => {
             // RETORNAR UMA PROMISE É OBRIGATÓRIO PARA O BRICK NÃO TRAVAR
@@ -115,9 +89,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 setStatus(PaymentStatus.PENDING);
                 setMessage('');
                 
-                if (!formData.external_reference) {
-                    formData.external_reference = invoice.id;
-                }
+                // Garante que a referência externa está presente
+                formData.external_reference = invoice.id;
+                formData.description = `Fatura ${invoice.month}`;
 
                 try {
                   const response = await fetch('/api/mercadopago/process-payment', {
@@ -178,7 +152,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         .catch((err: any) => {
             console.error("Erro ao criar Brick:", err);
             setStatus(PaymentStatus.ERROR);
-            setMessage("Erro ao carregar o formulário de pagamento.");
+            setMessage("Erro ao carregar o formulário de pagamento. Verifique sua conexão.");
         });
     }
 
@@ -187,7 +161,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           brickInstance.current.unmount();
         }
     };
-  }, [preferenceId, mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess]);
+  }, [isLoading, payerEmail, mpPublicKey, invoice.amount, invoice.id, onPaymentSuccess]);
 
   const renderContent = () => {
     if (status === PaymentStatus.PENDING) {
@@ -233,7 +207,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
        <div className="text-center p-6 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">Pagamento via Cartão</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Fatura de {invoice.month} - <span className="font-bold text-indigo-600 dark:text-indigo-400">R$ {invoice.amount.toFixed(2).replace('.', ',')}</span>
+            Fatura de {invoice.month} - <span className="font-bold text-indigo-600 dark:text-indigo-400">R$ {invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
         </p>
       </div>
 

@@ -159,35 +159,52 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = getMercadoPagoClient();
-
         const paymentData = req.body;
-        if (!paymentData.token || !paymentData.payer?.email || !paymentData.transaction_amount) {
-            return res.status(400).json({ message: 'Dados de pagamento incompletos. Verifique token, email e valor.' });
+
+        // Validação Básica dos Dados Recebidos do Brick
+        if (!paymentData.token || !paymentData.transaction_amount || !paymentData.payer?.email) {
+            console.error("Dados incompletos recebidos do frontend:", paymentData);
+            return res.status(400).json({ message: 'Dados de pagamento incompletos. Verifique o cartão e tente novamente.' });
         }
         
         const payment = new Payment(client);
         
-        // Garante que a external_reference seja string (invoice ID)
-        const payload = { ...paymentData, external_reference: String(paymentData.external_reference || '') };
+        // Construção Segura do Payload (Sanitização)
+        // O Brick envia muitos dados, mas precisamos extrair e formatar apenas o necessário para evitar erros de validação da API
+        const payload = {
+            token: paymentData.token,
+            issuer_id: paymentData.issuer_id,
+            payment_method_id: paymentData.payment_method_id,
+            transaction_amount: Number(paymentData.transaction_amount),
+            installments: Number(paymentData.installments),
+            description: paymentData.description || 'Pagamento Relp Cell',
+            payer: {
+                email: paymentData.payer.email,
+                identification: paymentData.payer.identification ? {
+                    type: paymentData.payer.identification.type,
+                    number: paymentData.payer.identification.number
+                } : undefined
+            },
+            external_reference: String(paymentData.external_reference || '')
+        };
 
-        // IMPORTANTE: O Brick envia tudo que precisa. Não devemos recriar o objeto do zero se ele já vem completo.
+        console.log("Processando pagamento Card:", JSON.stringify({ ...payload, token: '***' }));
+
         const result = await payment.create({ body: payload });
-        
         const invoiceId = result.external_reference;
 
         if (result.status === 'approved') {
-            await supabase.from('invoices').update({ status: 'Paga', payment_id: String(result.id), payment_date: new Date().toISOString() }).eq('id', invoiceId);
-            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} APROVADO para fatura ${invoiceId}.`);
+            if (invoiceId) {
+                await supabase.from('invoices').update({ status: 'Paga', payment_id: String(result.id), payment_date: new Date().toISOString() }).eq('id', invoiceId);
+            }
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento Cartão ${result.id} APROVADO.`);
             return res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento aprovado.' });
         } else if (result.status === 'in_process' || result.status === 'pending') {
-            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento ${result.id} PENDENTE para fatura ${invoiceId}.`);
-            return res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento pendente de processamento.' });
+            await logAction(supabase, 'PAYMENT_PROCESSED', 'SUCCESS', `Pagamento Cartão ${result.id} EM ANÁLISE.`);
+            return res.status(200).json({ status: result.status, id: result.id, message: 'Pagamento em análise.' });
         } else {
-             // Pagamento recusado
              const failMessage = getPaymentErrorMessage(result.status_detail || 'unknown');
-             await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento para fatura ${invoiceId} falhou. Motivo: ${result.status_detail}`, { result });
-            
-            // Retorna 200 para que o frontend possa ler a mensagem de recusa e exibir
+             await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Pagamento Cartão ${result.id} RECUSADO: ${result.status_detail}`);
             return res.status(200).json({ 
                 status: result.status, 
                 message: failMessage,
@@ -195,10 +212,9 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             });
         }
     } catch (error: any) {
-        await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Erro no endpoint process-payment.`, { error: error.message });
-        console.error('Erro ao processar pagamento com Mercado Pago:', error);
-        // Retorna 500, mas com JSON, para o frontend não quebrar no .json()
-        return res.status(500).json({ error: 'Falha ao processar o pagamento.', message: error?.cause?.message || error.message || 'Ocorreu um erro interno no servidor de pagamento.' });
+        console.error('Erro CRÍTICO ao processar cartão:', error);
+        await logAction(supabase, 'PAYMENT_PROCESSED', 'FAILURE', `Erro técnico processamento cartão.`, { error: error.message });
+        return res.status(500).json({ error: 'Erro no servidor de pagamento.', message: error.message || 'Falha na comunicação com a operadora.' });
     }
 }
 
