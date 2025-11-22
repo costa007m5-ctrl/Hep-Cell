@@ -417,6 +417,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [bulkSelection, setBulkSelection] = useState<Invoice[]>([]); 
     const [isRenegotiating, setIsRenegotiating] = useState(false); 
     const [negotiationRate, setNegotiationRate] = useState(15);
+    const [isRedirecting, setIsRedirecting] = useState(false); // State para loading de redirecionamento
     
     const { addToast } = useToast();
 
@@ -648,10 +649,64 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         }
     };
 
+    const handlePaymentMethodSelection = async (method: string) => {
+        if (!selectedInvoice) return;
+
+        if (method === 'brick') {
+            // Disabled via UI but blocked here too
+            return;
+        } else if (method === 'pix') {
+            setPaymentStep('pay_pix');
+        } else if (method === 'boleto') {
+            setPaymentStep('pay_boleto');
+        } else if (method === 'redirect') {
+            setIsRedirecting(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                const response = await fetch('/api/mercadopago/create-preference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: selectedInvoice.id,
+                        description: `Fatura Relp Cell - ${selectedInvoice.month}`,
+                        amount: selectedInvoice.amount,
+                        redirect: true,
+                        payerEmail: user?.email
+                    }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Falha ao iniciar pagamento.');
+                }
+
+                const data = await response.json();
+                if (data.init_point) {
+                    window.location.href = data.init_point;
+                } else {
+                    throw new Error('URL de redirecionamento não recebida.');
+                }
+            } catch (error) {
+                console.error(error);
+                addToast('Não foi possível conectar ao Mercado Pago. Tente novamente.', 'error');
+                setIsRedirecting(false);
+            }
+        }
+    };
+
     // Render Payment Flow
     if (paymentStep !== 'list' && selectedInvoice) {
         switch (paymentStep) {
-            case 'select_method': return <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={(m) => { if(m==='brick') setPaymentStep('pay_card'); else if(m==='pix') setPaymentStep('pay_pix'); else if(m==='boleto') setPaymentStep('pay_boleto'); }} onBack={() => {setPaymentStep('list'); setBulkSelection([]);}} />;
+            case 'select_method': 
+                if (isRedirecting) {
+                    return (
+                        <div className="w-full max-w-md flex flex-col items-center justify-center space-y-4 p-8 bg-white dark:bg-slate-800 rounded-2xl shadow-lg">
+                            <LoadingSpinner />
+                            <p className="text-slate-600 dark:text-slate-300 font-medium text-center">Redirecionando para o Mercado Pago...</p>
+                            <p className="text-xs text-slate-400 text-center">Você poderá pagar com saldo, cartão ou crédito.</p>
+                        </div>
+                    );
+                }
+                return <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={handlePaymentMethodSelection} onBack={() => {setPaymentStep('list'); setBulkSelection([]);}} />;
             case 'pay_card': return <PaymentForm invoice={selectedInvoice} mpPublicKey={mpPublicKey} onBack={() => setPaymentStep('select_method')} onPaymentSuccess={handlePaymentSuccess} />;
             case 'pay_pix': return <PixPayment invoice={selectedInvoice} onBack={() => setPaymentStep('list')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
             case 'pay_boleto': return <BoletoPayment invoice={selectedInvoice} onBack={() => {setPaymentStep('list'); setSelectedInvoice(null);}} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
