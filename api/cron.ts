@@ -15,7 +15,7 @@ async function sendEmailMock(to: string, subject: string, body: string) {
     return true;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(_req: VercelRequest, res: VercelResponse) {
     // Segurança: Cron jobs da Vercel enviam um header de autorização específico
     // Para testes manuais via painel admin, permitimos POST sem header se autenticado na sessão do navegador (tratado no frontend)
     // Em produção real, deve-se verificar req.headers['authorization'] === `Bearer ${process.env.CRON_SECRET}`

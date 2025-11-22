@@ -24,6 +24,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
   const [paymentMethodInfo, setPaymentMethodInfo] = useState<{ id: string; name: string; thumbnail: string } | null>(null);
+  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   
   // Busca email do usuário logado
   useEffect(() => {
@@ -38,20 +39,38 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     fetchUser();
   }, []);
 
+  // Verifica se o script do MP já carregou
   useEffect(() => {
-    if (!payerEmail || !mpPublicKey) return;
+      if (window.MercadoPago) {
+          setIsScriptLoaded(true);
+      } else {
+          const interval = setInterval(() => {
+              if (window.MercadoPago) {
+                  setIsScriptLoaded(true);
+                  clearInterval(interval);
+              }
+          }, 100);
+          return () => clearInterval(interval);
+      }
+  }, []);
 
-    // Verifica se já montou para evitar duplicação ou loops
-    const container = document.getElementById('form-checkout__cardNumber');
-    if (!container) return; // Se o componente desmontou, para.
-    
-    // Se já tiver conteúdo (iframes), não reinicializa
-    if (container.innerHTML.trim() !== '') return;
+  useEffect(() => {
+    if (!payerEmail || !mpPublicKey || !isScriptLoaded) return;
+
+    // Aguarda o elemento do DOM estar pronto
+    const formElement = document.getElementById('form-checkout');
+    if (!formElement) return;
+
+    // Limpa o formulário anterior para evitar duplicação
+    const cardContainer = document.getElementById('form-checkout__cardNumber');
+    if (cardContainer && cardContainer.innerHTML.trim() !== '') return;
+
+    let cardForm: any;
 
     try {
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         
-        const cardForm = mp.cardForm({
+        cardForm = mp.cardForm({
           amount: String(invoice.amount),
           iframe: true,
           form: {
@@ -71,7 +90,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               if (error) console.warn("Erro ao montar formulário:", error);
             },
             onPaymentMethodChange: (data: any) => {
-                // Atualiza estado para mostrar bandeira
                 if (data) {
                     setPaymentMethodInfo({
                         id: data.id,
@@ -83,18 +101,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             onSubmit: (event: any) => {
               event.preventDefault();
               
-              const {
-                paymentMethodId,
-                issuerId,
-                cardholderEmail,
-                amount,
-                token,
-                installments,
-                identificationNumber,
-                identificationType,
-              } = cardForm.getCardFormData();
-
-              if (!token || !paymentMethodId || !amount || !installments) {
+              const formData = cardForm.getCardFormData();
+              
+              if (!formData.token || !formData.paymentMethodId || !formData.transactionAmount) {
                   setMessage('Verifique se todos os campos estão preenchidos corretamente.');
                   return;
               }
@@ -104,15 +113,18 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
               // Mapeamento Explícito para garantir snake_case no backend
               const payload = {
-                token,
-                issuer_id: issuerId,
-                payment_method_id: paymentMethodId,
-                transaction_amount: Number(amount),
-                installments: Number(installments),
+                token: formData.token,
+                issuer_id: formData.issuerId,
+                payment_method_id: formData.paymentMethodId,
+                transaction_amount: Number(formData.amount),
+                installments: Number(formData.installments),
                 description: `Fatura ${invoice.month}`,
                 payer: {
-                  email: cardholderEmail || payerEmail,
-                  identification: { type: identificationType, number: identificationNumber }
+                  email: formData.cardholderEmail || payerEmail,
+                  identification: { 
+                      type: formData.identificationType, 
+                      number: formData.identificationNumber 
+                  }
                 },
                 external_reference: invoice.id
               };
@@ -146,9 +158,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   setMessage(error.message || 'Erro ao processar. Verifique os dados.');
               });
             },
-            onFetching: (resource: string) => {
-               // Loading interno do SDK se necessário
-            }
           }
         });
     } catch (e) {
@@ -156,7 +165,18 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         setMessage("Erro ao carregar sistema de pagamento. Tente recarregar a página.");
         setStatus(PaymentStatus.ERROR);
     }
-  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess]);
+
+    // Cleanup function
+    return () => {
+        const cardContainer = document.getElementById('form-checkout__cardNumber');
+        if (cardContainer) cardContainer.innerHTML = '';
+        if (cardForm) {
+            try {
+                cardForm.unmount(); 
+            } catch(e) {}
+        }
+    };
+  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess, isScriptLoaded]);
 
   const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
   const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
@@ -245,7 +265,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in overflow-hidden">
        <div className="text-center p-6 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito/Débito</h2>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Ambiente seguro Mercado Pago
         </p>
