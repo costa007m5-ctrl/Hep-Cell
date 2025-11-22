@@ -3,12 +3,34 @@ import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import Modal from './Modal';
 
 interface AuthPageProps {
   onAdminLoginClick?: () => void;
 }
 
 type AuthMode = 'login' | 'register' | 'recovery';
+
+// --- Textos Legais (Poderia ser extraído para um arquivo shared) ---
+const TERMS_TEXT = (
+    <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
+        <p><strong>1. Aceitação dos Termos</strong><br/>Ao acessar e usar o aplicativo Relp Cell, você concorda em cumprir estes Termos de Uso e todas as leis aplicáveis. Se você não concordar, não use o aplicativo.</p>
+        <p><strong>2. Serviços Oferecidos</strong><br/>A Relp Cell oferece uma plataforma para gestão de compras, pagamentos de faturas via Pix, Boleto ou Cartão, e visualização de limites de crédito.</p>
+        <p><strong>3. Cadastro e Segurança</strong><br/>Você é responsável por manter a confidencialidade de sua conta e senha. A Relp Cell não se responsabiliza por acessos não autorizados resultantes de negligência do usuário.</p>
+        <p><strong>4. Pagamentos e Crédito</strong><br/>O limite de crédito é concedido mediante análise e pode ser alterado ou cancelado a qualquer momento. O não pagamento das faturas até o vencimento acarretará multas, juros e possível bloqueio do serviço.</p>
+        <p><strong>5. Modificações</strong><br/>Podemos revisar estes termos a qualquer momento. Ao usar este aplicativo, você concorda em ficar vinculado à versão atual desses Termos de Uso.</p>
+    </div>
+);
+
+const PRIVACY_TEXT = (
+    <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
+        <p><strong>1. Coleta de Dados</strong><br/>Coletamos informações pessoais como Nome, CPF, Endereço, Telefone e E-mail para fins de cadastro, análise de crédito e emissão de notas fiscais.</p>
+        <p><strong>2. Uso das Informações</strong><br/>Seus dados são usados para processar transações, enviar notificações de cobrança, melhorar nosso atendimento e prevenir fraudes.</p>
+        <p><strong>3. Compartilhamento</strong><br/>Não vendemos seus dados. Compartilhamos apenas com parceiros estritamente necessários para a operação (ex: gateways de pagamento como Mercado Pago e bureaus de crédito para análise).</p>
+        <p><strong>4. Segurança</strong><br/>Adotamos medidas de segurança adequadas para proteger contra acesso não autorizado, alteração ou destruição de seus dados pessoais.</p>
+        <p><strong>5. Seus Direitos</strong><br/>Você tem o direito de acessar, corrigir ou solicitar a exclusão de seus dados pessoais de nossa base, exceto quando a retenção for necessária por lei (ex: registros fiscais).</p>
+    </div>
+);
 
 const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [mode, setMode] = useState<AuthMode>('login');
@@ -36,6 +58,10 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   });
   const [loadingCep, setLoadingCep] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
+  
+  // Termos de Aceite
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [legalModalContent, setLegalModalContent] = useState<'terms' | 'privacy' | null>(null);
 
   const streetNumberRef = useRef<HTMLInputElement>(null);
 
@@ -250,6 +276,10 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         // Validação básica de cadastro
         if (!fullName || !cpf || !phone || !cep || !address.number) {
             throw new Error("Por favor, preencha todos os dados para emitirmos suas faturas corretamente.");
+        }
+
+        if (!termsAccepted) {
+            throw new Error("Você precisa ler e aceitar os Termos de Uso e Política de Privacidade para criar uma conta.");
         }
 
         // Verificação final de Duplicidade
@@ -653,6 +683,26 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                             />
                         </div>
                     </div>
+
+                    {/* Termos de Uso Checkbox */}
+                    <div className="flex items-start mt-4">
+                        <div className="flex items-center h-5">
+                            <input
+                                id="terms"
+                                name="terms"
+                                type="checkbox"
+                                required
+                                checked={termsAccepted}
+                                onChange={(e) => setTermsAccepted(e.target.checked)}
+                                className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded bg-slate-200 dark:bg-slate-700 border-none"
+                            />
+                        </div>
+                        <div className="ml-3 text-xs">
+                            <label htmlFor="terms" className="font-medium text-slate-700 dark:text-slate-300">
+                                Li e concordo com os <button type="button" onClick={() => setLegalModalContent('terms')} className="text-indigo-600 hover:underline font-bold">Termos de Uso</button> e <button type="button" onClick={() => setLegalModalContent('privacy')} className="text-indigo-600 hover:underline font-bold">Política de Privacidade</button>.
+                            </label>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -714,6 +764,21 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             </div>
         )}
       </div>
+
+      {/* Modal para Leitura de Termos e Privacidade */}
+      <Modal isOpen={!!legalModalContent} onClose={() => setLegalModalContent(null)}>
+            <div className="text-slate-900 dark:text-white">
+                <h3 className="text-xl font-bold mb-4">
+                    {legalModalContent === 'terms' ? 'Termos de Uso' : 'Política de Privacidade'}
+                </h3>
+                <div className="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                    {legalModalContent === 'terms' ? TERMS_TEXT : PRIVACY_TEXT}
+                </div>
+                <button onClick={() => setLegalModalContent(null)} className="w-full mt-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors">
+                    Entendi
+                </button>
+            </div>
+      </Modal>
     </div>
   );
 };

@@ -149,7 +149,7 @@ const AppContent: React.FC = () => {
       case Tab.INICIO: return <PageInicio setActiveTab={setActiveTab} />;
       case Tab.FATURAS: return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
       case Tab.LOJA: return <PageLoja />;
-      case Tab.PERFIL: return <PagePerfil session={session} />;
+      case Tab.PERFIL: return <PagePerfil session={session} toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
       case Tab.NOTIFICATIONS: return <PageNotifications onBack={() => setActiveTab(Tab.INICIO)} />;
       default: return <PageInicio setActiveTab={setActiveTab} />;
     }

@@ -8,71 +8,34 @@ import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
 import ReceiptDetails from './ReceiptDetails';
+import Modal from './Modal';
 
 interface PagePerfilProps {
     session: Session;
+    toggleTheme?: () => void;
+    isDarkMode?: boolean;
 }
 
-// --- Dados da Base de Conhecimento (50+ FAQs) ---
-const faqDatabase = [
-    // FINANCEIRO
-    { category: 'Financeiro', q: 'Quais as formas de pagamento aceitas?', a: 'Aceitamos PIX (aprovação imediata), Cartão de Crédito em até 12x e Boleto Bancário.' },
-    { category: 'Financeiro', q: 'Onde vejo a linha digitável do boleto?', a: 'Na aba "Faturas", clique em "Pagar" e selecione Boleto. Após gerar, você verá a opção de copiar o código.' },
-    { category: 'Financeiro', q: 'Paguei via Boleto, quando libera?', a: 'Pagamentos via boleto podem levar até 2 dias úteis (48h) para serem compensados pelo banco.' },
-    { category: 'Financeiro', q: 'Paguei via PIX, mas consta pendente.', a: 'O PIX costuma ser instantâneo. Se demorar mais de 15 min, feche e abra o app. Se persistir, abra um chamado enviando o comprovante.' },
-    { category: 'Financeiro', q: 'Posso pagar fatura atrasada?', a: 'Sim. Os encargos serão calculados automaticamente na próxima fatura ou no ato do pagamento.' },
-    { category: 'Financeiro', q: 'Como antecipar parcelas?', a: 'Vá em "Faturas", expanda a compra desejada e selecione as parcelas futuras que deseja pagar. Você ganha desconto automático.' },
-    { category: 'Financeiro', q: 'Onde vejo meu comprovante?', a: 'Na aba "Faturas", clique em "Histórico". Selecione a fatura paga e clique em "Ver Comprovante".' },
-    { category: 'Financeiro', q: 'Meu cartão foi recusado, o que fazer?', a: 'Verifique se há limite disponível e se os dados estão corretos. Por segurança, o banco emissor pode bloquear compras online.' },
-    { category: 'Financeiro', q: 'Cobrança duplicada na fatura.', a: 'Se identificar duplicidade, abra um chamado imediatamente na categoria "Financeiro" com o print da cobrança.' },
-    { category: 'Financeiro', q: 'Como funciona o desconto à vista?', a: 'Pagamentos via PIX ou 1x no cartão possuem desconto promocional já aplicado no valor final.' },
-    { category: 'Financeiro', q: 'Posso alterar a data de vencimento?', a: 'A data é definida no momento da compra/contrato. Para alterar, entre em contato com o suporte via WhatsApp.' },
-    
-    // CRÉDITO E LIMITES
-    { category: 'Crédito', q: 'Como aumento meu limite?', a: 'O limite é analisado mensalmente. Pague em dia, mantenha seu score alto e use o app frequentemente para aumentar suas chances.' },
-    { category: 'Crédito', q: 'O que é o Score Relp?', a: 'É uma pontuação interna baseada no seu histórico de pagamentos e comportamento de compra conosco.' },
-    { category: 'Crédito', q: 'Por que meu pedido foi negado?', a: 'A análise de crédito considera vários fatores: renda presumida, histórico de pagamentos e score externo. Tente novamente em 30 dias.' },
-    { category: 'Crédito', q: 'Como solicitar nova análise?', a: 'Na tela inicial, clique em "Meus Limites" e depois em "Solicitar Aumento". Disponível a cada 90 dias.' },
-    { category: 'Crédito', q: 'Meu limite diminuiu, por que?', a: 'Atrasos constantes ou negativação no CPF podem reduzir seu limite preventivamente.' },
-    { category: 'Crédito', q: 'O limite é por parcela ou total?', a: 'Nosso sistema trabalha com "Limite de Parcela". O valor da parcela da sua compra não pode exceder este limite.' },
-    { category: 'Crédito', q: 'Preciso comprovar renda?', a: 'Geralmente não. Usamos inteligência artificial para analisar seu perfil. Em casos raros, podemos solicitar via chat.' },
-    { category: 'Crédito', q: 'Estou negativado, posso comprar?', a: 'Cada caso é analisado individualmente. A negativação reduz o score, mas não impede a análise automática.' },
-    
-    // PEDIDOS E LOJA
-    { category: 'Loja', q: 'Qual o prazo de entrega?', a: 'O prazo varia conforme seu CEP. Você pode simular o frete e prazo na página do produto antes da compra.' },
-    { category: 'Loja', q: 'Como rastrear meu pedido?', a: 'Vá em "Perfil" > "Meus Pedidos". Lá você encontra o código de rastreio assim que o objeto for postado.' },
-    { category: 'Loja', q: 'Posso cancelar uma compra?', a: 'Se o pedido não foi enviado, cancele direto no app. Se já foi, recuse a entrega ou solicite devolução em até 7 dias.' },
-    { category: 'Loja', q: 'O produto tem garantia?', a: 'Sim. Todos os eletrônicos possuem garantia legal de 90 dias + garantia do fabricante (geralmente 1 ano).' },
-    { category: 'Loja', q: 'Recebi o produto errado.', a: 'Pedimos desculpas. Abra um chamado na categoria "Vendas" e enviaremos o código de logística reversa.' },
-    { category: 'Loja', q: 'Vocês vendem iphone usado?', a: 'Vendemos produtos Novos (Lacrados) e Seminovos (Vitrine). A condição está sempre clara no nome do produto.' },
-    { category: 'Loja', q: 'Posso retirar na loja física?', a: 'No momento operamos apenas com envio via Correios/Transportadoras para todo o Brasil.' },
-    { category: 'Loja', q: 'O produto vem com nota fiscal?', a: 'Sim, 100% dos nossos produtos são enviados com Nota Fiscal Eletrônica (NFe).' },
-    
-    // CADASTRO
-    { category: 'Cadastro', q: 'Esqueci minha senha.', a: 'Na tela de login, clique em "Esqueceu?" e enviaremos um link de redefinição para seu email.' },
-    { category: 'Cadastro', q: 'Como alterar meu email?', a: 'Por segurança, a alteração de email deve ser solicitada via chamado na categoria "Cadastro" com validação de identidade.' },
-    { category: 'Cadastro', q: 'Como alterar meu endereço?', a: 'Vá em "Perfil" > "Meus Endereços". Você pode adicionar quantos quiser e definir o padrão.' },
-    { category: 'Cadastro', q: 'Como mudar meu telefone?', a: 'Em "Perfil" > "Meus Dados", edite o campo celular e salve. Um SMS de confirmação pode ser enviado.' },
-    { category: 'Cadastro', q: 'Posso ter duas contas?', a: 'Não. O cadastro é único por CPF para garantir a segurança do histórico de crédito.' },
-    { category: 'Cadastro', q: 'Como excluir minha conta?', a: 'A exclusão é irreversível e cancela todo histórico. Solicite via suporte se não houver débitos pendentes.' },
-    { category: 'Cadastro', q: 'Meus dados estão seguros?', a: 'Sim. Utilizamos criptografia de ponta a ponta e seguimos rigorosamente a LGPD.' },
-    { category: 'Cadastro', q: 'Não recebo emails da loja.', a: 'Verifique sua caixa de Spam/Lixo Eletrônico ou se as notificações estão ativas em "Configurações".' },
-    
-    // TÉCNICO / APP
-    { category: 'Técnico', q: 'O app está travando.', a: 'Tente limpar o cache do app nas configurações do seu celular ou reinstalar a versão mais recente.' },
-    { category: 'Técnico', q: 'Não consigo assinar o contrato.', a: 'Tente fazer a assinatura com o celular na horizontal para ter mais espaço ou use uma caneta touch.' },
-    { category: 'Técnico', q: 'Erro ao carregar faturas.', a: 'Verifique sua conexão com a internet. Se persistir, o sistema pode estar em manutenção momentânea.' },
-    { category: 'Técnico', q: 'Onde baixo o app?', a: 'Nosso app é um PWA. Acesse pelo navegador e clique em "Adicionar à Tela de Início" para instalar.' },
-    { category: 'Técnico', q: 'Suporte a modo escuro?', a: 'Sim! O app segue a configuração do seu sistema ou você pode alternar no ícone de sol/lua no topo.' },
-    { category: 'Técnico', q: 'Notificações não chegam.', a: 'Verifique se você deu permissão de notificação ao navegador/app. Vá em Configurações e ative.' },
-    
-    // OUTROS
-    { category: 'Geral', q: 'Vocês compram celular usado?', a: 'Utilizamos seu usado como parte do pagamento apenas na loja física (consulte disponibilidade na sua região).' },
-    { category: 'Geral', q: 'Trabalham com atacado?', a: 'Sim, temos tabela especial para revendedores cadastrados com CNPJ. Contate o comercial.' },
-    { category: 'Geral', q: 'Tem programa de afiliados?', a: 'Sim! Use o "Indique e Ganhe" no seu perfil. Você ganha cashback por cada amigo que comprar.' },
-    { category: 'Geral', q: 'Onde fica a loja física?', a: 'Nossa sede administrativa fica no Amapá, mas atendemos todo o Brasil digitalmente.' },
-    { category: 'Geral', q: 'Horário de atendimento?', a: 'Nosso robô atende 24h. Atendimento humano: Seg a Sex das 09h às 18h e Sáb das 09h às 13h.' },
-];
+// --- Textos Legais ---
+const TERMS_TEXT = (
+    <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
+        <p><strong>1. Aceitação dos Termos</strong><br/>Ao acessar e usar o aplicativo Relp Cell, você concorda em cumprir estes Termos de Uso e todas as leis aplicáveis. Se você não concordar, não use o aplicativo.</p>
+        <p><strong>2. Serviços Oferecidos</strong><br/>A Relp Cell oferece uma plataforma para gestão de compras, pagamentos de faturas via Pix, Boleto ou Cartão, e visualização de limites de crédito.</p>
+        <p><strong>3. Cadastro e Segurança</strong><br/>Você é responsável por manter a confidencialidade de sua conta e senha. A Relp Cell não se responsabiliza por acessos não autorizados resultantes de negligência do usuário.</p>
+        <p><strong>4. Pagamentos e Crédito</strong><br/>O limite de crédito é concedido mediante análise e pode ser alterado ou cancelado a qualquer momento. O não pagamento das faturas até o vencimento acarretará multas, juros e possível bloqueio do serviço.</p>
+        <p><strong>5. Modificações</strong><br/>Podemos revisar estes termos a qualquer momento. Ao usar este aplicativo, você concorda em ficar vinculado à versão atual desses Termos de Uso.</p>
+    </div>
+);
+
+const PRIVACY_TEXT = (
+    <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
+        <p><strong>1. Coleta de Dados</strong><br/>Coletamos informações pessoais como Nome, CPF, Endereço, Telefone e E-mail para fins de cadastro, análise de crédito e emissão de notas fiscais.</p>
+        <p><strong>2. Uso das Informações</strong><br/>Seus dados são usados para processar transações, enviar notificações de cobrança, melhorar nosso atendimento e prevenir fraudes.</p>
+        <p><strong>3. Compartilhamento</strong><br/>Não vendemos seus dados. Compartilhamos apenas com parceiros estritamente necessários para a operação (ex: gateways de pagamento como Mercado Pago e bureaus de crédito para análise).</p>
+        <p><strong>4. Segurança</strong><br/>Adotamos medidas de segurança adequadas para proteger contra acesso não autorizado, alteração ou destruição de seus dados pessoais.</p>
+        <p><strong>5. Seus Direitos</strong><br/>Você tem o direito de acessar, corrigir ou solicitar a exclusão de seus dados pessoais de nossa base, exceto quando a retenção for necessária por lei (ex: registros fiscais).</p>
+    </div>
+);
 
 // --- Componentes Auxiliares de UI ---
 
@@ -89,9 +52,12 @@ const MenuItem: React.FC<{ icon: React.ReactNode; label: string; description?: s
     </button>
 );
 
-const ToggleSwitch: React.FC<{ label: string; checked: boolean; onChange: (v: boolean) => void }> = ({ label, checked, onChange }) => (
+const ToggleSwitch: React.FC<{ label: string; description?: string; checked: boolean; onChange: (v: boolean) => void }> = ({ label, description, checked, onChange }) => (
     <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700 last:border-0">
-        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+        <div>
+            <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
+            {description && <span className="block text-xs text-slate-500 mt-0.5">{description}</span>}
+        </div>
         <button 
             onClick={() => onChange(!checked)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}
@@ -109,418 +75,299 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
-// --- Central de Atendimento "Enterprise" (Help Portal) ---
-const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'create' | 'view_ticket'>('dashboard');
-    const [tickets, setTickets] = useState<any[]>([]);
-    const [currentTicket, setCurrentTicket] = useState<any>(null);
-    const [ticketMessages, setTicketMessages] = useState<any[]>([]);
-    const [loadingTickets, setLoadingTickets] = useState(false);
-    const [newTicket, setNewTicket] = useState({ subject: '', category: 'Financeiro', message: '', priority: 'Normal' });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [replyText, setReplyText] = useState('');
-    
-    // FAQ States
-    const [searchFaq, setSearchFaq] = useState('');
-    const [faqCategory, setFaqCategory] = useState('Todos');
-    const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+// --- SERVICE STATUS REAL ---
+interface SystemHealth {
+    app: 'online' | 'offline';
+    pix: 'online' | 'degraded' | 'offline';
+    card: 'online' | 'degraded' | 'offline';
+    store: 'online' | 'offline';
+    latency?: number;
+}
 
-    const { addToast } = useToast();
+const ServiceStatus: React.FC = () => {
+    const [health, setHealth] = useState<SystemHealth>({ app: 'online', pix: 'online', card: 'online', store: 'online' });
+    const [isChecking, setIsChecking] = useState(false);
+    const [lastCheck, setLastCheck] = useState<Date | null>(null);
+    const [showDetails, setShowDetails] = useState(false);
 
-    // Carregar Tickets
-    useEffect(() => {
-        if (activeTab === 'tickets') {
-            setLoadingTickets(true);
-            const fetchTickets = async () => {
-                const { data } = await supabase.from('support_tickets').select('*').eq('user_id', userId).order('updated_at', {ascending: false});
-                setTickets(data || []);
-                setLoadingTickets(false);
-            };
-            fetchTickets();
-        }
-    }, [activeTab, userId]);
+    const checkSystem = async () => {
+        setIsChecking(true);
+        const start = Date.now();
+        
+        // 1. App (Internet)
+        const isOnline = navigator.onLine;
+        
+        let storeStatus: 'online' | 'offline' = 'offline';
+        let apiStatus: 'online' | 'degraded' | 'offline' = 'offline';
 
-    // Carregar Mensagens do Ticket
-    useEffect(() => {
-        if (activeTab === 'view_ticket' && currentTicket) {
-            const fetchMessages = async () => {
-                const res = await fetch(`/api/admin/support-messages?ticketId=${currentTicket.id}`);
-                if(res.ok) {
-                    setTicketMessages(await res.json());
+        if (isOnline) {
+            try {
+                // 2. Loja (Supabase DB)
+                const { error } = await supabase.from('products').select('id').limit(1);
+                storeStatus = error ? 'offline' : 'online';
+
+                // 3. API (Pix/Cartão - Simulação via Endpoint de Produtos)
+                // Se a API de produtos responde rápido, o backend está saudável
+                const apiRes = await fetch('/api/products');
+                if (apiRes.ok) {
+                    const latency = Date.now() - start;
+                    apiStatus = latency < 800 ? 'online' : 'degraded';
                 }
-            };
-            fetchMessages();
-            const interval = setInterval(fetchMessages, 5000);
-            return () => clearInterval(interval);
+            } catch (e) {
+                console.error("Falha na verificação de sistema", e);
+            }
         }
-    }, [activeTab, currentTicket]);
 
-    const handleCreateTicket = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        try {
-            const response = await fetch('/api/admin/support-tickets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, ...newTicket })
-            });
-            
-            if (!response.ok) throw new Error('Erro ao criar chamado');
-            
-            addToast('Chamado criado com sucesso! Protocolo gerado.', 'success');
-            setActiveTab('tickets'); 
-            setNewTicket({ subject: '', category: 'Financeiro', message: '', priority: 'Normal' });
-        } catch (error) {
-            addToast('Erro ao enviar chamado.', 'error');
-        } finally {
-            setIsSubmitting(false);
+        setHealth({
+            app: isOnline ? 'online' : 'offline',
+            store: storeStatus,
+            pix: apiStatus, // Pix depende da API
+            card: apiStatus, // Cartão depende da API
+            latency: Date.now() - start
+        });
+        setLastCheck(new Date());
+        setIsChecking(false);
+    };
+
+    useEffect(() => {
+        checkSystem();
+        // Auto-check every 60s
+        const interval = setInterval(checkSystem, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getStatusColor = (status: string) => {
+        if (status === 'online') return 'bg-green-500';
+        if (status === 'degraded') return 'bg-yellow-500';
+        return 'bg-red-500';
+    };
+
+    const getStatusText = (status: string) => {
+        if (status === 'online') return 'Operacional';
+        if (status === 'degraded') return 'Lentidão';
+        return 'Indisponível';
+    }
+
+    return (
+        <>
+            <div 
+                className="flex gap-2 overflow-x-auto py-3 scrollbar-hide mb-2 cursor-pointer active:opacity-80"
+                onClick={() => setShowDetails(true)}
+            >
+                {[
+                    { n: 'App', s: health.app }, 
+                    { n: 'Pix', s: health.pix }, 
+                    { n: 'Cartão', s: health.card }, 
+                    { n: 'Loja', s: health.store }
+                ].map((sys, i) => (
+                    <div key={i} className={`flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-full border border-slate-100 dark:border-slate-700 shrink-0 transition-all ${isChecking ? 'opacity-70' : ''}`}>
+                        <span className={`w-2 h-2 rounded-full ${getStatusColor(sys.s)} ${isChecking ? 'animate-pulse' : ''}`}></span>
+                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase">{sys.n}</span>
+                    </div>
+                ))}
+                {isChecking && <span className="text-[10px] text-slate-400 self-center animate-pulse">Verificando...</span>}
+            </div>
+
+            {/* Modal de Detalhes do Sistema */}
+            <Modal isOpen={showDetails} onClose={() => setShowDetails(false)}>
+                <div className="text-center">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Status do Sistema</h3>
+                    <p className="text-xs text-slate-500 mb-6">Última verificação: {lastCheck?.toLocaleTimeString()}</p>
+
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Aplicativo</span>
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.app === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.app)}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Banco de Dados</span>
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.store === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.store)}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Gateway Pagamento</span>
+                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.pix === 'online' ? 'bg-green-100 text-green-700' : health.pix === 'degraded' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.pix)}</span>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
+                        <p className="text-xs text-slate-400">Latência da Rede: <span className="font-mono text-slate-600 dark:text-slate-300">{health.latency || 0}ms</span></p>
+                    </div>
+
+                    <button onClick={checkSystem} className="mt-4 w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">
+                        {isChecking ? 'Verificando...' : 'Atualizar Status'}
+                    </button>
+                </div>
+            </Modal>
+        </>
+    );
+}
+
+// --- Views Implementadas ---
+
+const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
+    const [orders, setOrders] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchOrders = async () => {
+            setLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from('orders')
+                    .select(`*, order_items(*)`)
+                    .eq('user_id', userId)
+                    .order('created_at', { ascending: false });
+                
+                if (!error && data) setOrders(data);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchOrders();
+    }, [userId]);
+
+    const getStatusBadge = (status: string) => {
+        switch(status) {
+            case 'delivered': return <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-bold">Entregue</span>;
+            case 'shipped': return <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-bold">Enviado</span>;
+            case 'processing': return <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full font-bold">Processando</span>;
+            case 'cancelled': return <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-bold">Cancelado</span>;
+            default: return <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold">Pendente</span>;
         }
     };
 
-    const handleSendReply = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if(!replyText.trim() || !currentTicket) return;
-        
-        try {
-            const response = await fetch('/api/admin/support-messages', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    ticketId: currentTicket.id, 
-                    sender: 'user', 
-                    message: replyText 
-                })
-            });
-            
-            if(response.ok) {
-                setTicketMessages(prev => [...prev, { 
-                    id: Date.now().toString(), 
-                    message: replyText, 
-                    sender_type: 'user', 
-                    created_at: new Date().toISOString() 
-                }]);
-                setReplyText('');
-            }
-        } catch (error) {
-            console.error(error);
-        }
-    }
+    if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
-    const filteredFaqs = useMemo(() => {
-        return faqDatabase.filter(f => {
-            const matchesSearch = f.q.toLowerCase().includes(searchFaq.toLowerCase()) || f.a.toLowerCase().includes(searchFaq.toLowerCase());
-            const matchesCategory = faqCategory === 'Todos' || f.category === faqCategory;
-            return matchesSearch && matchesCategory;
-        });
-    }, [searchFaq, faqCategory]);
-
-    const categories = ['Todos', 'Financeiro', 'Crédito', 'Loja', 'Cadastro', 'Técnico'];
-
-    // --- Views da Central ---
-
-    if (activeTab === 'create') {
+    if (orders.length === 0) {
         return (
-            <div className="animate-fade-in space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                    <button onClick={() => setActiveTab('dashboard')} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" /></svg>
-                    </button>
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">Novo Chamado</h3>
+            <div className="flex flex-col items-center justify-center py-16 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                 </div>
-
-                <form onSubmit={handleCreateTicket} className="space-y-5 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800/50 flex gap-3 items-start">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-600 mt-0.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                        <p className="text-xs text-indigo-800 dark:text-indigo-200 leading-relaxed">
-                            Preencha os detalhes abaixo. Nossa equipe responderá em até 24 horas úteis.
-                        </p>
-                    </div>
-
-                    <InputField label="Assunto" name="subject" value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})} required placeholder="Ex: Fatura duplicada" />
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoria</label>
-                            <select 
-                                value={newTicket.category}
-                                onChange={e => setNewTicket({...newTicket, category: e.target.value})}
-                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                                <option value="Financeiro">Financeiro</option>
-                                <option value="Técnico">Suporte Técnico</option>
-                                <option value="Vendas">Dúvida de Produto</option>
-                                <option value="Cadastro">Dados Cadastrais</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Urgência</label>
-                            <select 
-                                value={newTicket.priority}
-                                onChange={e => setNewTicket({...newTicket, priority: e.target.value})}
-                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                                <option value="Baixa">Baixa</option>
-                                <option value="Normal">Normal</option>
-                                <option value="Alta">Alta</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Descrição Detalhada</label>
-                        <textarea 
-                            value={newTicket.message}
-                            onChange={e => setNewTicket({...newTicket, message: e.target.value})}
-                            required
-                            rows={5}
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                            placeholder="Descreva o que aconteceu..."
-                        ></textarea>
-                    </div>
-
-                    <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-lg shadow-indigo-500/30">
-                        {isSubmitting ? <LoadingSpinner /> : 'Enviar Solicitação'}
-                    </button>
-                </form>
-            </div>
-        )
-    }
-
-    if (activeTab === 'view_ticket' && currentTicket) {
-        return (
-            <div className="animate-fade-in flex flex-col h-[500px] bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-lg">
-                <div className="p-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => setActiveTab('tickets')} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                        </button>
-                        <div>
-                            <h3 className="font-bold text-slate-900 dark:text-white leading-tight">{currentTicket.subject}</h3>
-                            <span className="text-xs text-slate-500">Protocolo #{currentTicket.id.slice(0,8)}</span>
-                        </div>
-                    </div>
-                    <span className={`text-xs px-2 py-1 rounded font-bold uppercase ${currentTicket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
-                        {currentTicket.status === 'open' ? 'Aberto' : 'Fechado'}
-                    </span>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-100/50 dark:bg-slate-900/50">
-                    {ticketMessages.map((msg) => (
-                        <div key={msg.id} className={`flex flex-col ${msg.sender_type === 'user' ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm ${
-                                msg.sender_type === 'user' 
-                                ? 'bg-indigo-600 text-white rounded-br-sm' 
-                                : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white rounded-bl-sm border border-slate-200 dark:border-slate-600'
-                            }`}>
-                                {msg.message}
-                            </div>
-                            <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                {new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-
-                {currentTicket.status === 'open' && (
-                    <form onSubmit={handleSendReply} className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex gap-2">
-                        <input 
-                            type="text" 
-                            value={replyText}
-                            onChange={e => setReplyText(e.target.value)}
-                            placeholder="Escreva uma resposta..."
-                            className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-900 border-0 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                        />
-                        <button type="submit" disabled={!replyText.trim()} className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
-                        </button>
-                    </form>
-                )}
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Nenhum pedido ainda</h3>
+                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Explore a loja e faça sua primeira compra!</p>
             </div>
         );
     }
 
-    if (activeTab === 'tickets') {
-        return (
-            <div className="animate-fade-in space-y-4">
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => setActiveTab('dashboard')} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" /></svg>
-                        </button>
-                        <h3 className="font-bold text-lg text-slate-900 dark:text-white">Meus Chamados</h3>
-                    </div>
-                    <button onClick={() => setActiveTab('create')} className="text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-800">
-                        + Novo
-                    </button>
-                </div>
-                
-                {loadingTickets ? <div className="flex justify-center py-12"><LoadingSpinner /></div> : tickets.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                        <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+    return (
+        <div className="space-y-4 animate-fade-in">
+            {orders.map(order => (
+                <div key={order.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <div className="flex justify-between items-start mb-3">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase font-bold">Pedido #{order.id.slice(0,8).toUpperCase()}</p>
+                            <p className="text-xs text-slate-400">{new Date(order.created_at).toLocaleDateString('pt-BR')}</p>
                         </div>
-                        <p className="text-slate-500 dark:text-slate-400 font-medium">Nenhum chamado encontrado.</p>
+                        {getStatusBadge(order.status)}
                     </div>
-                ) : (
-                    <div className="space-y-3">
-                        {tickets.map(ticket => (
-                            <div 
-                                key={ticket.id} 
-                                onClick={() => { setCurrentTicket(ticket); setActiveTab('view_ticket'); }}
-                                className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm relative overflow-hidden group transition-all hover:border-indigo-200 dark:hover:border-indigo-800 cursor-pointer active:scale-[0.98]"
-                            >
-                                <div className={`absolute top-0 right-0 px-2 py-1 rounded-bl-lg text-[10px] font-bold uppercase tracking-wide ${ticket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                    {ticket.status === 'open' ? 'Em Aberto' : 'Resolvido'}
-                                </div>
-                                
-                                <div className="pr-16 mb-1">
-                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm line-clamp-1">{ticket.subject}</h4>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">#{ticket.id.slice(0, 8).toUpperCase()}</p>
-                                </div>
-
-                                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-50 dark:border-slate-700">
-                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium border ${ticket.priority === 'Alta' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
-                                        {ticket.priority || 'Normal'}
-                                    </span>
-                                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-md border border-slate-100 dark:border-slate-700">{ticket.category}</span>
-                                    <span className="text-[10px] text-slate-400 ml-auto">
-                                        {new Date(ticket.updated_at).toLocaleDateString('pt-BR')}
-                                    </span>
-                                </div>
+                    
+                    <div className="space-y-2 border-t border-slate-50 dark:border-slate-700/50 pt-3 mt-3">
+                        {order.order_items?.map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-sm">
+                                <span className="text-slate-700 dark:text-slate-300 truncate max-w-[200px]">{item.quantity}x {item.product_name}</span>
+                                <span className="font-medium text-slate-900 dark:text-white">R$ {item.price}</span>
                             </div>
                         ))}
                     </div>
-                )}
-            </div>
-        )
-    }
+                    
+                    <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
+                        <span className="text-sm font-bold text-slate-600 dark:text-slate-400">Total</span>
+                        <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                            {order.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
 
-    // Dashboard View
+const WalletView: React.FC<{ userId: string }> = ({ userId }) => {
+    const [pixKeys, setPixKeys] = useState<{key: string, type: string}[]>([]);
+    const [newPix, setNewPix] = useState('');
+    const [pixType, setPixType] = useState('CPF');
+    const { addToast } = useToast();
+
+    const handleAddPix = () => {
+        if (!newPix) return;
+        setPixKeys([...pixKeys, { key: newPix, type: pixType }]);
+        setNewPix('');
+        addToast('Chave Pix salva com sucesso!', 'success');
+    };
+
     return (
-        <div className="animate-fade-in space-y-6">
-            {/* Hero Header */}
-            <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-3xl p-6 text-white relative overflow-hidden shadow-lg">
-                 <div className="absolute -top-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-                 <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/30 rounded-full blur-2xl"></div>
-                 
-                 <div className="relative z-10">
-                     <div className="flex items-start justify-between">
+        <div className="space-y-6 animate-fade-in">
+             {/* Cartão Virtual Simulado */}
+             <div className="relative h-48 rounded-2xl bg-gradient-to-br from-slate-800 to-black text-white p-6 shadow-xl overflow-hidden transform transition-transform hover:scale-[1.02]">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+                <div className="relative z-10 flex flex-col justify-between h-full">
+                    <div className="flex justify-between items-start">
+                        <span className="text-xs font-bold uppercase tracking-widest opacity-70">Relp Card</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 opacity-80" viewBox="0 0 24 24" fill="currentColor"><path d="M2 10h20v2H2zM2 15h20v2H2zM2 5h20v2H2z"/></svg>
+                    </div>
+                    <div className="font-mono text-xl tracking-wider opacity-90 flex gap-3">
+                        <span>****</span><span>****</span><span>****</span><span>4829</span>
+                    </div>
+                    <div className="flex justify-between items-end">
                         <div>
-                            <h3 className="text-2xl font-bold mb-1">Central de Ajuda</h3>
-                            <p className="text-indigo-100 text-sm opacity-90">Tire dúvidas ou fale com o suporte.</p>
+                            <p className="text-[10px] uppercase opacity-60">Titular</p>
+                            <p className="text-sm font-medium uppercase">Seu Nome</p>
                         </div>
-                        <div className="bg-white/20 p-2 rounded-xl backdrop-blur-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                        <div>
+                            <p className="text-[10px] uppercase opacity-60 text-right">Validade</p>
+                            <p className="text-sm font-medium">12/28</p>
                         </div>
-                     </div>
-                     
-                     <div className="mt-6 flex gap-3">
-                        <button 
-                            onClick={() => setActiveTab('create')}
-                            className="flex-1 bg-white text-indigo-600 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 active:scale-95"
-                        >
-                            <span>Abrir Chamado</span>
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('tickets')}
-                            className="flex-1 bg-indigo-800/50 backdrop-blur text-white py-3 rounded-xl font-bold text-sm border border-indigo-400/30 hover:bg-indigo-800/70 transition-colors flex items-center justify-center gap-2 active:scale-95"
-                        >
-                            <span>Meus Tickets</span>
-                        </button>
-                     </div>
-                 </div>
-            </div>
-
-            {/* Search FAQ */}
-            <div className="relative">
-                <input 
-                    type="text" 
-                    placeholder="Qual a sua dúvida?" 
-                    value={searchFaq}
-                    onChange={e => setSearchFaq(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 top-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            </div>
-
-            {/* Categories Filter Chips */}
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                {categories.map(cat => (
-                    <button 
-                        key={cat}
-                        onClick={() => setFaqCategory(cat)}
-                        className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                            faqCategory === cat 
-                            ? 'bg-slate-800 dark:bg-white text-white dark:text-slate-900 shadow-md' 
-                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                        }`}
-                    >
-                        {cat}
-                    </button>
-                ))}
-            </div>
-
-            {/* FAQ List */}
-            <div className="space-y-3">
-                <h4 className="font-bold text-slate-800 dark:text-white px-1 flex justify-between">
-                    <span>Base de Conhecimento</span>
-                    <span className="text-xs font-normal text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">{filteredFaqs.length} artigos</span>
-                </h4>
-                
-                <div className="max-h-[400px] overflow-y-auto pr-1 space-y-3 custom-scrollbar">
-                    {filteredFaqs.length > 0 ? filteredFaqs.map((faq, i) => (
-                        <div 
-                            key={i} 
-                            className={`bg-white dark:bg-slate-800 rounded-xl border transition-all cursor-pointer overflow-hidden ${
-                                expandedFaq === i ? 'border-indigo-500 shadow-md' : 'border-slate-100 dark:border-slate-700 shadow-sm hover:border-indigo-200 dark:hover:border-indigo-800'
-                            }`}
-                            onClick={() => setExpandedFaq(expandedFaq === i ? null : i)}
-                        >
-                            <div className="p-4 flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                        faq.category === 'Financeiro' ? 'bg-green-500' :
-                                        faq.category === 'Crédito' ? 'bg-yellow-500' :
-                                        faq.category === 'Loja' ? 'bg-purple-500' :
-                                        faq.category === 'Cadastro' ? 'bg-blue-500' : 'bg-slate-400'
-                                    }`}></span>
-                                    <h5 className="font-bold text-sm text-slate-700 dark:text-slate-200">{faq.q}</h5>
-                                </div>
-                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-400 transition-transform duration-300 ${expandedFaq === i ? 'rotate-180 text-indigo-500' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                            </div>
-                            
-                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expandedFaq === i ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'}`}>
-                                <div className="px-4 pb-4 pt-0 text-sm text-slate-500 dark:text-slate-400 leading-relaxed border-t border-dashed border-slate-100 dark:border-slate-700 mt-2 pt-3">
-                                    {faq.a}
-                                </div>
-                            </div>
-                        </div>
-                    )) : (
-                        <div className="text-center py-8">
-                            <p className="text-sm text-slate-500">Nenhum artigo encontrado para esta busca.</p>
-                        </div>
-                    )}
+                    </div>
                 </div>
             </div>
 
-            {/* Contact Options */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
-                <p className="text-center text-xs text-slate-400 mb-4 font-medium uppercase tracking-wider">Canais de Contato</p>
-                <div className="grid grid-cols-2 gap-3">
-                    <a 
-                        href="https://wa.me/5596991718167" 
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 hover:border-green-500 hover:shadow-green-500/10 transition-all active:scale-95 group"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600 mb-1 group-hover:scale-110 transition-transform" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zM12.05 20.21c-1.5 0-2.97-.39-4.27-1.14l-.3-.18-3.17.83.84-3.07-.2-.32a8.118 8.118 0 01-1.23-4.42c0-4.48 3.64-8.13 8.12-8.13 2.17 0 4.21.85 5.75 2.38 1.53 1.53 2.38 3.57 2.38 5.74 0 4.48-3.65 8.13-8.12 8.13zm4.46-6.09c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.87.85-.87 2.07 0 1.22.89 2.39 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.07-.11-.22-.18-.47-.3z"/></svg>
-                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200">WhatsApp</span>
-                    </a>
-                    
-                    <button disabled className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 opacity-60 cursor-not-allowed relative overflow-hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                        <span className="text-sm font-bold text-slate-500 dark:text-slate-400">Email</span>
-                        <div className="absolute top-2 right-2 bg-slate-100 dark:bg-slate-700 text-[8px] font-bold px-1.5 py-0.5 rounded text-slate-500 uppercase">Em breve</div>
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    Minhas Chaves Pix
+                </h3>
+                
+                <div className="space-y-3 mb-4">
+                    {pixKeys.length === 0 ? (
+                        <div className="text-center py-4 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
+                            <p className="text-sm text-slate-500">Nenhuma chave cadastrada.</p>
+                            <p className="text-xs text-slate-400 mt-1">Adicione uma chave para receber reembolsos.</p>
+                        </div>
+                    ) : (
+                        pixKeys.map((pk, i) => (
+                            <div key={i} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg border border-slate-100 dark:border-slate-700">
+                                <div>
+                                    <span className="text-xs font-bold text-slate-500 uppercase mr-2 bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600">{pk.type}</span>
+                                    <span className="text-sm font-mono text-slate-700 dark:text-slate-300">{pk.key}</span>
+                                </div>
+                                <button onClick={() => setPixKeys(pixKeys.filter((_, idx) => idx !== i))} className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-50">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex gap-2 flex-1">
+                        <select value={pixType} onChange={e => setPixType(e.target.value)} className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm px-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="CPF">CPF</option>
+                            <option value="Email">Email</option>
+                            <option value="Celular">Celular</option>
+                        </select>
+                        <input 
+                            type="text" 
+                            value={newPix} 
+                            onChange={e => setNewPix(e.target.value)} 
+                            placeholder="Chave..." 
+                            className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                    </div>
+                    <button onClick={handleAddPix} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm active:scale-95">
+                        Adicionar
                     </button>
                 </div>
             </div>
@@ -528,8 +375,351 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
     );
 };
 
-// --- Views existentes mantidas (ContractsView, FiscalNotesView, etc.) ---
-// ... (O resto do arquivo permanece igual até a definição de ContractsView, apenas o HelpView foi substituído acima)
+const AddressView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
+    const [formData, setFormData] = useState({
+        zip_code: profile.zip_code || '',
+        street_name: profile.street_name || '',
+        street_number: profile.street_number || '',
+        neighborhood: profile.neighborhood || '',
+        city: profile.city || '',
+        federal_unit: profile.federal_unit || '',
+    });
+    const [isLoading, setIsLoading] = useState(false);
+    const [isSearchingCep, setIsSearchingCep] = useState(false);
+    const { addToast } = useToast();
+
+    const handleCepBlur = async () => {
+        const cep = formData.zip_code.replace(/\D/g, '');
+        if (cep.length !== 8) return;
+
+        setIsSearchingCep(true);
+        try {
+            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const data = await res.json();
+            if (!data.erro) {
+                setFormData(prev => ({
+                    ...prev,
+                    street_name: data.logradouro,
+                    neighborhood: data.bairro,
+                    city: data.localidade,
+                    federal_unit: data.uf
+                }));
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsSearchingCep(false);
+        }
+    };
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+            await updateProfile({ ...profile, ...formData });
+            onUpdate({ ...profile, ...formData });
+            addToast('Endereço atualizado!', 'success');
+        } catch (e) {
+            addToast('Erro ao salvar endereço.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <form onSubmit={handleSave} className="animate-fade-in space-y-4 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+            <div className="flex items-center gap-3 mb-2 text-slate-800 dark:text-white">
+                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </div>
+                <h3 className="font-bold text-lg">Endereço de Entrega</h3>
+            </div>
+            
+            <InputField 
+                label="CEP" 
+                name="zip_code" 
+                value={formData.zip_code} 
+                onChange={e => setFormData({...formData, zip_code: e.target.value})}
+                onBlur={handleCepBlur}
+                placeholder="00000-000"
+                isLoading={isSearchingCep}
+            />
+            
+            <InputField label="Rua" name="street_name" value={formData.street_name} onChange={e => setFormData({...formData, street_name: e.target.value})} />
+            
+            <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-1">
+                    <InputField label="Número" name="street_number" value={formData.street_number} onChange={e => setFormData({...formData, street_number: e.target.value})} />
+                </div>
+                <div className="col-span-2">
+                    <InputField label="Bairro" name="neighborhood" value={formData.neighborhood} onChange={e => setFormData({...formData, neighborhood: e.target.value})} />
+                </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                    <InputField label="Cidade" name="city" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} />
+                </div>
+                <div className="col-span-1">
+                    <InputField label="UF" name="federal_unit" value={formData.federal_unit} onChange={e => setFormData({...formData, federal_unit: e.target.value})} maxLength={2} />
+                </div>
+            </div>
+
+            <button type="submit" disabled={isLoading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2">
+                {isLoading ? <LoadingSpinner /> : 'Salvar Endereço'}
+            </button>
+        </form>
+    );
+};
+
+const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }> = ({ toggleTheme, isDarkMode }) => {
+    const [notifs, setNotifs] = useState({ push: true, email: true, whatsapp: false });
+    const [biometrics, setBiometrics] = useState(false);
+    const [privacyCredit, setPrivacyCredit] = useState(true);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [isClearing, setIsClearing] = useState(false);
+    const [legalModalContent, setLegalModalContent] = useState<'terms' | 'privacy' | null>(null);
+    const { addToast } = useToast();
+
+    useEffect(() => {
+        // Check saved preferences
+        const bio = localStorage.getItem('relp_biometrics') === 'true';
+        setBiometrics(bio);
+    }, []);
+
+    const handleBiometricToggle = (value: boolean) => {
+        if (value) {
+            if (window.PublicKeyCredential) {
+                // Simulando ativação bem sucedida
+                localStorage.setItem('relp_biometrics', 'true');
+                setBiometrics(true);
+                addToast('Login biométrico ativado!', 'success');
+            } else {
+                addToast('Seu dispositivo não suporta biometria.', 'error');
+            }
+        } else {
+            localStorage.removeItem('relp_biometrics');
+            setBiometrics(false);
+        }
+    };
+
+    const handleClearCache = () => {
+        setIsClearing(true);
+        // Simula limpeza
+        setTimeout(() => {
+            localStorage.clear(); // Cuidado: Limpa tudo
+            sessionStorage.clear();
+            caches.keys().then((names) => {
+                names.forEach((name) => {
+                    caches.delete(name);
+                });
+            });
+            addToast('App otimizado! Reiniciando...', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        }, 1500);
+    };
+
+    const handlePasswordReset = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && user.email) {
+            await supabase.auth.resetPasswordForEmail(user.email);
+            addToast('Email de redefinição enviado!', 'success');
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        const confirmText = prompt('Para confirmar a exclusão, digite DELETAR abaixo. Esta ação é irreversível.');
+        if (confirmText === 'DELETAR') {
+            setIsDeleting(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (user) {
+                    // Em um app real, chamaria uma Edge Function para deletar do Auth e do DB
+                    // Aqui simulamos com um toast e logout
+                    // await supabase.rpc('delete_user_account'); // Exemplo
+                    addToast('Solicitação enviada. Sua conta será excluída em 24h.', 'info');
+                    setTimeout(async () => {
+                        await supabase.auth.signOut();
+                        window.location.reload();
+                    }, 3000);
+                }
+            } catch (e) {
+                addToast('Erro ao processar solicitação.', 'error');
+                setIsDeleting(false);
+            }
+        } else if (confirmText !== null) {
+            addToast('Texto de confirmação incorreto.', 'error');
+        }
+    };
+
+    return (
+        <div className="animate-fade-in space-y-6 pb-10">
+            
+            {/* Aparência e Preferências */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                    Geral
+                </h3>
+                
+                <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-700">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Modo Escuro</span>
+                    <button 
+                        onClick={toggleTheme}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isDarkMode ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}
+                    >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isDarkMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                </div>
+
+                <ToggleSwitch 
+                    label="Notificações Push" 
+                    description="Receba avisos de faturas e promoções"
+                    checked={notifs.push} 
+                    onChange={v => setNotifs({...notifs, push: v})} 
+                />
+                <ToggleSwitch 
+                    label="Avisos por Email" 
+                    checked={notifs.email} 
+                    onChange={v => setNotifs({...notifs, email: v})} 
+                />
+            </div>
+
+            {/* Segurança e Login */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                    Segurança
+                </h3>
+                
+                <ToggleSwitch 
+                    label="Entrar com Biometria" 
+                    description="Use FaceID ou TouchID para login rápido"
+                    checked={biometrics} 
+                    onChange={handleBiometricToggle} 
+                />
+                
+                <button onClick={handlePasswordReset} className="w-full text-left py-4 text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex justify-between items-center border-b border-slate-100 dark:border-slate-700">
+                    Alterar Senha de Acesso
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </button>
+
+                <ToggleSwitch 
+                    label="Análise de Crédito Automática" 
+                    description="Permitir que a IA analise seus dados para aumentos"
+                    checked={privacyCredit} 
+                    onChange={setPrivacyCredit} 
+                />
+            </div>
+
+            {/* Legal & Sobre (Organizado) */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Legal & Sobre
+                </h3>
+                
+                <MenuItem 
+                    label="Termos de Uso" 
+                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                    onClick={() => setLegalModalContent('terms')}
+                    colorClass="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                />
+                
+                <MenuItem 
+                    label="Política de Privacidade" 
+                    icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
+                    onClick={() => setLegalModalContent('privacy')}
+                    colorClass="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                />
+                
+                <div className="pt-2 text-center">
+                    <p className="text-[10px] text-slate-400">Versão do App: 2.5.0 (Build 2024)</p>
+                </div>
+            </div>
+
+            {/* Manutenção */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    Manutenção
+                </h3>
+                
+                <button 
+                    onClick={handleClearCache} 
+                    disabled={isClearing}
+                    className="w-full text-left py-3 text-sm text-slate-700 dark:text-slate-300 hover:text-orange-600 transition-colors flex justify-between items-center"
+                >
+                    {isClearing ? 'Limpando...' : 'Limpar Cache & Otimizar App'}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+                
+                <p className="text-xs text-slate-400 mt-2">Se o app estiver lento ou com erros, tente limpar o cache.</p>
+            </div>
+
+            {/* Zona de Perigo */}
+            <div className="border border-red-200 dark:border-red-900/30 bg-red-50 dark:bg-red-900/10 rounded-xl p-5">
+                <h3 className="font-bold text-red-700 dark:text-red-400 mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                    Zona de Perigo
+                </h3>
+                <button 
+                    onClick={handleDeleteAccount} 
+                    disabled={isDeleting}
+                    className="w-full py-3 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 font-bold rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm"
+                >
+                    {isDeleting ? 'Processando...' : 'Excluir Minha Conta'}
+                </button>
+            </div>
+
+            {/* Modal para Textos Legais */}
+            <Modal isOpen={!!legalModalContent} onClose={() => setLegalModalContent(null)}>
+                <div className="text-slate-900 dark:text-white">
+                    <h3 className="text-xl font-bold mb-4">
+                        {legalModalContent === 'terms' ? 'Termos de Uso' : 'Política de Privacidade'}
+                    </h3>
+                    <div className="max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                        {legalModalContent === 'terms' ? TERMS_TEXT : PRIVACY_TEXT}
+                    </div>
+                    <button onClick={() => setLegalModalContent(null)} className="w-full mt-6 py-3 bg-indigo-600 text-white rounded-xl font-bold">
+                        Entendi
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+};
+
+const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
+    const code = `RELP-${profile.first_name?.substring(0, 3).toUpperCase()}${Math.floor(Math.random() * 1000)}`;
+    const { addToast } = useToast();
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(code);
+        addToast('Código copiado!', 'success');
+    };
+
+    return (
+        <div className="animate-fade-in text-center space-y-6 pt-4">
+            <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/40 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slow">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
+            </div>
+            
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Convide e Ganhe</h3>
+            <p className="text-slate-600 dark:text-slate-300 px-4">
+                Indique amigos para a Relp Cell. Eles ganham <span className="font-bold text-indigo-600">R$ 20</span> na primeira compra e você ganha <span className="font-bold text-green-600">1% de cashback</span> vitalício nas compras deles!
+            </p>
+
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-dashed border-indigo-300 dark:border-indigo-700 mx-4 relative overflow-hidden">
+                <p className="text-xs text-slate-500 uppercase tracking-widest mb-2">Seu Código Exclusivo</p>
+                <p className="text-3xl font-black text-indigo-600 dark:text-white tracking-wider font-mono">{code}</p>
+                <button onClick={handleCopy} className="absolute top-2 right-2 p-2 text-slate-400 hover:text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                </button>
+            </div>
+        </div>
+    );
+};
 
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => (
     <div className="space-y-4 animate-fade-in text-center py-10 text-slate-500">
@@ -549,29 +739,6 @@ const PaymentReceiptsView: React.FC<{ userId: string; profile: Profile }> = ({ u
     </div>
 );
 
-const OrdersView = ({ userId }: { userId: string }) => (
-    <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <p>Histórico de pedidos será carregado aqui.</p>
-    </div>
-);
-const WalletView = ({ userId }: { userId: string }) => (
-    <div className="space-y-4 animate-fade-in">
-         <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-6 text-white shadow-lg">
-            <p className="text-sm opacity-90">Saldo Disponível</p>
-            <h2 className="text-4xl font-bold mt-1">R$ 0,00</h2>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
-            <h3 className="font-bold mb-3 text-slate-800 dark:text-white">Histórico</h3>
-            <p className="text-sm text-slate-500 text-center py-4">Nenhuma movimentação recente.</p>
-        </div>
-    </div>
-);
-const AddressView = ({ userId }: { userId: string }) => (
-     <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <p>Gestão de endereços.</p>
-    </div>
-);
-
 const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
     const [formData, setFormData] = useState({
         first_name: profile.first_name || '',
@@ -580,6 +747,16 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
     });
     const [loading, setLoading] = useState(false);
     const { addToast } = useToast();
+
+    // Cálculo de completude do perfil
+    const completeness = useMemo(() => {
+        let score = 0;
+        if (formData.first_name) score += 25;
+        if (formData.last_name) score += 25;
+        if (profile.identification_number) score += 25;
+        if (profile.email) score += 25;
+        return score;
+    }, [formData, profile]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -597,21 +774,63 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
 
     return (
         <div className="animate-fade-in space-y-6">
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
-                <p className="text-xs text-indigo-800 dark:text-indigo-200 text-center">
-                    Mantenha seus dados atualizados para facilitar a aprovação de crédito e entregas.
-                </p>
+            
+            {/* Barra de Completude */}
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Qualidade do Perfil</span>
+                    <span className={`text-xs font-bold ${completeness === 100 ? 'text-green-600' : 'text-indigo-600'}`}>{completeness}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div 
+                        className={`h-full rounded-full transition-all duration-1000 ${completeness === 100 ? 'bg-green-500' : 'bg-indigo-600'}`} 
+                        style={{width: `${completeness}%`}}
+                    ></div>
+                </div>
+                {completeness < 100 && (
+                    <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                        Complete para desbloquear mais limite.
+                    </p>
+                )}
             </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
+
+            <form onSubmit={handleSubmit} className="space-y-4 bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Informações Pessoais</h3>
+                
                 <div className="grid grid-cols-2 gap-4">
                     <InputField label="Nome" name="first_name" value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} />
                     <InputField label="Sobrenome" name="last_name" value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} />
                 </div>
-                <InputField label="Email" name="email" value={profile.email || ''} disabled className="opacity-60" />
-                <InputField label="CPF" name="cpf" value={profile.identification_number || ''} disabled className="opacity-60" />
-                <InputField label="Telefone" name="phone" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
                 
-                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-all disabled:opacity-70">
+                {/* Campos Read-only com ícone de cadeado */}
+                <div className="relative">
+                    <InputField label="CPF" name="cpf" value={profile.identification_number || ''} disabled className="opacity-60 pl-10 bg-slate-50 dark:bg-slate-900" />
+                    <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-[34px] left-3 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="absolute top-0 right-0 text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                        Verificado
+                    </span>
+                </div>
+
+                <div className="relative">
+                     <InputField label="Email" name="email" value={profile.email || ''} disabled className="opacity-60 pl-10 bg-slate-50 dark:bg-slate-900" />
+                     <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-[34px] left-3 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                </div>
+
+                <InputField 
+                    label="Telefone / WhatsApp" 
+                    name="phone" 
+                    value={formData.phone} 
+                    onChange={e => setFormData({...formData, phone: e.target.value})} 
+                    placeholder="(00) 00000-0000" 
+                />
+                
+                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-all disabled:opacity-70 flex items-center justify-center gap-2">
                     {loading ? <LoadingSpinner /> : 'Salvar Alterações'}
                 </button>
             </form>
@@ -619,74 +838,441 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
     );
 };
 
-const SettingsView: React.FC = () => {
-    const [notifs, setNotifs] = useState({ push: true, email: true, whatsapp: false });
-    const { addToast } = useToast();
+// --- NOVA HELP VIEW ROBUSTA ---
 
-    const handlePasswordReset = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.email) {
-            await supabase.auth.resetPasswordForEmail(user.email);
-            addToast('Email de redefinição enviado!', 'success');
+const FAQItem: React.FC<{ question: string; answer: string; isExpanded: boolean; onClick: () => void }> = ({ question, answer, isExpanded, onClick }) => (
+    <div className="border-b border-slate-100 dark:border-slate-800 last:border-0">
+        <button onClick={onClick} className="w-full py-4 flex justify-between items-center text-left focus:outline-none group">
+            <span className={`font-medium text-sm transition-colors ${isExpanded ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300 group-hover:text-indigo-500'}`}>
+                {question}
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+        </button>
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100 pb-4' : 'max-h-0 opacity-0'}`}>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed px-2 border-l-2 border-indigo-100 dark:border-slate-700 ml-1">
+                {answer}
+            </p>
+            <div className="mt-3 flex items-center gap-2 px-2">
+                <span className="text-[10px] text-slate-400">Isso foi útil?</span>
+                <button className="p-1 hover:bg-green-50 dark:hover:bg-green-900/30 rounded text-slate-400 hover:text-green-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg></button>
+                <button className="p-1 hover:bg-red-50 dark:hover:bg-red-900/30 rounded text-slate-400 hover:text-red-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211 1.412.608-2.006L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" /></svg></button>
+            </div>
+        </div>
+    </div>
+);
+
+const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
+    const [view, setView] = useState<'home' | 'faq' | 'tickets' | 'create' | 'chat'>('home');
+    const [tickets, setTickets] = useState<any[]>([]);
+    const [selectedTicket, setSelectedTicket] = useState<any>(null);
+    const [messages, setMessages] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [newMessage, setNewMessage] = useState('');
+    const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+    const [ticketFilter, setTicketFilter] = useState<'all' | 'open' | 'closed'>('open');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [rating, setRating] = useState(0);
+    
+    // New Ticket Form
+    const [newTicket, setNewTicket] = useState({ subject: '', category: 'Financeiro', priority: 'Normal', message: '' });
+    
+    const { addToast } = useToast();
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const faqs = [
+        // Financeiro
+        { q: "Como aumento meu limite?", a: "O limite aumenta automaticamente conforme você paga suas faturas em dia. Você também pode solicitar uma análise no menu 'Meus Limites'." },
+        { q: "O pagamento via Pix é instantâneo?", a: "Sim! O pagamento via Pix é processado na hora e seu limite é liberado em poucos minutos." },
+        { q: "Como funcionam os juros por atraso?", a: "Em caso de atraso, é cobrada uma multa de 2% mais juros de 1% ao mês pro rata die." },
+        { q: "Onde vejo o comprovante?", a: "Acesse 'Meus Documentos' > 'Comprovantes' no seu perfil para ver e baixar todos os recibos." },
+        { q: "Posso antecipar parcelas?", a: "Sim, ao antecipar parcelas você ganha desconto nos juros. Entre em contato pelo chat para solicitar o boleto de quitação." },
+        { q: "Meu boleto venceu, e agora?", a: "Você pode atualizar o boleto vencido diretamente no app ou pagar via Pix com o valor atualizado." },
+        { q: "Aceitam cartão de crédito de terceiros?", a: "Por segurança, recomendamos usar cartão próprio. Cartões de terceiros podem passar por análise antifraude mais rigorosa." },
+        { q: "O que é o CVV do cartão?", a: "É o código de segurança de 3 ou 4 dígitos localizado no verso do seu cartão de crédito." },
+        { q: "Fiz um Pix errado, como estornar?", a: "Entre em contato imediatamente com o suporte com o comprovante em mãos para analisarmos o caso." },
+        { q: "Posso parcelar no boleto?", a: "O parcelamento no boleto está disponível mediante análise de crédito (Crediário Próprio)." },
+        
+        // Loja & Produtos
+        { q: "Qual o prazo de entrega?", a: "Para Macapá e Santana, a entrega costuma ser no mesmo dia ou em até 24h úteis." },
+        { q: "Posso retirar na loja?", a: "Sim, basta selecionar a opção 'Retirada na Loja' no momento da compra." },
+        { q: "Os produtos têm garantia?", a: "Todos os produtos eletrônicos possuem garantia legal de 90 dias, mais a garantia do fabricante (geralmente 1 ano)." },
+        { q: "Como rastrear meu pedido?", a: "Vá em 'Meus Pedidos' no perfil. Lá você vê o status atualizado de cada etapa." },
+        { q: "Vendem acessórios originais?", a: "Sim, trabalhamos apenas com produtos originais e homologados." },
+        { q: "O que fazer se o produto vier com defeito?", a: "Você tem até 7 dias para troca imediata na loja. Após esse prazo, acione a garantia do fabricante." },
+        { q: "Posso reservar um produto?", a: "Não fazemos reservas sem pagamento. O produto é garantido apenas após a confirmação da compra." },
+        { q: "Vocês compram celular usado?", a: "Temos um programa de Trade-in em períodos específicos. Fique atento às notificações." },
+        { q: "O preço do site é o mesmo da loja?", a: "Geralmente sim, mas podem haver promoções exclusivas para o App." },
+        { q: "Como usar cupom de desconto?", a: "Na tela de pagamento, insira o código no campo 'Cupom' antes de finalizar." },
+
+        // Cadastro & Conta
+        { q: "Esqueci minha senha.", a: "Clique em 'Esqueceu?' na tela de login para receber um link de redefinição por e-mail." },
+        { q: "Como alterar meu e-mail?", a: "Por segurança, a alteração de e-mail deve ser solicitada via suporte com validação de identidade." },
+        { q: "É seguro enviar meus documentos?", a: "Sim, utilizamos criptografia de ponta a ponta e seus dados são usados apenas para análise de crédito." },
+        { q: "Como excluir minha conta?", a: "Acesse Configurações > Zona de Perigo > Excluir Conta. Atenção: essa ação é irreversível." },
+        { q: "Posso ter duas contas?", a: "Não, o cadastro é único por CPF." },
+        { q: "Como ativar a biometria?", a: "Vá em Perfil > Configurações > Segurança e ative a opção 'Entrar com Biometria'." },
+        { q: "Meu cadastro foi reprovado, por quê?", a: "A análise considera vários fatores como score, histórico e dados da Receita. Tente novamente em 30 dias." },
+        { q: "Como mudar o endereço de entrega?", a: "Você pode gerenciar seus endereços em Perfil > Meus Endereços." },
+        { q: "Recebo muitos e-mails, como parar?", a: "Em Configurações > Geral, você pode desativar as notificações por e-mail." },
+        { q: "O app pede minha localização, por quê?", a: "Usamos para calcular o frete e sugerir a loja mais próxima, além de segurança antifraude." },
+
+        // Crédito & Score
+        { q: "O que é o Score Relp?", a: "É uma pontuação interna baseada no seu histórico de pagamentos e compras conosco." },
+        { q: "Como aumento meu Score?", a: "Pague em dia, mantenha seus dados atualizados e concentre suas compras na Relp Cell." },
+        { q: "Meu limite diminuiu, o que houve?", a: "O limite pode ser ajustado periodicamente com base em reanálises de crédito de mercado." },
+        { q: "O limite é renovado quando?", a: "Assim que o pagamento da fatura é compensado, o limite proporcional é liberado." },
+        { q: "Posso transferir limite?", a: "Não, o limite de crédito é pessoal e intransferível." },
+        { q: "O que é 'Limite por Parcela'?", a: "É o valor máximo que a parcela de uma compra pode atingir, não o valor total do produto." },
+        { q: "Negativados podem comprar?", a: "Cada caso é analisado individualmente. Ter restrição não impede a análise, mas pode limitar o crédito aprovado." },
+        { q: "A consulta de crédito baixa meu score no Serasa?", a: "Nossa consulta interna não afeta seu score de mercado." },
+        { q: "Quanto tempo demora a análise de aumento?", a: "Solicitações de aumento levam até 3 dias úteis." },
+        { q: "Existe anuidade no crediário?", a: "Não cobramos anuidade ou taxas de manutenção de conta." },
+
+        // Suporte & App
+        { q: "O app está travando.", a: "Tente limpar o cache em Perfil > Configurações > Manutenção ou reinstale o aplicativo." },
+        { q: "Não recebo o código SMS.", a: "Verifique se o número está correto ou se há bloqueio de SMS no seu aparelho." },
+        { q: "Como falar com atendente?", a: "Abra um chamado na aba 'Meus Chamados' ou clique no botão de WhatsApp no Perfil." },
+        { q: "Qual a versão atual do app?", a: "Você pode ver a versão instalada no rodapé da aba Configurações." },
+        { q: "O app funciona sem internet?", a: "Algumas funções como ver faturas baixadas sim, mas para pagamentos é necessária conexão." },
+        { q: "Onde fica a loja física?", a: "Temos unidades no Centro e Zona Norte. Consulte o endereço no rodapé do site." },
+        { q: "Horário de atendimento do suporte?", a: "Nosso time atende de Seg a Sáb das 08h às 18h. O ChatBot funciona 24h." },
+        { q: "Posso sugerir melhorias?", a: "Adoramos feedback! Envie sua sugestão pelo canal de suporte." },
+        { q: "Meus dados sumiram do app.", a: "Tente sair da conta e fazer login novamente para sincronizar." },
+        { q: "Erro 'Token Inválido'.", a: "Isso ocorre por segurança. Faça login novamente para renovar sua sessão." }
+    ];
+
+    const fetchTickets = async () => {
+        setIsLoading(true);
+        const { data } = await supabase.from('support_tickets').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+        setTickets(data || []);
+        setIsLoading(false);
+    };
+
+    const fetchMessages = async (ticketId: string) => {
+        const { data } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).eq('is_internal', false).order('created_at', { ascending: true });
+        setMessages(data || []);
+    };
+
+    useEffect(() => {
+        if (view === 'tickets') fetchTickets();
+        if (view === 'chat' && selectedTicket) {
+            fetchMessages(selectedTicket.id);
+            const interval = setInterval(() => fetchMessages(selectedTicket.id), 3000);
+            return () => clearInterval(interval);
+        }
+    }, [view, selectedTicket]);
+
+    useEffect(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
+
+    const handleCreateTicket = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+            const { data: ticket, error } = await supabase.from('support_tickets').insert({
+                user_id: userId,
+                subject: newTicket.subject,
+                category: newTicket.category,
+                priority: newTicket.priority,
+                status: 'open'
+            }).select().single();
+
+            if (error) throw error;
+
+            if (newTicket.message) {
+                await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message: newTicket.message });
+            }
+
+            addToast('Chamado criado com sucesso!', 'success');
+            setNewTicket({ subject: '', category: 'Financeiro', priority: 'Normal', message: '' });
+            setView('tickets');
+        } catch (e) {
+            addToast('Erro ao criar chamado.', 'error');
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    return (
-        <div className="animate-fade-in space-y-6">
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
-                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide">Notificações</h3>
-                <ToggleSwitch label="Notificações Push" checked={notifs.push} onChange={v => setNotifs({...notifs, push: v})} />
-                <ToggleSwitch label="Emails Promocionais" checked={notifs.email} onChange={v => setNotifs({...notifs, email: v})} />
-                <ToggleSwitch label="Avisos via WhatsApp" checked={notifs.whatsapp} onChange={v => setNotifs({...notifs, whatsapp: v})} />
-            </div>
-
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
-                <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide">Segurança</h3>
-                <button onClick={handlePasswordReset} className="w-full text-left py-3 text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex justify-between items-center">
-                    Alterar Senha de Acesso
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </button>
-            </div>
-            
-            <div className="text-center pt-4">
-                <p className="text-xs text-slate-400">Versão do App: 2.1.0 (Enterprise)</p>
-            </div>
-        </div>
-    );
-};
-
-const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
-    const code = `RELP-${profile.first_name?.substring(0, 3).toUpperCase()}${Math.floor(Math.random() * 1000)}`;
-    const { addToast } = useToast();
-
-    const handleCopy = () => {
-        navigator.clipboard.writeText(code);
-        addToast('Código copiado!', 'success');
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMessage.trim()) return;
+        const msg = newMessage;
+        setNewMessage('');
+        setMessages(p => [...p, { id: 'temp', sender_type: 'user', message: msg, created_at: new Date().toISOString() }]); // Otimista
+        
+        await supabase.from('support_messages').insert({ ticket_id: selectedTicket.id, sender_type: 'user', message: msg });
+        await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', selectedTicket.id);
+        fetchMessages(selectedTicket.id);
     };
 
-    return (
-        <div className="animate-fade-in text-center space-y-6 pt-4">
-            <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/40 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slow">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
-            </div>
-            
-            <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Convide e Ganhe</h3>
-            <p className="text-slate-600 dark:text-slate-300 px-4">
-                Indique amigos para a Relp Cell. Eles ganham <span className="font-bold text-indigo-600">R$ 20</span> na primeira compra e você ganha <span className="font-bold text-green-600">1% de cashback</span> vitalício nas compras deles!
-            </p>
+    const handleCloseTicket = async () => {
+        if (!window.confirm("Deseja encerrar este atendimento?")) return;
+        await supabase.from('support_tickets').update({ status: 'closed' }).eq('id', selectedTicket.id);
+        setSelectedTicket({ ...selectedTicket, status: 'closed' });
+        addToast('Atendimento encerrado.', 'success');
+    };
 
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-dashed border-indigo-300 dark:border-indigo-700 mx-4 relative overflow-hidden">
-                <p className="text-xs text-slate-500 uppercase tracking-widest mb-2">Seu Código Exclusivo</p>
-                <p className="text-3xl font-black text-indigo-600 dark:text-white tracking-wider font-mono">{code}</p>
-                <button onClick={handleCopy} className="absolute top-2 right-2 p-2 text-slate-400 hover:text-indigo-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+    // --- SUB-VIEWS ---
+
+    if (view === 'home') return (
+        <div className="animate-fade-in space-y-6">
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+                <div className="relative z-10">
+                    <h3 className="text-xl font-bold mb-1">Central de Ajuda</h3>
+                    <p className="text-indigo-100 text-sm mb-4">Estamos aqui para você, 24h por dia.</p>
+                    <button onClick={() => setView('create')} className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-50 transition-colors shadow-sm">
+                        Abrir Novo Chamado
+                    </button>
+                </div>
+                <div className="absolute right-0 bottom-0 opacity-20 pointer-events-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 -mr-6 -mb-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+                </div>
+            </div>
+
+            <ServiceStatus />
+
+            <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => setView('tickets')} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-left group">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 mb-3 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    </div>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Meus Chamados</h4>
+                    <p className="text-xs text-slate-500">Acompanhe solicitações</p>
                 </button>
+                <button onClick={() => setView('faq')} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-left group">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 mb-3 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+                    </div>
+                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Perguntas (FAQ)</h4>
+                    <p className="text-xs text-slate-500">Tire dúvidas rápidas</p>
+                </button>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-100 dark:border-slate-700">
+                <h4 className="font-bold text-slate-900 dark:text-white mb-3 text-sm">Canais Externos</h4>
+                <a href="https://wa.me/5596991718167" target="_blank" rel="noreferrer" className="flex items-center p-3 mb-2 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group">
+                    <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-bold text-slate-800 dark:text-white">WhatsApp</p>
+                        <p className="text-xs text-slate-500">Resposta rápida</p>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </a>
+                <a href="mailto:suporte@relpcell.com" className="flex items-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group">
+                    <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-bold text-slate-800 dark:text-white">E-mail</p>
+                        <p className="text-xs text-slate-500">suporte@relpcell.com</p>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </a>
             </div>
         </div>
     );
+
+    if (view === 'faq') return (
+        <div className="animate-fade-in space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+                <button onClick={() => setView('home')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Perguntas Frequentes</h3>
+            </div>
+            
+            <div className="relative">
+                <input type="text" placeholder="Buscar dúvida..." className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" onChange={(e) => setSearchQuery(e.target.value)} />
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-2">
+                {faqs.filter(f => f.q.toLowerCase().includes(searchQuery.toLowerCase())).map((f, i) => (
+                    <FAQItem key={i} question={f.q} answer={f.a} isExpanded={expandedFaq === i} onClick={() => setExpandedFaq(expandedFaq === i ? null : i)} />
+                ))}
+            </div>
+        </div>
+    );
+
+    if (view === 'tickets') return (
+        <div className="animate-fade-in space-y-4 h-full flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setView('home')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">Meus Tickets</h3>
+                </div>
+                <button onClick={() => setView('create')} className="bg-indigo-600 text-white p-2 rounded-full shadow-lg hover:bg-indigo-700 transition-transform active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                {['open', 'closed', 'all'].map((status) => (
+                    <button 
+                        key={status}
+                        onClick={() => setTicketFilter(status as any)}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-md capitalize transition-all ${ticketFilter === status ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                    >
+                        {status === 'all' ? 'Todos' : status === 'open' ? 'Abertos' : 'Fechados'}
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pb-20 custom-scrollbar">
+                {isLoading ? (
+                    <div className="flex justify-center py-10"><LoadingSpinner /></div>
+                ) : tickets.filter(t => ticketFilter === 'all' || t.status === ticketFilter).length === 0 ? (
+                    <div className="text-center py-10 text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+                        <p className="text-sm">Nenhum ticket encontrado.</p>
+                    </div>
+                ) : (
+                    tickets.filter(t => ticketFilter === 'all' || t.status === ticketFilter).map(ticket => (
+                        <button key={ticket.id} onClick={() => { setSelectedTicket(ticket); setView('chat'); }} className="w-full text-left bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm active:scale-[0.98] transition-transform relative overflow-hidden group">
+                            <div className={`absolute left-0 top-0 bottom-0 w-1 ${ticket.status === 'open' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
+                            <div className="pl-3">
+                                <div className="flex justify-between mb-1">
+                                    <span className="font-bold text-slate-800 dark:text-white text-sm truncate pr-2">{ticket.subject}</span>
+                                    <span className="text-[10px] text-slate-400">{new Date(ticket.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <div className="flex gap-2">
+                                        <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded uppercase font-bold">{ticket.category}</span>
+                                        {ticket.priority === 'Alta' && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase font-bold">Urgente</span>}
+                                    </div>
+                                    <span className={`text-[10px] font-bold uppercase ${ticket.status === 'open' ? 'text-green-600' : 'text-slate-400'}`}>{ticket.status === 'open' ? 'Aberto' : 'Fechado'}</span>
+                                </div>
+                            </div>
+                        </button>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+
+    if (view === 'create') return (
+        <div className="animate-fade-in space-y-4 h-full flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+                <button onClick={() => setView('tickets')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Novo Chamado</h3>
+            </div>
+
+            <form onSubmit={handleCreateTicket} className="flex-1 overflow-y-auto pb-20 space-y-4 p-1">
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-200 mb-4">
+                    <p>👋 <strong>Dica:</strong> Verifique a aba "Perguntas" antes de abrir um chamado. Muitas dúvidas já estão respondidas lá!</p>
+                </div>
+
+                <InputField label="Assunto" name="subject" value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})} required placeholder="Resumo do problema" />
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoria</label>
+                        <select className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={newTicket.category} onChange={e => setNewTicket({...newTicket, category: e.target.value})}>
+                            <option>Financeiro</option>
+                            <option>Técnico</option>
+                            <option>Vendas</option>
+                            <option>Outros</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Prioridade</label>
+                        <select className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={newTicket.priority} onChange={e => setNewTicket({...newTicket, priority: e.target.value})}>
+                            <option>Baixa</option>
+                            <option>Normal</option>
+                            <option>Alta</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem</label>
+                    <textarea required rows={6} className="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-sm" value={newTicket.message} onChange={e => setNewTicket({...newTicket, message: e.target.value})} placeholder="Descreva detalhadamente o que está acontecendo..."></textarea>
+                    <p className="text-right text-xs text-slate-400 mt-1">{newTicket.message.length}/500</p>
+                </div>
+
+                {/* Fake Attachment Button */}
+                <button type="button" className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium p-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg w-fit transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                    Anexar Arquivo (Imagem/PDF)
+                </button>
+
+                <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center gap-2">
+                    {isLoading ? <LoadingSpinner /> : 'Enviar Solicitação'}
+                </button>
+            </form>
+        </div>
+    );
+
+    if (view === 'chat') return (
+        <div className="animate-fade-in flex flex-col h-full fixed inset-0 z-[60] bg-slate-50 dark:bg-slate-900">
+            {/* Chat Header */}
+            <div className="p-4 bg-white/90 dark:bg-slate-800/90 backdrop-blur shadow-sm flex items-center gap-3 border-b border-slate-200 dark:border-slate-700 pt-safe">
+                <button onClick={() => setView('tickets')} className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
+                <div className="flex-1 truncate">
+                    <h4 className="font-bold text-slate-900 dark:text-white truncate">{selectedTicket?.subject}</h4>
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                        Ticket #{selectedTicket?.id.slice(0,6)} • 
+                        <span className={`w-2 h-2 rounded-full ${selectedTicket?.status === 'open' ? 'bg-green-500' : 'bg-slate-400'}`}></span>
+                        {selectedTicket?.status === 'open' ? 'Aberto' : 'Fechado'}
+                    </p>
+                </div>
+                {selectedTicket?.status === 'open' && (
+                    <button onClick={handleCloseTicket} className="p-2 text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs font-bold">Encerrar</button>
+                )}
+            </div>
+
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-100 dark:bg-slate-900/50">
+                {/* System Message Start */}
+                <div className="flex justify-center"><span className="text-[10px] text-slate-400 bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-full">Início do atendimento: {new Date(selectedTicket.created_at).toLocaleDateString()}</span></div>
+                
+                {messages.map(msg => (
+                    <div key={msg.id} className={`flex flex-col ${msg.sender_type === 'user' ? 'items-end' : 'items-start'}`}>
+                        <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm relative ${msg.sender_type === 'user' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-slate-600'}`}>
+                            {msg.message}
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 px-1">{new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                    </div>
+                ))}
+                
+                {selectedTicket.status === 'closed' && (
+                    <div className="p-4 bg-white dark:bg-slate-800 rounded-xl text-center border border-slate-200 dark:border-slate-700 shadow-sm my-4">
+                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Atendimento Finalizado</p>
+                        <p className="text-xs text-slate-500 mb-3">Como você avalia nosso suporte?</p>
+                        <div className="flex justify-center gap-2 mb-2">
+                            {[1,2,3,4,5].map(s => (
+                                <button key={s} onClick={() => setRating(s)} className={`text-2xl transition-transform hover:scale-110 ${s <= rating ? 'grayscale-0' : 'grayscale opacity-30'}`}>⭐</button>
+                            ))}
+                        </div>
+                        {rating > 0 && <p className="text-xs text-green-600 font-bold animate-fade-in">Obrigado pelo feedback!</p>}
+                    </div>
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Area */}
+            {selectedTicket.status === 'open' ? (
+                <form onSubmit={handleSendMessage} className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex gap-2 pb-safe">
+                    <button type="button" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg></button>
+                    <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 bg-slate-100 dark:bg-slate-900 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white" />
+                    <button type="submit" disabled={!newMessage.trim()} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:scale-100 active:scale-95 transition-all shadow-md">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                    </button>
+                </form>
+            ) : (
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 text-center text-xs text-slate-500 pb-safe border-t border-slate-200 dark:border-slate-700">
+                    Este ticket foi encerrado. Para novas dúvidas, abra um novo chamado.
+                </div>
+            )}
+        </div>
+    );
+
+    return null;
 };
 
-const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
+const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode }) => {
     const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -843,9 +1429,16 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                         />
                         
                         <MenuItem 
+                            label="Configurações" 
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            onClick={() => setActiveView('settings')}
+                            colorClass="bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400"
+                        />
+
+                        <MenuItem 
                             label="Indique e Ganhe" 
                             description="Ganhe R$ 20 por amigo"
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>}
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>}
                             onClick={() => setActiveView('referral')}
                             colorClass="bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400"
                         />
@@ -888,12 +1481,12 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
 
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
-                    {activeView === 'addresses' && <AddressView userId={session.user.id} />}
+                    {activeView === 'addresses' && profile && <AddressView profile={profile} onUpdate={setProfile} />}
                     {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
                     {activeView === 'fiscal_notes' && profile && <FiscalNotesView profile={profile} />}
                     {activeView === 'receipts' && profile && <PaymentReceiptsView userId={session.user.id} profile={profile} />}
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(updated) => setProfile(updated)} />}
-                    {activeView === 'settings' && <SettingsView />}
+                    {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
                     {activeView === 'help' && <HelpView userId={session.user.id} />}
                 </div>
