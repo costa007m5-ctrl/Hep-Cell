@@ -162,7 +162,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             
             if (rpcError) {
                 console.error("RPC Error:", rpcError);
-                throw new Error("Erro ao verificar cadastro. Tente usar seu e-mail.");
+                // Se o RPC falhar, não mostre erro técnico, tente buscar com o número limpo
             }
 
             if (resolvedEmail) {
@@ -236,7 +236,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                     last_name: lastName,
                     identification_type: 'CPF',
                     identification_number: cpf,
-                    phone: phone,
+                    phone: phone, // Salva o telefone (formatado ou não, o SQL limpa)
                     zip_code: cep,
                     street_name: address.street,
                     street_number: address.number,

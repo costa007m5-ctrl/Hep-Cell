@@ -7,6 +7,7 @@ import { Profile, Address } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
+import jsPDF from 'jspdf';
 
 interface PagePerfilProps {
     session: Session;
@@ -55,6 +56,42 @@ const ContractsView: React.FC = () => {
         { id: 2, title: 'Contrato de Compra e Venda', date: '15/05/2024', status: 'Finalizado' },
     ];
 
+    const generateContractPDF = (contract: any) => {
+        const doc = new jsPDF();
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text("RELP CELL - CONTRATO DIGITAL", 105, 20, { align: "center" });
+        
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Documento: ${contract.title}`, 20, 40);
+        doc.text(`Data de Assinatura: ${contract.date}`, 20, 50);
+        doc.text(`Status: ${contract.status}`, 20, 60);
+        
+        doc.setFont("helvetica", "bold");
+        doc.text("CLÁUSULA 1 - DO OBJETO", 20, 80);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        const text = "O presente contrato tem por objeto estabelecer as condições gerais de uso do crediário da Relp Cell, incluindo limites de crédito, vencimentos e taxas de juros aplicáveis.";
+        const splitText = doc.splitTextToSize(text, 170);
+        doc.text(splitText, 20, 90);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("CLÁUSULA 2 - DO PAGAMENTO", 20, 120);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        const text2 = "O cliente compromete-se a efetuar os pagamentos das faturas até a data de vencimento. O não pagamento acarretará em multas e juros conforme legislação vigente.";
+        const splitText2 = doc.splitTextToSize(text2, 170);
+        doc.text(splitText2, 20, 130);
+
+        doc.setTextColor(150);
+        doc.text("Assinado Digitalmente via App Relp Cell", 105, 280, { align: "center" });
+        
+        doc.save(`contrato_relp_${contract.id}.pdf`);
+    };
+
     return (
         <div className="space-y-4 animate-fade-in">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 flex items-start gap-3">
@@ -75,8 +112,12 @@ const ContractsView: React.FC = () => {
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${contract.status === 'Ativo' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                             {contract.status}
                         </span>
-                        <button className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline">
-                            Visualizar PDF
+                        <button 
+                            onClick={() => generateContractPDF(contract)}
+                            className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline flex items-center gap-1"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            Baixar PDF
                         </button>
                     </div>
                 </div>
@@ -87,8 +128,55 @@ const ContractsView: React.FC = () => {
 
 const FiscalNotesView: React.FC = () => {
     const notes = [
-        { id: 'NFE-4592', items: 'iPhone 13 Pro', value: 'R$ 4.500,00', date: '15/05/2024' },
+        { id: 'NFE-4592', items: 'iPhone 13 Pro 128GB', value: 'R$ 4.500,00', date: '15/05/2024', key: '3524 0512 3456 7890 1234 5500 1000 0045 9210 0000 0000' },
     ];
+
+    const generateFiscalNotePDF = (note: any) => {
+        const doc = new jsPDF();
+        
+        // Header DANFE Simulado
+        doc.setLineWidth(0.5);
+        doc.rect(10, 10, 190, 30);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.text("DANFE", 20, 20);
+        doc.setFontSize(10);
+        doc.text("Documento Auxiliar da Nota Fiscal Eletrônica", 20, 25);
+        doc.text("0 - Entrada", 150, 20);
+        doc.text("1 - Saída", 150, 25);
+        doc.setFontSize(12);
+        doc.text(`Nº ${note.id}`, 150, 35);
+
+        // Emitente
+        doc.rect(10, 45, 190, 20);
+        doc.setFontSize(10);
+        doc.text("EMITENTE: RELP CELL ELETRONICOS LTDA", 15, 55);
+        doc.text("CNPJ: 00.000.000/0001-91", 15, 60);
+
+        // Destinatário
+        doc.rect(10, 70, 190, 20);
+        doc.text("DESTINATÁRIO: CLIENTE CONSUMIDOR", 15, 80);
+        doc.text(`DATA EMISSÃO: ${note.date}`, 150, 80);
+
+        // Produtos
+        doc.rect(10, 95, 190, 50);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS DO PRODUTO/SERVIÇO", 15, 105);
+        doc.setFont("helvetica", "normal");
+        doc.text(`DESCRIÇÃO: ${note.items}`, 15, 115);
+        doc.text("QTD: 1", 130, 115);
+        doc.text(`VALOR TOTAL: ${note.value}`, 160, 115);
+
+        // Chave de Acesso
+        doc.rect(10, 150, 190, 15);
+        doc.setFontSize(8);
+        doc.text("CHAVE DE ACESSO", 15, 155);
+        doc.setFont("courier", "bold");
+        doc.setFontSize(10);
+        doc.text(note.key, 15, 162);
+
+        doc.save(`nfe_${note.id}.pdf`);
+    };
 
     return (
         <div className="space-y-4 animate-fade-in">
@@ -104,9 +192,12 @@ const FiscalNotesView: React.FC = () => {
                             <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">{note.items}</p>
                             <div className="flex justify-between items-center pt-3 border-t border-slate-50 dark:border-slate-700">
                                 <span className="font-bold text-slate-900 dark:text-white">{note.value}</span>
-                                <button className="flex items-center gap-1 text-orange-600 dark:text-orange-400 text-xs font-bold hover:bg-orange-50 dark:hover:bg-orange-900/20 px-2 py-1 rounded transition-colors">
+                                <button 
+                                    onClick={() => generateFiscalNotePDF(note)}
+                                    className="flex items-center gap-1 text-orange-600 dark:text-orange-400 text-xs font-bold hover:bg-orange-50 dark:hover:bg-orange-900/20 px-2 py-1 rounded transition-colors"
+                                >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                    Baixar XML/PDF
+                                    Baixar DANFE
                                 </button>
                             </div>
                         </div>
@@ -125,7 +216,7 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
     const [formData, setFormData] = useState({
         first_name: profile.first_name || '',
         last_name: profile.last_name || '',
-        phone: '(11) 99999-9999', // Mocked for now as it's not in base profile type yet
+        phone: profile.phone || '', 
     });
     const [loading, setLoading] = useState(false);
     const { addToast } = useToast();
@@ -134,8 +225,8 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
         e.preventDefault();
         setLoading(true);
         try {
-            await updateProfile({ ...profile, first_name: formData.first_name, last_name: formData.last_name });
-            onUpdate({ ...profile, first_name: formData.first_name, last_name: formData.last_name });
+            await updateProfile({ ...profile, first_name: formData.first_name, last_name: formData.last_name, phone: formData.phone });
+            onUpdate({ ...profile, first_name: formData.first_name, last_name: formData.last_name, phone: formData.phone });
             addToast('Dados atualizados com sucesso!', 'success');
         } catch (error) {
             addToast('Erro ao atualizar dados.', 'error');

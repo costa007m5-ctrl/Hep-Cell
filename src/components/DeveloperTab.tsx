@@ -332,6 +332,14 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
       WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input 
       LIMIT 1;
       
+      -- Tenta encontrar pelo Telefone EXATO (caso tenha sido salvo com formatação estranha ou +55)
+      IF found_email IS NULL THEN
+        SELECT email INTO found_email 
+        FROM profiles 
+        WHERE phone = identifier_input OR phone = clean_input
+        LIMIT 1;
+      END IF;
+      
       RETURN found_email;
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
