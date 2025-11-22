@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -15,6 +15,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [supportsBiometrics, setSupportsBiometrics] = useState(false);
 
   // Login State (Generic Identifier for Email/CPF/Phone)
   const [identifier, setIdentifier] = useState(''); 
@@ -37,6 +38,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [passwordStrength, setPasswordStrength] = useState(0);
 
   const streetNumberRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+      // Check basic support for WebAuthn
+      if (window.PublicKeyCredential) {
+          PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+              .then(available => setSupportsBiometrics(available))
+              .catch(e => console.error(e));
+      }
+  }, []);
 
   // Greeting logic based on time
   const getGreeting = () => {
@@ -132,6 +142,16 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       setMessage({ text: error.message, type: 'error' });
       setLoading(false);
     }
+  };
+
+  const handleBiometricLogin = async () => {
+      setMessage({ text: "Solicitando biometria...", type: 'success' });
+      // Simulação visual - Em um app real, usaria navigator.credentials.get()
+      // E enviaria a assinatura para o backend validar.
+      // Como não temos backend para WebAuthn aqui, simulamos a UX.
+      setTimeout(() => {
+          setMessage({ text: "Biometria não configurada para esta conta. Use a senha.", type: 'error' });
+      }, 1500);
   };
 
   // Função para verificar se o input é um email
@@ -619,10 +639,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             </div>
           </form>
 
-          {/* === FACE ID SIMULATION (Visual Only) === */}
-          {mode === 'login' && (
+          {/* === FACE ID / BIOMETRIC LOGIN BUTTON === */}
+          {mode === 'login' && supportsBiometrics && (
              <div className="mt-4 flex justify-center">
-                 <button className="p-2 text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors" title="Usar Biometria">
+                 <button 
+                    type="button"
+                    onClick={handleBiometricLogin}
+                    className="p-3 text-slate-400 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors bg-slate-50 dark:bg-slate-800/50 rounded-full border border-slate-200 dark:border-slate-700" 
+                    title="Entrar com Biometria (Digital ou FaceID)"
+                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.131A8 8 0 008 8M6.218 7.113a3.993 3.993 0 00-.879 1.19c-.5 1.152-.75 2.398-.99 3.693m2.505 5.547l.09-.054" />
                     </svg>

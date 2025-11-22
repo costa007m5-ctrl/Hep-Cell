@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
@@ -38,7 +39,7 @@ const ActionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: ()
     </button>
 );
 
-const ActivityItem: React.FC<{ title: string; date: string; amount?: string; type: 'payment' | 'purchase' | 'info' }> = ({ title, date, amount, type }) => {
+const ActivityItem: React.FC<{ title: string; date: string; amount?: string; type: 'payment' | 'purchase' | 'info'; onClick?: () => void }> = ({ title, date, amount, type, onClick }) => {
     const getIcon = () => {
         if (type === 'payment') return <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>;
         if (type === 'purchase') return <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" /></svg></div>;
@@ -46,7 +47,10 @@ const ActivityItem: React.FC<{ title: string; date: string; amount?: string; typ
     };
 
     return (
-        <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-50 dark:border-slate-700/50">
+        <div 
+            onClick={onClick}
+            className={`flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-50 dark:border-slate-700/50 ${onClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors' : ''}`}
+        >
             <div className="flex items-center gap-3">
                 {getIcon()}
                 <div>
@@ -129,7 +133,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   // Financial Calculations
   const totalDebt = useMemo(() => invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').reduce((acc, inv) => acc + inv.amount, 0), [invoices]);
   const creditLimit = profileData?.credit_limit || 0;
-  // Limit logic: Available = Total Limit - Pending Invoices (Simple approximation)
   const availableLimit = Math.max(0, creditLimit - totalDebt);
   const limitUsedPercent = creditLimit > 0 ? ((creditLimit - availableLimit) / creditLimit) * 100 : 0;
   
@@ -201,7 +204,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                     key={story.id} 
                     img={story.img} 
                     label={story.label} 
-                    onClick={() => setActiveTab(Tab.LOJA)} // Mock: Leva pra loja
+                    onClick={() => setActiveTab(Tab.LOJA)} 
                 />
             ))}
         </div>
@@ -221,9 +224,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             </div>
         )}
 
-        {/* Main Financial Card (Black Card Style) */}
+        {/* Main Financial Card */}
         <div className="relative mx-2 h-52 bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 overflow-hidden group transition-transform active:scale-[0.99]">
-             {/* Background Abstract Shapes */}
              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full opacity-20 blur-3xl -mr-20 -mt-20"></div>
              <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600 rounded-full opacity-20 blur-3xl -ml-10 -mb-10"></div>
              <div className="absolute top-1/2 left-1/2 w-32 h-32 bg-pink-500 rounded-full opacity-10 blur-2xl -translate-x-1/2 -translate-y-1/2"></div>
@@ -248,7 +250,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                          <span className="font-semibold">{formatValue(totalDebt)}</span>
                      </div>
                      
-                     {/* Progress Bar */}
                      <div className="space-y-1.5">
                         <div className="flex justify-between text-[10px] text-slate-400">
                             <span>Utilizado</span>
@@ -317,11 +318,17 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                         date={`Vence em ${new Date(nextInvoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})}`} 
                         amount={formatValue(nextInvoice.amount)}
                         type="purchase"
+                        onClick={() => setActiveTab(Tab.FATURAS)}
                     />
                 ) : (
-                    <ActivityItem title="Tudo em dia!" date="Nenhuma fatura pendente" type="info" />
+                    <ActivityItem title="Tudo em dia!" date="Nenhuma fatura pendente" type="info" onClick={() => setActiveTab(Tab.FATURAS)} />
                 )}
-                <ActivityItem title="Análise de Crédito" date="Realizada em 10 Out" type="info" />
+                <ActivityItem 
+                    title="Análise de Crédito" 
+                    date="Realizada em 10 Out" 
+                    type="info" 
+                    onClick={() => { setModalView('score'); setIsModalOpen(true); }}
+                />
             </div>
         </div>
 

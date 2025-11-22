@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import { supabase } from '../services/clients';
@@ -13,6 +14,8 @@ import { CardSkeleton } from './Skeleton';
 import { useToast } from './Toast';
 import Confetti from './Confetti';
 import jsPDF from 'jspdf';
+import Modal from './Modal';
+import LoadingSpinner from './LoadingSpinner';
 
 type PaymentStep = 'list' | 'select_method' | 'pay_card' | 'pay_pix' | 'pay_boleto' | 'boleto_details';
 
@@ -53,6 +56,106 @@ const ChartIcon = () => (
 );
 
 // --- Components ---
+
+// Modal de Renegociação
+const RenegotiationModal: React.FC<{
+    overdueInvoices: Invoice[];
+    onClose: () => void;
+    onConfirm: (deal: Invoice) => void;
+}> = ({ overdueInvoices, onClose, onConfirm }) => {
+    const [installments, setInstallments] = useState(1);
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    const totalOriginal = overdueInvoices.reduce((acc, inv) => acc + inv.amount, 0);
+    
+    // Regra: Juros progressivo até 15% na parcela 7
+    // Fórmula simples: Juros % = 15% * (parcelas / 7)
+    // Ex: 1 parcela = 2.14% juros | 7 parcelas = 15% juros
+    const interestPercentage = (15 * (installments / 7)) / 100;
+    const totalWithInterest = totalOriginal * (1 + interestPercentage);
+    const installmentValue = totalWithInterest / installments;
+
+    const handleGenerateDeal = () => {
+        setIsGenerating(true);
+        
+        // Cria uma "fatura" virtual que representa o acordo
+        // Na prática, o backend (BoletoPayment) vai gerar um boleto com esse valor total
+        const dealInvoice: Invoice = {
+            id: `reneg_${Date.now()}`,
+            user_id: overdueInvoices[0].user_id,
+            month: `Acordo de Renegociação (${overdueInvoices.length} faturas)`,
+            due_date: new Date().toISOString().split('T')[0], // Vence hoje/amanhã
+            amount: totalWithInterest,
+            status: 'Em aberto',
+            notes: `Renegociação de débitos. ${installments}x de ${installmentValue.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}`,
+            created_at: new Date().toISOString()
+        };
+
+        setTimeout(() => {
+            onConfirm(dealInvoice);
+            setIsGenerating(false);
+        }, 1000);
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="text-center">
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Renegociar Dívidas</h3>
+                <p className="text-sm text-slate-500 mt-1">Regularize {overdueInvoices.length} faturas em atraso.</p>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-xl border border-red-100 dark:border-red-800/50 text-center">
+                <p className="text-xs text-red-600 dark:text-red-300 uppercase font-bold mb-1">Total em Atraso</p>
+                <p className="text-3xl font-black text-red-700 dark:text-red-400">
+                    {totalOriginal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </p>
+            </div>
+
+            <div>
+                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                    Parcelar em: {installments}x
+                </label>
+                <input 
+                    type="range" 
+                    min="1" 
+                    max="7" 
+                    value={installments} 
+                    onChange={(e) => setInstallments(parseInt(e.target.value))}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-indigo-600"
+                />
+                <div className="flex justify-between text-xs text-slate-400 mt-1 px-1">
+                    <span>1x</span>
+                    <span>7x</span>
+                </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-700 p-4 rounded-xl border border-slate-200 dark:border-slate-600">
+                <div className="flex justify-between mb-2">
+                    <span className="text-sm text-slate-600 dark:text-slate-300">Juros Aplicados:</span>
+                    <span className="text-sm font-bold text-slate-800 dark:text-white">{(interestPercentage * 100).toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between mb-2 pt-2 border-t border-slate-100 dark:border-slate-600">
+                    <span className="text-sm text-slate-600 dark:text-slate-300">Novo Total:</span>
+                    <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">{totalWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                </div>
+                <div className="text-center mt-4">
+                    <p className="text-xs text-slate-500">Valor da Parcela</p>
+                    <p className="text-2xl font-bold text-indigo-600 dark:text-white">
+                        {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                </div>
+            </div>
+
+            <button 
+                onClick={handleGenerateDeal}
+                disabled={isGenerating}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-colors flex items-center justify-center gap-2"
+            >
+                {isGenerating ? <LoadingSpinner /> : 'Gerar Boleto de Acordo'}
+            </button>
+        </div>
+    );
+};
 
 // Novo Componente: Gráfico de Gastos Simplificado
 const SpendingChart: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
@@ -303,6 +406,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
     const [showConfetti, setShowConfetti] = useState(false);
     const [bulkSelection, setBulkSelection] = useState<Invoice[]>([]); // Para pagamento em massa
+    const [isRenegotiating, setIsRenegotiating] = useState(false); // Estado para o modal de renegociação
+    
     const { addToast } = useToast();
 
     const fetchInvoices = useCallback(async () => {
@@ -390,13 +495,11 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const activeGroups = groupedInvoices.filter(g => g.status !== 'completed');
     const completedGroups = groupedInvoices.filter(g => g.status === 'completed');
     const totalDue = activeGroups.reduce((acc, g) => acc + g.remainingAmount, 0);
-    const lateCount = activeGroups.filter(g => g.status === 'late').length;
+    const overdueInvoices = invoices.filter(i => (i.status === 'Em aberto' || i.status === 'Boleto Gerado') && new Date(i.due_date) < new Date());
+    const lateCount = overdueInvoices.length;
 
     // Calculate Limits
     const creditLimit = profile?.credit_limit || 0;
-    // Simplificação: Limite disponível = Limite Total - (Valor das parcelas em aberto, considerando que cada parcela consome limite)
-    // *Nota*: Num sistema real, o limite é consumido pelo valor TOTAL da compra no ato. Aqui, como não temos a tabela de 'compras' vinculada diretamente, vamos aproximar.
-    // Melhor: Limite - Soma de TODAS faturas em aberto.
     const availableLimit = Math.max(0, creditLimit - totalDue);
 
     const handlePaymentSuccess = useCallback(async (paymentId: string | number) => {
@@ -471,13 +574,21 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         });
     };
 
+    const handleRenegotiationConfirm = (dealInvoice: Invoice) => {
+        // Fecha o modal de renegociação
+        setIsRenegotiating(false);
+        // Abre o fluxo normal de pagamento com boleto já pré-selecionado
+        setSelectedInvoice(dealInvoice);
+        setPaymentStep('pay_boleto'); // Vai direto para a geração do boleto com os dados do acordo
+    };
+
     // Render Payment Flow
     if (paymentStep !== 'list' && selectedInvoice) {
         switch (paymentStep) {
             case 'select_method': return <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={(m) => { if(m==='brick') setPaymentStep('pay_card'); else if(m==='pix') setPaymentStep('pay_pix'); else if(m==='boleto') setPaymentStep('pay_boleto'); }} onBack={() => {setPaymentStep('list'); setBulkSelection([]);}} />;
             case 'pay_card': return <PaymentForm invoice={selectedInvoice} mpPublicKey={mpPublicKey} onBack={() => setPaymentStep('select_method')} onPaymentSuccess={handlePaymentSuccess} />;
             case 'pay_pix': return <PixPayment invoice={selectedInvoice} onBack={() => setPaymentStep('select_method')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
-            case 'pay_boleto': return <BoletoPayment invoice={selectedInvoice} onBack={() => setPaymentStep('select_method')} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
+            case 'pay_boleto': return <BoletoPayment invoice={selectedInvoice} onBack={() => {setPaymentStep('list'); setSelectedInvoice(null);}} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
             case 'boleto_details': return <BoletoDetails invoice={selectedInvoice} onBack={() => setPaymentStep('list')} />;
             default: return null;
         }
@@ -500,7 +611,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                         </div>
                     </div>
                     <button 
-                        onClick={() => window.dispatchEvent(new Event('open-support-chat'))}
+                        onClick={() => setIsRenegotiating(true)}
                         className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg shadow hover:bg-red-700 transition-colors"
                     >
                         Renegociar
@@ -539,13 +650,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                                     onDetails={(i) => { setSelectedInvoice(i); setPaymentStep('boleto_details'); }}
                                     onReceipt={generateReceipt}
                                     onSelectMultiple={(ids) => { 
-                                        // Simplificação: Re-sync com o state local
-                                        // Na prática, o componente filho gerencia a seleção visual e avisa o pai
-                                        // Aqui apenas usamos o update individual por enquanto
                                         ids.forEach(id => {
                                             if(!bulkSelection.find(b=>b.id===id)) updateBulkSelection(id);
                                         });
-                                        // Remove os que não estão mais selecionados (logica simplificada para MVP)
                                     }}
                                 />
                             ))
@@ -602,6 +709,15 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     </div>
                 </div>
             )}
+
+            {/* Modal de Renegociação */}
+            <Modal isOpen={isRenegotiating} onClose={() => setIsRenegotiating(false)}>
+                <RenegotiationModal 
+                    overdueInvoices={overdueInvoices} 
+                    onClose={() => setIsRenegotiating(false)}
+                    onConfirm={handleRenegotiationConfirm}
+                />
+            </Modal>
         </div>
     );
 };

@@ -1,4 +1,5 @@
-const CACHE_NAME = 'relp-cell-v14'; // Versão incrementada
+
+const CACHE_NAME = 'relp-cell-v15'; // Versão incrementada para forçar atualização
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -32,6 +33,13 @@ self.addEventListener('activate', (event) => {
       );
     }).then(() => self.clients.claim())
   );
+});
+
+// Listener para mensagem de skipWaiting
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Fetch: Estratégia Network First com Fallback Robusto para index.html
