@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'relp-cell-v18-store-ready';
+const CACHE_NAME = 'relp-cell-v20-store-ready';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -34,23 +34,16 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Listener para forçar atualização via interface se necessário
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
-// Fetch: Stale-While-Revalidate para Assets, Network First para HTML/API
+// Fetch: Stale-While-Revalidate para Assets, Network First para HTML
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Ignorar requisições de API (sempre rede), extensões ou métodos POST/PUT/DELETE
+  // Ignora requisições de API (sempre rede) e outros métodos
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.protocol.startsWith('chrome-extension')) {
     return;
   }
 
-  // 2. Navegação (HTML): Tenta rede primeiro para ter dados frescos, falha para cache (Offline Mode)
+  // Navegação (HTML): Tenta rede primeiro, fallback para cache (Offline)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -61,24 +54,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Assets Estáticos (JS, CSS, Imagens): Cache First, depois atualiza em background
+  // Assets Estáticos: Cache First com atualização em background
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      // Se tem no cache, retorna ele
       if (cachedResponse) {
-        // Mas atualiza o cache em background para a próxima vez (Stale-While-Revalidate)
+        // Atualiza o cache em background
         fetch(event.request).then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
                 caches.open(CACHE_NAME).then((cache) => {
                     cache.put(event.request, networkResponse.clone());
                 });
             }
-        }).catch(() => {}); // Erros de rede em background são ignorados
-        
+        }).catch(() => {});
         return cachedResponse;
       }
 
-      // Se não tem no cache, busca na rede
       return fetch(event.request).then((networkResponse) => {
         if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
           return networkResponse;
@@ -89,26 +79,6 @@ self.addEventListener('fetch', (event) => {
         });
         return networkResponse;
       });
-    })
-  );
-});
-
-// Suporte a Notificações Push (Preparação para futuro)
-self.addEventListener('notificationclick', function(event) {
-  event.notification.close();
-  event.waitUntil(
-    clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(clientList) {
-      // Se já houver uma janela aberta, foca nela
-      for (var i = 0; i < clientList.length; i++) {
-        var client = clientList[i];
-        if (client.url.indexOf('/') > -1 && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      // Senão, abre uma nova
-      if (clients.openWindow) {
-        return clients.openWindow('/');
-      }
     })
   );
 });
