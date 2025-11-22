@@ -17,11 +17,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
-  // Login State
-  const [email, setEmail] = useState('');
+  // Login State (Generic Identifier for Email/CPF/Phone)
+  const [identifier, setIdentifier] = useState(''); 
   const [password, setPassword] = useState('');
 
   // Register State - Dados para Boleto
+  const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
@@ -135,6 +136,9 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
     }
   };
 
+  // Função para verificar se o input é um email
+  const isEmail = (input: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+
   const handleAuth = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true);
@@ -142,18 +146,63 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
     try {
       if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        let loginEmail = identifier.trim();
+
+        // Se NÃO for email, assumimos que é CPF ou Telefone
+        if (!isEmail(loginEmail)) {
+            // Remove caracteres não numéricos para a busca
+            const cleanIdentifier = loginEmail.replace(/\D/g, '');
+            
+            // Se estiver vazio após limpar, erro
+            if (!cleanIdentifier) {
+                throw new Error("Por favor, digite um Email, CPF ou Telefone válido.");
+            }
+
+            // Tenta buscar o email associado a esse CPF/Telefone via RPC segura
+            const { data: resolvedEmail, error: rpcError } = await supabase
+                .rpc('get_email_by_identifier', { identifier_input: loginEmail }); // Manda formatado ou limpo?
+            
+            // Vamos tentar mandar formatado primeiro (como está no banco), se falhar, tenta limpo
+            if (!resolvedEmail) {
+                 const { data: resolvedEmailClean, error: rpcErrorClean } = await supabase
+                    .rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
+                 
+                 if (resolvedEmailClean) {
+                     loginEmail = resolvedEmailClean;
+                 } else {
+                     throw new Error("Conta não encontrada com este CPF ou Telefone. Verifique os dados ou cadastre-se.");
+                 }
+            } else {
+                loginEmail = resolvedEmail;
+            }
+        }
+
+        const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
         if (error) throw error;
+
       } else if (mode === 'register') {
         // Validação básica de cadastro
         if (!fullName || !cpf || !phone || !cep || !address.number) {
             throw new Error("Por favor, preencha todos os dados para emitirmos suas faturas corretamente.");
         }
 
+        // 1. Pré-verificação de Duplicidade (CPF/Telefone)
+        // Como o RLS pode impedir select direto, tentamos a função RPC ou confiamos no erro do insert depois
+        // Mas para UX melhor, tentamos identificar antes se possível
+        const { data: existingEmailByCpf } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
+        if (existingEmailByCpf) {
+             setMessage({ text: 'Este CPF já possui cadastro. Faça login.', type: 'error' });
+             setLoading(false);
+             // Opcional: mudar para modo login automaticamente
+             // setMode('login');
+             // setIdentifier(existingEmailByCpf);
+             return;
+        }
+
         const firstName = fullName.split(' ')[0];
         const lastName = fullName.split(' ').slice(1).join(' ');
 
-        // 1. Criar usuário no Auth
+        // 2. Criar usuário no Auth
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
@@ -169,7 +218,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
         if (error) throw error;
 
-        // 2. Se sucesso e temos usuário, atualizar tabela de perfil (Dados de Boleto)
+        // 3. Se sucesso e temos usuário, atualizar tabela de perfil (Dados de Boleto)
         if (data.user) {
             try {
                 await updateProfile({
@@ -179,6 +228,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                     last_name: lastName,
                     identification_type: 'CPF',
                     identification_number: cpf,
+                    phone: phone,
                     zip_code: cep,
                     street_name: address.street,
                     street_number: address.number,
@@ -186,8 +236,14 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                     city: address.city,
                     federal_unit: address.state
                 });
-            } catch (profileError) {
+                
+            } catch (profileError: any) {
                 console.error("Erro ao salvar perfil detalhado:", profileError);
+                // Se erro for de duplicidade (código 23505 no Postgres)
+                if (profileError.code === '23505' || profileError.message?.includes('unique')) {
+                     setMessage({ text: 'Este CPF ou Telefone já está sendo usado em outra conta. Tente fazer login.', type: 'error' });
+                     // Opcional: Rollback do auth user (deletar) para não ficar "zumbi", mas requer admin rights ou trigger
+                }
             }
 
             if (!data.session) {
@@ -197,16 +253,36 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         }
 
       } else if (mode === 'recovery') {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        // Recuperação também pode usar o resolvedor de email se o usuário digitar CPF
+        let recoveryEmail = identifier.trim();
+        
+        if (!isEmail(recoveryEmail)) {
+             const cleanIdentifier = recoveryEmail.replace(/\D/g, '');
+             if (!cleanIdentifier) throw new Error("Digite um dado válido.");
+
+             const { data: resolvedEmail } = await supabase
+                .rpc('get_email_by_identifier', { identifier_input: recoveryEmail });
+             
+             if (!resolvedEmail) {
+                 // Tenta limpo
+                 const { data: resolvedEmailClean } = await supabase.rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
+                 if (resolvedEmailClean) recoveryEmail = resolvedEmailClean;
+                 else throw new Error("Dados não encontrados.");
+             } else {
+                 recoveryEmail = resolvedEmail;
+             }
+        }
+
+        const { error } = await supabase.auth.resetPasswordForEmail(recoveryEmail, {
             redirectTo: window.location.origin + '/reset-password',
         });
         if (error) throw error;
-        setMessage({ text: 'Email de recuperação enviado! Verifique sua caixa de entrada.', type: 'success' });
+        setMessage({ text: `Email de recuperação enviado para ${recoveryEmail.replace(/(.{3})(.*)(@.*)/, "$1***$3")}. Verifique sua caixa de entrada.`, type: 'success' });
         setTimeout(() => setMode('login'), 5000);
       }
     } catch (error: any) {
       let errorMsg = error.message;
-      if (errorMsg === 'Invalid login credentials') errorMsg = 'Email ou senha incorretos.';
+      if (errorMsg === 'Invalid login credentials') errorMsg = 'Dados de acesso incorretos.';
       if (errorMsg.includes('already registered')) errorMsg = 'Este email já possui cadastro.';
       setMessage({ text: errorMsg, type: 'error' });
     } finally {
@@ -255,12 +331,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
                 {mode === 'login' && `${getGreeting()}!`}
                 {mode === 'register' && 'Cadastro Completo'}
-                {mode === 'recovery' && 'Recuperar Senha'}
+                {mode === 'recovery' && 'Recuperar Conta'}
               </h2>
               <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-                {mode === 'login' && 'Acesse para gerenciar suas faturas.'}
+                {mode === 'login' && 'Entre com seu Email, CPF ou Celular.'}
                 {mode === 'register' && 'Preencha os dados para habilitar o crediário.'}
-                {mode === 'recovery' && 'Enviaremos um link para seu email.'}
+                {mode === 'recovery' && 'Digite seu Email ou CPF para recuperar.'}
               </p>
           </div>
           
@@ -292,82 +368,119 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             {(mode === 'login' || mode === 'register') && (
                 <div className="relative flex items-center py-2">
                     <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
-                    <span className="flex-shrink-0 mx-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Ou via email</span>
+                    <span className="flex-shrink-0 mx-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase">Ou continue com</span>
                     <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
                 </div>
             )}
 
-            {/* === EMAIL & PASSWORD === */}
-            <div className="space-y-4">
-                <div>
-                    <label className={labelStyle}>Email</label>
-                    <div className="relative group">
-                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
-                        </span>
-                        <input
-                            type="email"
-                            required
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className={glassInput}
-                            placeholder="seu@email.com"
-                            autoComplete="email"
-                        />
+            {/* === IDENTIFIER (EMAIL/CPF/PHONE) & PASSWORD === */}
+            {mode !== 'register' && (
+                <div className="space-y-4">
+                    <div>
+                        <label className={labelStyle}>Email, CPF ou Telefone</label>
+                        <div className="relative group">
+                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                            </span>
+                            <input
+                                type="text"
+                                required
+                                value={identifier}
+                                onChange={(e) => setIdentifier(e.target.value)}
+                                className={glassInput}
+                                placeholder="Digite seu email ou CPF"
+                                autoComplete="username"
+                            />
+                        </div>
                     </div>
-                </div>
 
-                {mode !== 'recovery' && (
-                    <div className="animate-fade-in">
-                        <div className="flex justify-between items-center ml-1 mb-1.5">
-                            <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 tracking-wider">Senha</label>
-                            {mode === 'login' && (
+                    {mode === 'login' && (
+                        <div className="animate-fade-in">
+                            <div className="flex justify-between items-center ml-1 mb-1.5">
+                                <label className="block text-xs font-bold uppercase text-slate-500 dark:text-slate-400 tracking-wider">Senha</label>
                                 <button type="button" onClick={() => setMode('recovery')} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 hover:underline">
                                     ESQUECEU?
                                 </button>
-                            )}
-                        </div>
-                        <div className="relative group">
-                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                            </span>
-                            <input
-                                type={showPassword ? "text" : "password"}
-                                required
-                                value={password}
-                                onChange={handlePasswordChange}
-                                className={glassInput}
-                                placeholder="••••••••"
-                                autoComplete={mode === 'login' ? "current-password" : "new-password"}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-indigo-500 cursor-pointer transition-colors"
-                            >
-                                {showPassword ? (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 011.572-2.572m3.76-3.76a9.953 9.953 0 015.674-1.334c2.744 0 5.258.953 7.26 2.548m2.24 2.24a9.958 9.958 0 011.342 2.144c-1.274 4.057-5.064 7-9.542 7a9.97 9.97 0 01-2.347-.278M9.88 9.88a3 3 0 104.24 4.24" /></svg>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                )}
-                            </button>
-                        </div>
-                        
-                        {/* Password Strength Indicator */}
-                        {mode === 'register' && password.length > 0 && (
-                            <div className="flex gap-1 mt-2 h-1">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className={`flex-1 rounded-full transition-all duration-300 ${i < passwordStrength ? (passwordStrength < 3 ? 'bg-red-500' : passwordStrength < 5 ? 'bg-yellow-500' : 'bg-green-500') : 'bg-slate-200 dark:bg-slate-700'}`}></div>
-                                ))}
                             </div>
-                        )}
-                    </div>
-                )}
-            </div>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                </span>
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    required
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className={glassInput}
+                                    placeholder="••••••••"
+                                    autoComplete="current-password"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-indigo-500 cursor-pointer transition-colors"
+                                >
+                                    {showPassword ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 011.572-2.572m3.76-3.76a9.953 9.953 0 015.674-1.334c2.744 0 5.258.953 7.26 2.548m2.24 2.24a9.958 9.958 0 011.342 2.144c-1.274 4.057-5.064 7-9.542 7a9.97 9.97 0 01-2.347-.278M9.88 9.88a3 3 0 104.24 4.24" /></svg>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
-            {/* === BOLETO REGISTRATION FIELDS === */}
+            {/* === REGISTRO (Mantém Email explícito para criação de conta) === */}
             {mode === 'register' && (
                 <div className="space-y-4 pt-2 animate-fade-in">
+                    <div className="space-y-4">
+                        <div>
+                            <label className={labelStyle}>Email de Acesso</label>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
+                                </span>
+                                <input
+                                    type="email"
+                                    required
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className={glassInput}
+                                    placeholder="seu@email.com"
+                                    autoComplete="email"
+                                />
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label className={labelStyle}>Criar Senha</label>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 group-focus-within:text-indigo-500">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                </span>
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    required
+                                    value={password}
+                                    onChange={handlePasswordChange}
+                                    className={glassInput}
+                                    placeholder="Mínimo 6 caracteres"
+                                    autoComplete="new-password"
+                                />
+                            </div>
+                             {/* Password Strength Indicator */}
+                            {password.length > 0 && (
+                                <div className="flex gap-1 mt-2 h-1">
+                                    {[...Array(5)].map((_, i) => (
+                                        <div key={i} className={`flex-1 rounded-full transition-all duration-300 ${i < passwordStrength ? (passwordStrength < 3 ? 'bg-red-500' : passwordStrength < 5 ? 'bg-yellow-500' : 'bg-green-500') : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className="h-px bg-slate-200 dark:bg-slate-700/50 w-full my-4"></div>
                     <p className="text-xs font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">Dados do Responsável</p>
                     
@@ -470,7 +583,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                         <input
                             type="text"
                             required
-                            value={address.neighborhood}
+                             value={address.neighborhood}
                             onChange={(e) => setAddress({...address, neighborhood: e.target.value})}
                             className={`${glassInput} pl-3.5`}
                             placeholder="Bairro"

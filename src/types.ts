@@ -50,6 +50,7 @@ export interface Profile {
   last_name?: string | null;
   identification_type?: string | null;
   identification_number?: string | null;
+  phone?: string | null;
   zip_code?: string | null;
   street_name?: string | null;
   street_number?: string | null;
