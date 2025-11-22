@@ -121,7 +121,6 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Redireciona de volta para a origem da aplicação após o login
           redirectTo: window.location.origin,
           queryParams: {
             access_type: 'offline',
@@ -150,30 +149,34 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
         // Se NÃO for email, assumimos que é CPF ou Telefone
         if (!isEmail(loginEmail)) {
-            // Remove caracteres não numéricos para a busca
+            // O usuário digitou CPF ou telefone
             const cleanIdentifier = loginEmail.replace(/\D/g, '');
             
-            // Se estiver vazio após limpar, erro
             if (!cleanIdentifier) {
                 throw new Error("Por favor, digite um Email, CPF ou Telefone válido.");
             }
 
-            // Tenta buscar o email associado a esse CPF/Telefone via RPC segura
+            // Tenta buscar o email associado a esse CPF/Telefone via RPC
             const { data: resolvedEmail, error: rpcError } = await supabase
-                .rpc('get_email_by_identifier', { identifier_input: loginEmail }); // Manda formatado ou limpo?
+                .rpc('get_email_by_identifier', { identifier_input: loginEmail }); 
             
-            // Vamos tentar mandar formatado primeiro (como está no banco), se falhar, tenta limpo
-            if (!resolvedEmail) {
-                 const { data: resolvedEmailClean, error: rpcErrorClean } = await supabase
-                    .rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
-                 
-                 if (resolvedEmailClean) {
-                     loginEmail = resolvedEmailClean;
-                 } else {
-                     throw new Error("Conta não encontrada com este CPF ou Telefone. Verifique os dados ou cadastre-se.");
-                 }
-            } else {
+            if (rpcError) {
+                console.error("RPC Error:", rpcError);
+                throw new Error("Erro ao verificar cadastro. Tente usar seu e-mail.");
+            }
+
+            if (resolvedEmail) {
                 loginEmail = resolvedEmail;
+            } else {
+                // Tenta enviar apenas números para o RPC caso a formatação tenha falhado
+                const { data: resolvedEmailClean } = await supabase
+                    .rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
+                
+                if (resolvedEmailClean) {
+                    loginEmail = resolvedEmailClean;
+                } else {
+                    throw new Error("Conta não encontrada com este CPF ou Telefone. Verifique os dados ou cadastre-se.");
+                }
             }
         }
 
@@ -187,15 +190,20 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         }
 
         // 1. Pré-verificação de Duplicidade (CPF/Telefone)
-        // Como o RLS pode impedir select direto, tentamos a função RPC ou confiamos no erro do insert depois
-        // Mas para UX melhor, tentamos identificar antes se possível
-        const { data: existingEmailByCpf } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
-        if (existingEmailByCpf) {
-             setMessage({ text: 'Este CPF já possui cadastro. Faça login.', type: 'error' });
+        // Verifica se o CPF já existe no banco de dados
+        const { data: existingEmailByCpf, error: rpcCheckError } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
+        
+        if (!rpcCheckError && existingEmailByCpf) {
+             setMessage({ text: 'Este CPF já possui cadastro. Redirecionando para login...', type: 'error' });
+             
+             // Troca automaticamente para a tela de login preenchida
+             setTimeout(() => {
+                 setMode('login');
+                 setIdentifier(cpf); // Preenche com o CPF que o usuário digitou
+                 setPassword(''); // Limpa senha
+                 setMessage(null);
+             }, 2500);
              setLoading(false);
-             // Opcional: mudar para modo login automaticamente
-             // setMode('login');
-             // setIdentifier(existingEmailByCpf);
              return;
         }
 
@@ -239,10 +247,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                 
             } catch (profileError: any) {
                 console.error("Erro ao salvar perfil detalhado:", profileError);
+                // Se o erro for permissão negada, significa que o RLS não permitiu (banco travado)
+                if (profileError.message?.includes('row-level security')) {
+                     setMessage({ text: 'Erro ao salvar dados. Contate o suporte (Erro RLS).', type: 'error' });
+                } 
                 // Se erro for de duplicidade (código 23505 no Postgres)
-                if (profileError.code === '23505' || profileError.message?.includes('unique')) {
+                else if (profileError.code === '23505' || profileError.message?.includes('unique')) {
                      setMessage({ text: 'Este CPF ou Telefone já está sendo usado em outra conta. Tente fazer login.', type: 'error' });
-                     // Opcional: Rollback do auth user (deletar) para não ficar "zumbi", mas requer admin rights ou trigger
                 }
             }
 
@@ -432,7 +443,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                 </div>
             )}
 
-            {/* === REGISTRO (Mantém Email explícito para criação de conta) === */}
+            {/* === REGISTRO === */}
             {mode === 'register' && (
                 <div className="space-y-4 pt-2 animate-fade-in">
                     <div className="space-y-4">
