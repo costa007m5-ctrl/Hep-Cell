@@ -81,17 +81,40 @@ const AppContent: React.FC = () => {
     }
 
     const fetchSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setAuthLoading(false);
+      try {
+        // Tenta obter a sessão. Se o refresh token for inválido, isso pode lançar erro ou retornar error.
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          throw error;
+        }
+        
+        setSession(data.session);
+      } catch (error) {
+        console.warn("Erro ao recuperar sessão (possível refresh token inválido):", error);
+        // Limpa qualquer estado inválido localmente para permitir novo login
+        await supabase.auth.signOut();
+        setSession(null);
+      } finally {
+        setAuthLoading(false);
+      }
     };
 
     fetchSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-       if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
-        setSession(session);
-      }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+       if (event === 'SIGNED_OUT') {
+         setSession(null);
+         setAuthLoading(false);
+       } else if (event === 'TOKEN_REFRESH_ROUTED' || event === 'PASSWORD_RECOVERY') {
+         // Eventos específicos que não necessariamente mudam a sessão imediatamente
+       } else {
+         if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
+            setSession(session);
+         }
+       }
     });
+
     return () => subscription.unsubscribe();
   }, []);
 

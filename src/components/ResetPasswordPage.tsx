@@ -13,9 +13,18 @@ const ResetPasswordPage: React.FC = () => {
   // Verifica se o usuário chegou aqui autenticado (via link mágico do email)
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setMessage({ text: 'Link inválido ou expirado. Solicite uma nova recuperação.', type: 'error' });
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        
+        if (!data.session) {
+          setMessage({ text: 'Link inválido ou expirado. Solicite uma nova recuperação.', type: 'error' });
+        }
+      } catch (error: any) {
+        console.error("Erro na verificação da sessão:", error);
+        // Se houver erro de token inválido, forçamos o logout para limpar o estado
+        await supabase.auth.signOut();
+        setMessage({ text: 'O link de recuperação expirou ou é inválido. Por favor, solicite um novo.', type: 'error' });
       }
     };
     checkSession();
