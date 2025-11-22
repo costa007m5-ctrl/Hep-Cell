@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Invoice } from '../types';
 
@@ -17,44 +18,10 @@ const CreditCardIcon = () => (
     </div>
 );
 
-const PixIcon = () => (
-    <div className="p-3 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125-1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125-1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 15.375a1.125 1.125 0 011.125-1.125h4.5a1.125 1.125 0 011.125 1.125v4.5a1.125 1.125 0 01-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5z" />
-        </svg>
-    </div>
-);
-
-const BoletoIcon = () => (
-    <div className="p-3 rounded-xl bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 6.375c0-1.036.84-1.875 1.875-1.875h17.25c1.035 0 1.875.84 1.875 1.875v3.026a2.25 2.25 0 01-2.25 2.25H3.75a2.25 2.25 0 01-2.25-2.25V6.375z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.375h21M9 16.125h6M9 19.125h6" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5v15M19.5 4.5v15" />
-        </svg>
-    </div>
-);
-
-const ExternalLinkIcon = () => (
-    <div className="p-3 rounded-xl bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-4.5 0V6.375c0-.621.504-1.125 1.125-1.125h4.125c.621 0 1.125.504 1.125 1.125V10.5m-7.5-4.5h4.5m-4.5 4.5l7.5-7.5" />
-        </svg>
-    </div>
-);
-
 const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, onSelectMethod, onBack }) => {
 
+    // Filtra apenas Cartão de Crédito conforme solicitação "somente modalidade crédito"
     const paymentOptions = [
-      { 
-          id: 'pix', 
-          name: 'PIX', 
-          description: "Liberação imediata", 
-          icon: <PixIcon />, 
-          badge: "Aprova na hora",
-          badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
-      },
       { 
           id: 'brick', 
           name: 'Cartão de Crédito', 
@@ -62,26 +29,8 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
           icon: <CreditCardIcon />,
           badge: "Parcelado",
           badgeColor: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300"
-      },
-      { 
-          id: 'boleto', 
-          name: 'Boleto Bancário', 
-          description: "Até 2 dias úteis para compensar", 
-          icon: <BoletoIcon />,
-          badge: null,
-          badgeColor: ""
-      },
-      { 
-          id: 'redirect', 
-          name: 'App Mercado Pago', 
-          description: "Use sua conta MP", 
-          icon: <ExternalLinkIcon />,
-          badge: null,
-          badgeColor: ""
-      },
+      }
     ];
-
-    const hasDiscount = invoice.discountValue && invoice.discountValue > 0;
 
     return (
       <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl shadow-2xl transform transition-all animate-fade-in overflow-hidden">
@@ -100,15 +49,6 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
                 <p className="text-sm text-slate-400">
                     Fatura de {invoice.month}
                 </p>
-
-                {hasDiscount && (
-                    <div className="mt-4 inline-flex items-center gap-2 bg-green-500/20 border border-green-500/30 rounded-full px-4 py-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                        <span className="text-xs font-bold text-green-300">
-                            Economia de {invoice.discountValue?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                    </div>
-                )}
             </div>
         </div>
 

@@ -24,10 +24,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
   const [paymentMethodIcon, setPaymentMethodIcon] = useState<string | null>(null);
-  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
-  const [isFormMounted, setIsFormMounted] = useState(false);
+  const [isFormReady, setIsFormReady] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   
-  // Busca email do usuário logado
+  // 1. Busca email do usuário
   useEffect(() => {
     const fetchUser = async () => {
         const { data: { user } } = await supabase.auth.getUser();
@@ -40,29 +40,22 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     fetchUser();
   }, []);
 
-  // Verifica se o script do MP já carregou
+  // 2. Inicializa o Mercado Pago APENAS quando o HTML estiver pronto
   useEffect(() => {
-      if (window.MercadoPago) {
-          setIsScriptLoaded(true);
-      } else {
-          const interval = setInterval(() => {
-              if (window.MercadoPago) {
-                  setIsScriptLoaded(true);
-                  clearInterval(interval);
-              }
-          }, 100);
-          return () => clearInterval(interval);
-      }
-  }, []);
+    if (!mpPublicKey || !payerEmail) return;
+    
+    // Verifica se o script global está carregado
+    if (!window.MercadoPago) {
+        setMessage("Carregando sistema de pagamentos...");
+        return;
+    }
 
-  useEffect(() => {
-    if (!payerEmail || !mpPublicKey || !isScriptLoaded) return;
-
-    // Evita remontagem se já estiver montado ou processando
-    if (isFormMounted || status !== PaymentStatus.IDLE) return;
-
+    // Verifica se o container do cartão existe no DOM
     const cardContainer = document.getElementById('form-checkout__cardNumber');
-    if (!cardContainer) return; // Elemento ainda não renderizado
+    if (!cardContainer) return;
+
+    // Evita reinicializar se já estiver pronto
+    if (isFormReady) return;
 
     let cardForm: any;
 
@@ -70,7 +63,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         
         cardForm = mp.cardForm({
-          amount: String(invoice.amount),
+          amount: String(invoice.amount), // Força string "100.00"
           iframe: true,
           form: {
             id: "form-checkout",
@@ -87,10 +80,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           callbacks: {
             onFormMounted: (error: any) => {
               if (error) return console.warn("Erro ao montar formulário:", error);
-              setIsFormMounted(true);
+              setIsFormReady(true);
             },
             onPaymentMethodChange: (data: any) => {
-                // Atualiza o ícone da bandeira (Visa, Master, etc)
+                // Atualiza ícone da bandeira
                 if (data && (data.secure_thumbnail || data.thumbnail)) {
                     setPaymentMethodIcon(data.secure_thumbnail || data.thumbnail);
                 } else {
@@ -100,18 +93,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             onSubmit: (event: any) => {
               event.preventDefault();
               
-              // Limpa mensagens anteriores
               setMessage('');
-              
               const formData = cardForm.getCardFormData();
               
               if (!formData.token) {
-                  setMessage('Dados do cartão inválidos ou incompletos. Verifique o número e o CVC.');
+                  setMessage('Dados do cartão incompletos. Verifique número e CVC.');
                   return;
               }
 
-              if (formData.paymentMethodId === 'debit_card') {
-                  setMessage('Somente cartão de crédito é aceito nesta modalidade.');
+              if (formData.paymentMethodId === 'debit_card' || formData.paymentTypeId === 'debit_card') {
+                  setMessage('Somente cartão de crédito é aceito. Por favor, use um cartão de crédito.');
                   return;
               }
 
@@ -141,43 +132,39 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
               })
               .then(async (response) => {
                   const result = await response.json();
-                  if (!response.ok) throw new Error(result.message || result.error || 'Erro ao processar pagamento.');
+                  if (!response.ok) throw new Error(result.message || 'Erro ao processar.');
                   
-                  if (result.status === 'approved') {
+                  if (result.status === 'approved' || result.status === 'in_process') {
                       const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
                       setMessage(successMsg);
                       setStatus(PaymentStatus.SUCCESS);
-                      setTimeout(() => onPaymentSuccess(result.id), 4000);
-                  } else if (result.status === 'in_process') {
-                      setMessage("Seu pagamento está em análise.");
-                      setStatus(PaymentStatus.SUCCESS);
-                      setTimeout(() => onPaymentSuccess(result.id), 4000);
+                      setTimeout(() => onPaymentSuccess(result.id), 3000);
                   } else {
                       throw new Error(result.message || 'Pagamento recusado.');
                   }
               })
               .catch((error: any) => {
-                  console.error('Erro:', error);
+                  console.error(error);
                   setStatus(PaymentStatus.ERROR);
-                  setMessage(error.message || 'Erro ao processar. Verifique os dados.');
+                  setMessage(error.message || 'Erro ao processar pagamento.');
               });
             },
           }
         });
     } catch (e) {
-        console.error("Erro ao inicializar MP:", e);
-        setMessage("Erro ao carregar sistema de pagamento. Tente recarregar a página.");
-        setStatus(PaymentStatus.ERROR);
+        console.error("Erro MP:", e);
+        setMessage("Erro ao carregar formulário de pagamento.");
     }
 
+    // Cleanup
     return () => {
-        // Cleanup básico se o componente desmontar
         if (cardForm) {
             try { cardForm.unmount(); } catch(e) {}
         }
     };
-  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess, isScriptLoaded, isFormMounted]);
+  }, [mpPublicKey, invoice.amount, payerEmail]); // Dependências reduzidas para evitar remontagem
 
+  // Styles
   const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
   const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
 
@@ -195,20 +182,30 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     if (status === PaymentStatus.SUCCESS) {
       return (
         <div className="p-4 min-h-[300px] flex items-center">
-            <Alert message={message} type="success" />
+            <Alert message={message || "Pagamento aprovado!"} type="success" />
         </div>
       );
     }
 
     return (
-        <form id="form-checkout" className="space-y-4">
+        // IMPORTANTE: onSubmit preventDefault aqui garante que o React não recarregue a página
+        // se o Mercado Pago falhar em interceptar o evento.
+        <form id="form-checkout" ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-4">
             {status === PaymentStatus.ERROR && <Alert message={message} type="error" />}
             
+            {!isFormReady && (
+                <div className="absolute inset-0 bg-white/80 dark:bg-slate-800/80 z-10 flex flex-col items-center justify-center">
+                    <LoadingSpinner />
+                    <p className="text-xs text-slate-500 mt-2">Carregando formulário seguro...</p>
+                </div>
+            )}
+
             <div className="relative">
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão (Crédito)</label>
-                <div id="form-checkout__cardNumber" className={containerStyle}></div>
+                {/* Altura fixa para evitar layout shift e garantir visibilidade do iframe */}
+                <div id="form-checkout__cardNumber" className={containerStyle} style={{ minHeight: '40px' }}></div>
                 {paymentMethodIcon && (
-                    <div className="absolute top-7 right-3 pointer-events-none bg-white dark:bg-slate-700 pl-2 z-10">
+                    <div className="absolute top-7 right-3 pointer-events-none z-10 bg-white dark:bg-slate-700 pl-1">
                         <img src={paymentMethodIcon} alt="Bandeira" className="h-5 w-auto" />
                     </div>
                 )}
@@ -217,11 +214,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Validade</label>
-                    <div id="form-checkout__expirationDate" className={containerStyle}></div>
+                    <div id="form-checkout__expirationDate" className={containerStyle} style={{ minHeight: '40px' }}></div>
                 </div>
                 <div>
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">CVV</label>
-                    <div id="form-checkout__securityCode" className={containerStyle}></div>
+                    <div id="form-checkout__securityCode" className={containerStyle} style={{ minHeight: '40px' }}></div>
                 </div>
             </div>
 
@@ -230,26 +227,25 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Nome como no cartão" />
             </div>
 
-            {/* Campos ocultos/visíveis conforme necessidade do SDK, mas o usuário precisa preencher se o SDK exigir */}
             <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Banco</label>
+                <div className="hidden"> {/* Banco emissor é auto-detectado, mas campo precisa existir no DOM */}
                     <select id="form-checkout__issuer" className={inputStyle}></select>
                 </div>
                 <div>
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Tipo Doc.</label>
                     <select id="form-checkout__identificationType" className={inputStyle}></select>
                 </div>
-            </div>
-
-            <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Documento</label>
-                <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="CPF do titular" />
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Documento</label>
+                    <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="CPF do titular" />
+                </div>
             </div>
 
             <div>
                 <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parcelamento</label>
-                <select id="form-checkout__installments" className={inputStyle}></select>
+                <select id="form-checkout__installments" className={inputStyle}>
+                    {/* Options injetadas pelo MP */}
+                </select>
             </div>
 
             <input type="email" id="form-checkout__cardholderEmail" value={payerEmail} readOnly className="hidden" />
@@ -272,7 +268,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         </p>
       </div>
 
-      <div className="p-6">
+      <div className="p-6 relative min-h-[400px]">
         {renderContent()}
       </div>
       
