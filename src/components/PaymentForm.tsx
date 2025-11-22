@@ -23,8 +23,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
-  const [paymentMethodInfo, setPaymentMethodInfo] = useState<{ id: string; name: string; thumbnail: string } | null>(null);
+  const [paymentMethodIcon, setPaymentMethodIcon] = useState<string | null>(null);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+  const [isFormMounted, setIsFormMounted] = useState(false);
   
   // Busca email do usuário logado
   useEffect(() => {
@@ -57,13 +58,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   useEffect(() => {
     if (!payerEmail || !mpPublicKey || !isScriptLoaded) return;
 
-    // Aguarda o elemento do DOM estar pronto
-    const formElement = document.getElementById('form-checkout');
-    if (!formElement) return;
+    // Evita remontagem se já estiver montado ou processando
+    if (isFormMounted || status !== PaymentStatus.IDLE) return;
 
-    // Limpa o formulário anterior para evitar duplicação
     const cardContainer = document.getElementById('form-checkout__cardNumber');
-    if (cardContainer && cardContainer.innerHTML.trim() !== '') return;
+    if (!cardContainer) return; // Elemento ainda não renderizado
 
     let cardForm: any;
 
@@ -87,31 +86,37 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           },
           callbacks: {
             onFormMounted: (error: any) => {
-              if (error) console.warn("Erro ao montar formulário:", error);
+              if (error) return console.warn("Erro ao montar formulário:", error);
+              setIsFormMounted(true);
             },
             onPaymentMethodChange: (data: any) => {
-                if (data) {
-                    setPaymentMethodInfo({
-                        id: data.id,
-                        name: data.name,
-                        thumbnail: data.secure_thumbnail || data.thumbnail
-                    });
+                // Atualiza o ícone da bandeira (Visa, Master, etc)
+                if (data && (data.secure_thumbnail || data.thumbnail)) {
+                    setPaymentMethodIcon(data.secure_thumbnail || data.thumbnail);
+                } else {
+                    setPaymentMethodIcon(null);
                 }
             },
             onSubmit: (event: any) => {
               event.preventDefault();
               
+              // Limpa mensagens anteriores
+              setMessage('');
+              
               const formData = cardForm.getCardFormData();
               
-              if (!formData.token || !formData.paymentMethodId || !formData.transactionAmount) {
-                  setMessage('Verifique se todos os campos estão preenchidos corretamente.');
+              if (!formData.token) {
+                  setMessage('Dados do cartão inválidos ou incompletos. Verifique o número e o CVC.');
+                  return;
+              }
+
+              if (formData.paymentMethodId === 'debit_card') {
+                  setMessage('Somente cartão de crédito é aceito nesta modalidade.');
                   return;
               }
 
               setStatus(PaymentStatus.PENDING);
-              setMessage('');
 
-              // Mapeamento Explícito para garantir snake_case no backend
               const payload = {
                 token: formData.token,
                 issuer_id: formData.issuerId,
@@ -129,7 +134,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 external_reference: invoice.id
               };
 
-              // Envia para o backend
               fetch('/api/mercadopago/process-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -166,17 +170,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         setStatus(PaymentStatus.ERROR);
     }
 
-    // Cleanup function
     return () => {
-        const cardContainer = document.getElementById('form-checkout__cardNumber');
-        if (cardContainer) cardContainer.innerHTML = '';
+        // Cleanup básico se o componente desmontar
         if (cardForm) {
-            try {
-                cardForm.unmount(); 
-            } catch(e) {}
+            try { cardForm.unmount(); } catch(e) {}
         }
     };
-  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess, isScriptLoaded]);
+  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess, isScriptLoaded, isFormMounted]);
 
   const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
   const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
@@ -205,11 +205,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             {status === PaymentStatus.ERROR && <Alert message={message} type="error" />}
             
             <div className="relative">
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão</label>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão (Crédito)</label>
                 <div id="form-checkout__cardNumber" className={containerStyle}></div>
-                {paymentMethodInfo && (
-                    <div className="absolute top-7 right-3 pointer-events-none bg-white dark:bg-slate-700 pl-2">
-                        <img src={paymentMethodInfo.thumbnail} alt={paymentMethodInfo.name} className="h-6 w-auto" />
+                {paymentMethodIcon && (
+                    <div className="absolute top-7 right-3 pointer-events-none bg-white dark:bg-slate-700 pl-2 z-10">
+                        <img src={paymentMethodIcon} alt="Bandeira" className="h-5 w-auto" />
                     </div>
                 )}
             </div>
@@ -230,9 +230,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Nome como no cartão" />
             </div>
 
+            {/* Campos ocultos/visíveis conforme necessidade do SDK, mas o usuário precisa preencher se o SDK exigir */}
             <div className="grid grid-cols-2 gap-4">
                 <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Banco Emissor</label>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Banco</label>
                     <select id="form-checkout__issuer" className={inputStyle}></select>
                 </div>
                 <div>
@@ -254,7 +255,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             <input type="email" id="form-checkout__cardholderEmail" value={payerEmail} readOnly className="hidden" />
 
             <div className="pt-4">
-                <button type="submit" id="form-checkout__submit" className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg transition-colors">
+                <button type="submit" id="form-checkout__submit" className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg transition-colors active:scale-95">
                     Pagar R$ {invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </button>
             </div>
