@@ -1,31 +1,93 @@
 {
-  "name": "Relp Cell",
+  "name": "Relp Cell Pagamentos",
   "short_name": "Relp Cell",
-  "description": "Gerencie suas faturas, compras e pagamentos na Relp Cell com facilidade.",
+  "description": "Gerencie suas faturas, faça compras e acompanhe seu limite na Relp Cell com facilidade e segurança.",
   "id": "/",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#4f46e5",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
   "scope": "/",
+  "lang": "pt-BR",
   "categories": [
     "finance",
     "shopping",
-    "productivity"
+    "productivity",
+    "utilities"
   ],
   "icons": [
     {
       "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "screenshots": [
+    {
+      "src": "https://placehold.co/750x1334/4f46e5/ffffff.png?text=Inicio+Relp+Cell",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Tela Inicial e Limites"
+    },
+    {
+      "src": "https://placehold.co/750x1334/ffffff/4f46e5.png?text=Faturas+e+Pix",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Pagamento Fácil de Faturas"
+    },
+    {
+      "src": "https://placehold.co/750x1334/1e293b/ffffff.png?text=Loja+Virtual",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Loja Integrada"
+    },
+    {
+      "src": "https://placehold.co/1280x800/4f46e5/ffffff.png?text=Relp+Cell+Desktop",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Versão Desktop"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Minhas Faturas",
+      "short_name": "Faturas",
+      "description": "Visualize e pague suas faturas pendentes",
+      "url": "/?tab=faturas",
+      "icons": [{ "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=$", "sizes": "192x192" }]
+    },
+    {
+      "name": "Loja Online",
+      "short_name": "Loja",
+      "description": "Confira as ofertas da Relp Cell",
+      "url": "/?tab=loja",
+      "icons": [{ "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=Shop", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": []
 }

@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'relp-cell-v16'; // Versão incrementada
+const CACHE_NAME = 'relp-cell-v17-pwa-ready';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -8,18 +8,18 @@ const STATIC_ASSETS = [
   'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
 ];
 
-// Instalação: Cacheia o Shell do App
+// Instalação: Cacheia os arquivos essenciais imediatamente
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // Força ativação imediata do SW
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching static assets');
+      console.log('[SW] Caching core assets');
       return cache.addAll(STATIC_ASSETS);
     })
   );
 });
 
-// Ativação: Limpa caches antigos e assume controle
+// Ativação: Limpa versões antigas do cache
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -30,64 +30,82 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim()) // Assume controle imediatamente
+    }).then(() => self.clients.claim())
   );
 });
 
-// Listener para mensagem de skipWaiting (redundância)
+// Listener para forçar atualização via interface se necessário
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
 
-// Fetch: Estratégia Network First com Fallback Robusto para index.html
+// Fetch: Stale-While-Revalidate para Assets, Network First para HTML/API
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Ignora requisições API ou não-GET
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
+  // 1. Ignorar requisições de API (sempre rede), extensões ou métodos POST/PUT/DELETE
+  if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.protocol.startsWith('chrome-extension')) {
     return;
   }
 
-  // 2. Tratamento de Navegação (HTML)
+  // 2. Navegação (HTML): Tenta rede primeiro para ter dados frescos, falha para cache (Offline Mode)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .catch(() => {
-          return caches.match('/index.html')
-            .then((response) => {
-                if (response) {
-                    return response;
-                }
-                return caches.match('/');
-            });
+          return caches.match('/index.html') || caches.match('/');
         })
     );
     return;
   }
 
-  // 3. Tratamento de Assets (CSS, JS, Imagens)
+  // 3. Assets Estáticos (JS, CSS, Imagens): Cache First, depois atualiza em background
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request).catch(() => {
-          return null;
+      // Se tem no cache, retorna ele
+      if (cachedResponse) {
+        // Mas atualiza o cache em background para a próxima vez (Stale-While-Revalidate)
+        fetch(event.request).then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+                caches.open(CACHE_NAME).then((cache) => {
+                    cache.put(event.request, networkResponse.clone());
+                });
+            }
+        }).catch(() => {}); // Erros de rede em background são ignorados
+        
+        return cachedResponse;
+      }
+
+      // Se não tem no cache, busca na rede
+      return fetch(event.request).then((networkResponse) => {
+        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+          return networkResponse;
+        }
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return networkResponse;
       });
     })
   );
 });
 
-// Lidar com o clique na notificação
+// Suporte a Notificações Push (Preparação para futuro)
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(clientList) {
+      // Se já houver uma janela aberta, foca nela
       for (var i = 0; i < clientList.length; i++) {
         var client = clientList[i];
         if (client.url.indexOf('/') > -1 && 'focus' in client) {
           return client.focus();
         }
       }
+      // Senão, abre uma nova
       if (clients.openWindow) {
         return clients.openWindow('/');
       }

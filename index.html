@@ -4,12 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Relp Cell</title>
+    <meta name="description" content="Gerencie faturas, limite de crédito e faça compras na Relp Cell. Pagamento via Pix, Boleto e Cartão." />
+    
     <!-- PWA Tags -->
     <link rel="manifest" href="/manifest.json" />
     
-    <!-- Tema: Define a cor da barra de status do navegador -->
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <!-- Tema: Deve coincidir com manifest.json -->
+    <meta name="theme-color" content="#4f46e5" />
     
     <!-- Favicon & Icons -->
     <link rel="icon" type="image/png" href="https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp" />
@@ -17,7 +18,7 @@
 
     <!-- iOS PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Relp Cell">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -29,30 +30,37 @@
             colors: {
               primary: '#4f46e5',
             },
+            padding: {
+              'safe': 'env(safe-area-inset-bottom)',
+            },
             keyframes: {
               'fade-in': {
                 '0%': { opacity: '0' },
                 '100%': { opacity: '1' },
               },
               'fade-in-up': {
-                '0%': {
-                  opacity: '0',
-                  transform: 'translateY(10px)',
-                },
-                '100%': {
-                  opacity: '1',
-                  transform: 'translateY(0)',
-                },
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              'fade-in-right': {
+                '0%': { opacity: '0', transform: 'translateX(20px)' },
+                '100%': { opacity: '1', transform: 'translateX(0)' },
               },
               'bounce-slow': {
                 '0%, 100%': { transform: 'translateY(-5%)' },
                 '50%': { transform: 'translateY(0)' },
+              },
+              'confetti-fall': {
+                '0%': { transform: 'translateY(0) rotate(0deg)', opacity: '1' },
+                '100%': { transform: 'translateY(110vh) rotate(720deg)', opacity: '0' }
               }
             },
             animation: {
               'fade-in': 'fade-in 0.3s ease-out forwards',
               'fade-in-up': 'fade-in-up 0.4s ease-out forwards',
+              'fade-in-right': 'fade-in-right 0.3s ease-out forwards',
               'bounce-slow': 'bounce-slow 2s infinite',
+              'confetti-fall': 'confetti-fall 4s linear forwards',
             },
           },
         },
