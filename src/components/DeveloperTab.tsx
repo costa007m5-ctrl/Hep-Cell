@@ -30,12 +30,12 @@ interface CodeBlockProps {
 }
 
 const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
-    const [copyText, setCopyText] = React.useState('Copiar');
+    const [copyText, setCopyText] = React.useState('Copiar Código');
 
     const handleCopy = () => {
         navigator.clipboard.writeText(code);
         setCopyText('Copiado!');
-        setTimeout(() => setCopyText('Copiar'), 2000);
+        setTimeout(() => setCopyText('Copiar Código'), 2000);
     };
 
     return (
@@ -43,12 +43,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">{title}</h3>
             {explanation && <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{explanation}</p>}
             <div className="relative">
-                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-sm custom-scrollbar max-h-64">
+                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-xs font-mono custom-scrollbar max-h-96 whitespace-pre-wrap">
                     <code>{code.trim()}</code>
                 </pre>
                 <button
                     onClick={handleCopy}
-                    className="absolute top-2 right-2 bg-slate-700 text-slate-200 text-xs font-semibold py-1 px-2 rounded-md hover:bg-slate-600 transition-colors"
+                    className="absolute top-2 right-2 bg-indigo-600 text-white text-xs font-bold py-1.5 px-3 rounded-md hover:bg-indigo-700 transition-colors shadow-sm"
                 >
                     {copyText}
                 </button>
@@ -229,6 +229,7 @@ const MercadoPagoIntegration: React.FC = () => {
 const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+    const [showSql, setShowSql] = useState(false);
     
     const resetPasswordUrl = `${window.location.origin}/reset-password`;
 
@@ -243,171 +244,176 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
     // SQL Completo com Políticas RLS, Trigger de Cadastro e Função de Busca Aprimorada
     const SETUP_SQL = `
-    CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+-- Habilitar extensões
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+
+-- 1. Tabela de Perfis (Essencial para login e dados do usuário)
+CREATE TABLE IF NOT EXISTS "public"."profiles" ( 
+    "id" "uuid" NOT NULL, 
+    "email" "text", 
+    "first_name" "text",
+    "last_name" "text",
+    "identification_number" "text", -- CPF
+    "phone" "text",
+    "credit_score" integer DEFAULT 0,
+    "credit_limit" numeric(10, 2) DEFAULT 0,
+    "credit_status" "text" DEFAULT 'Em Análise',
+    "last_limit_request_date" timestamp with time zone,
+    "avatar_url" "text",
+    "zip_code" "text",
+    "street_name" "text",
+    "street_number" "text",
+    "neighborhood" "text",
+    "city" "text",
+    "federal_unit" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(), 
+    "updated_at" timestamp with time zone DEFAULT "now"(), 
+    CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), 
+    CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, 
+    CONSTRAINT "profiles_email_key" UNIQUE ("email") 
+);
+
+-- Constraints para garantir unicidade de CPF e Telefone (importante para login)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
+    ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_identification_number_key" UNIQUE ("identification_number");
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_phone_key') THEN
+    ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_phone_key" UNIQUE ("phone");
+  END IF;
+END $$;
+
+ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de Segurança (RLS) para Perfis
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
+    CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
     
-    -- Criação de Tabelas Base
-    CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") );
-    ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can insert own profile" ON "public"."profiles";
+    CREATE POLICY "Users can insert own profile" ON "public"."profiles" FOR INSERT WITH CHECK (auth.uid() = id);
     
-    CREATE TABLE IF NOT EXISTS "public"."profiles" ( 
-        "id" "uuid" NOT NULL, 
-        "email" "text", 
-        "created_at" timestamp with time zone DEFAULT "now"(), 
-        "updated_at" timestamp with time zone DEFAULT "now"(), 
-        "first_name" "text",
-        "last_name" "text",
-        "identification_number" "text",
-        "phone" "text",
-        "credit_score" integer,
-        "credit_limit" numeric(10, 2),
-        "credit_status" "text",
-        "last_limit_request_date" timestamp with time zone,
-        "avatar_url" "text",
-        "identification_type" "text",
-        "zip_code" "text",
-        "street_name" "text",
-        "street_number" "text",
-        "neighborhood" "text",
-        "city" "text",
-        "federal_unit" "text",
-        CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), 
-        CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, 
-        CONSTRAINT "profiles_email_key" UNIQUE ("email") 
-    );
-    
-    ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
+    CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
+END $$;
 
-    -- Constraints para CPF e Telefone Únicos (Evita duplicidade no banco)
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
-        ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_identification_number_key" UNIQUE ("identification_number");
-      END IF;
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_phone_key') THEN
-        ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_phone_key" UNIQUE ("phone");
-      END IF;
-    END $$;
+-- 2. TRIGGER DE CADASTRO (A Mágica acontece aqui)
+-- Esta função copia os dados enviados no registro (Auth) para a tabela pública (Profiles)
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id, 
+    email, 
+    first_name, 
+    last_name, 
+    identification_number, 
+    phone,
+    zip_code,
+    street_name,
+    street_number,
+    neighborhood,
+    city,
+    federal_unit
+  )
+  VALUES (
+    new.id, 
+    new.email, 
+    new.raw_user_meta_data->>'first_name', 
+    new.raw_user_meta_data->>'last_name', 
+    new.raw_user_meta_data->>'cpf', 
+    new.raw_user_meta_data->>'phone',
+    new.raw_user_meta_data->>'zip_code',
+    new.raw_user_meta_data->>'street_name',
+    new.raw_user_meta_data->>'street_number',
+    new.raw_user_meta_data->>'neighborhood',
+    new.raw_user_meta_data->>'city',
+    new.raw_user_meta_data->>'federal_unit'
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-    -- Políticas de Segurança (RLS) para Profiles
-    -- Permite que cada usuário veja, insira e edite APENAS o seu próprio perfil.
-    DO $$ BEGIN
-        DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
-        CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-        
-        DROP POLICY IF EXISTS "Users can insert own profile" ON "public"."profiles";
-        CREATE POLICY "Users can insert own profile" ON "public"."profiles" FOR INSERT WITH CHECK (auth.uid() = id);
-        
-        DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
-        CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
-    END $$;
+-- Recria o trigger para garantir que ele esteja ativo e atualizado
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
-    -- GATILHO AUTOMÁTICO: Cria perfil ao registrar usuário no Supabase Auth
-    -- Isso garante que dados como CPF e Endereço sejam salvos mesmo sem sessão ativa
-    CREATE OR REPLACE FUNCTION public.handle_new_user() 
-    RETURNS trigger AS $$
-    BEGIN
-      INSERT INTO public.profiles (
-        id, 
-        email, 
-        first_name, 
-        last_name, 
-        identification_number, 
-        phone,
-        zip_code,
-        street_name,
-        street_number,
-        neighborhood,
-        city,
-        federal_unit
-      )
-      VALUES (
-        new.id, 
-        new.email, 
-        new.raw_user_meta_data->>'first_name', 
-        new.raw_user_meta_data->>'last_name', 
-        new.raw_user_meta_data->>'cpf', 
-        new.raw_user_meta_data->>'phone',
-        new.raw_user_meta_data->>'zip_code',
-        new.raw_user_meta_data->>'street_name',
-        new.raw_user_meta_data->>'street_number',
-        new.raw_user_meta_data->>'neighborhood',
-        new.raw_user_meta_data->>'city',
-        new.raw_user_meta_data->>'federal_unit'
-      );
-      RETURN new;
-    END;
-    $$ LANGUAGE plpgsql SECURITY DEFINER;
+-- 3. FUNÇÃO DE LOGIN INTELIGENTE (Busca email por CPF/Telefone)
+CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
+RETURNS text AS $$
+DECLARE
+  found_email text;
+  clean_input text;
+BEGIN
+  -- Remove tudo que não é número (pontos, traços, parênteses, espaços)
+  clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
+  
+  IF length(clean_input) < 5 THEN
+     RETURN NULL;
+  END IF;
 
-    -- Recria o trigger para garantir que esteja ativo
-    DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-    CREATE TRIGGER on_auth_user_created
-      AFTER INSERT ON auth.users
-      FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+  -- Tenta encontrar por CPF (comparando apenas os números)
+  SELECT email INTO found_email 
+  FROM profiles 
+  WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input 
+  LIMIT 1;
+  
+  IF found_email IS NOT NULL THEN 
+    RETURN found_email; 
+  END IF;
 
-    -- Função Segura para Buscar Email por Identificador (CPF ou Telefone)
-    -- MELHORADA: Limpa formatação tanto do input quanto do banco de dados para comparação
-    CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
-    RETURNS text AS $$
-    DECLARE
-      found_email text;
-      clean_input text;
-    BEGIN
-      -- Remove tudo que não é número do input do usuário
-      clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
-      
-      IF length(clean_input) < 5 THEN
-         RETURN NULL;
-      END IF;
+  -- Tenta encontrar por Telefone (comparando apenas os números)
+  SELECT email INTO found_email 
+  FROM profiles 
+  WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input 
+  LIMIT 1;
+  
+  -- Se não achou, tenta match exato no email
+  IF found_email IS NULL THEN
+    SELECT email INTO found_email 
+    FROM profiles 
+    WHERE email = identifier_input
+    LIMIT 1;
+  END IF;
+  
+  RETURN found_email;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-      -- Busca por CPF (comparando apenas números dos dois lados)
-      SELECT email INTO found_email 
-      FROM profiles 
-      WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input 
-      LIMIT 1;
-      
-      IF found_email IS NOT NULL THEN 
-        RETURN found_email; 
-      END IF;
+-- Permissões para a função de login funcionar antes do usuário estar logado
+GRANT EXECUTE ON FUNCTION get_email_by_identifier(text) TO anon, authenticated, service_role;
 
-      -- Busca por Telefone (comparando apenas números dos dois lados)
-      SELECT email INTO found_email 
-      FROM profiles 
-      WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input 
-      LIMIT 1;
-      
-      -- Fallback: Tenta encontrar pelo valor exato (caso seja email ou outro formato)
-      IF found_email IS NULL THEN
-        SELECT email INTO found_email 
-        FROM profiles 
-        WHERE email = identifier_input
-        LIMIT 1;
-      END IF;
-      
-      RETURN found_email;
-    END;
-    $$ LANGUAGE plpgsql SECURITY DEFINER;
-    
-    -- Permite que usuários anônimos (na tela de login/cadastro) usem esta função
-    GRANT EXECUTE ON FUNCTION get_email_by_identifier(text) TO anon, authenticated, service_role;
+-- 4. Outras Tabelas do Sistema
+CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") );
+ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
 
-    -- Outras tabelas essenciais (com RLS básico)
-    CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
-    ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
-    DO $$ BEGIN
-        DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
-        CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
-    END $$;
+CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
+ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
+    CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
+END $$;
 
-    CREATE TABLE IF NOT EXISTS "public"."notifications" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "message" "text" NOT NULL, "type" "text" NOT NULL DEFAULT 'info', "read" boolean NOT NULL DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"), CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
-    ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
-    DO $$ BEGIN
-        DROP POLICY IF EXISTS "Users can view own notifications" ON "public"."notifications";
-        CREATE POLICY "Users can view own notifications" ON "public"."notifications" FOR SELECT USING (auth.uid() = user_id);
-        DROP POLICY IF EXISTS "Users can update own notifications" ON "public"."notifications";
-        CREATE POLICY "Users can update own notifications" ON "public"."notifications" FOR UPDATE USING (auth.uid() = user_id);
-    END $$;
-    
-    -- Funções Admin Mockadas
-    CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE TABLE IF NOT EXISTS "public"."notifications" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "message" "text" NOT NULL, "type" "text" NOT NULL DEFAULT 'info', "read" boolean NOT NULL DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"), CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
+ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Users can view own notifications" ON "public"."notifications";
+    CREATE POLICY "Users can view own notifications" ON "public"."notifications" FOR SELECT USING (auth.uid() = user_id);
+    DROP POLICY IF EXISTS "Users can update own notifications" ON "public"."notifications";
+    CREATE POLICY "Users can update own notifications" ON "public"."notifications" FOR UPDATE USING (auth.uid() = user_id);
+END $$;
+
+CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "category" "text", "brand" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
+ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Public read access products" ON "public"."products";
+    CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
+END $$;
+
+-- Admin Mock Function (Substitua pelo ID real do admin se necessário)
+CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
     const handleSetupDatabase = async () => {
@@ -485,38 +491,56 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        Para automatizar a criação das tabelas e a sincronização de perfis de usuário, o processo é dividido em 2 passos simples.
-                        <br/><br/>
-                        <strong>Importante:</strong> O setup abaixo instala um "Gatilho" que salva os dados do cadastro automaticamente e habilita o login por CPF/Telefone. Execute-o sempre que houver atualizações.
+                        O processo automatiza a criação das tabelas e, o mais importante, instala o <strong>Gatilho Automático</strong>. 
+                        Isso garante que quando um usuário cria conta, os dados (CPF, Telefone, Endereço) sejam salvos corretamente, permitindo o login e o boleto.
                     </p>
                 </div>
 
-                <CodeBlock
-                    title="Passo 1 (Uma única vez): Criar a Função Segura"
-                    explanation="Copie o código abaixo e execute-o UMA VEZ no seu Editor SQL do Supabase. Isso permitirá que o botão do Passo 2 funcione."
-                    code={rpcFunctionSQL}
-                />
-                
-                <div className="mt-6">
-                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Automático): Preparar o Banco</h3>
-                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este passo criará as tabelas, aplicará regras de segurança (RLS) e <strong>configurará o login automático por CPF/Telefone</strong>.
-                     </p>
-                     
-                     {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
-
-                     <button 
+                <div className="mb-8">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Opção 1: Automático (Recomendado)</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                        Tenta executar o SQL diretamente pelo servidor. Se falhar, use a opção manual abaixo.
+                    </p>
+                    {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
+                    <button 
                         onClick={handleSetupDatabase}
                         disabled={isLoading}
                         className="w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
                     >
-                        {isLoading ? (
-                            <>
-                                <LoadingSpinner />
-                                <span className="ml-2">Configurando...</span>
-                            </>
-                        ) : 'Executar Setup do Banco'}
-                     </button>
+                        {isLoading ? <LoadingSpinner /> : 'Executar Setup do Banco'}
+                    </button>
+                </div>
+
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Opção 2: Manual (Garantido)</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                        Se o botão acima não funcionar, copie o código abaixo, vá no <strong>SQL Editor</strong> do seu painel Supabase e clique em Run.
+                    </p>
+                    <button 
+                        onClick={() => setShowSql(!showSql)}
+                        className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline mb-3"
+                    >
+                        {showSql ? 'Ocultar Código SQL' : 'Mostrar Código SQL para Copiar'}
+                    </button>
+                    
+                    {showSql && (
+                        <CodeBlock
+                            title="SQL Completo de Setup"
+                            explanation="Inclui criação de tabelas, triggers de cadastro e função de busca por CPF/Telefone."
+                            code={SETUP_SQL}
+                        />
+                    )}
+                </div>
+
+                <div className="mt-8 border-t border-slate-200 dark:border-slate-700 pt-6">
+                    <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-2">Pré-requisito para o botão automático</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                        Para que o botão "Executar Setup" funcione, você precisa rodar este pequeno comando SQL uma única vez no Supabase para permitir que o Admin execute comandos remotos.
+                    </p>
+                    <CodeBlock
+                        title="Função RPC de Admin"
+                        code={rpcFunctionSQL}
+                    />
                 </div>
             </section>
         </div>
