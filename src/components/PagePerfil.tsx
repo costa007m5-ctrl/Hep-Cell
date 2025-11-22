@@ -3,13 +3,12 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
-import { Profile, Contract } from '../types';
+import { Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
 import ReceiptDetails from './ReceiptDetails';
 import Modal from './Modal';
-import jsPDF from 'jspdf';
 
 interface PagePerfilProps {
     session: Session;
@@ -216,115 +215,6 @@ const ServiceStatus: React.FC = () => {
 }
 
 // --- Views Implementadas ---
-
-const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
-    const [contracts, setContracts] = useState<Contract[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const { addToast } = useToast();
-
-    useEffect(() => {
-        const fetchContracts = async () => {
-            setIsLoading(true);
-            try {
-                const { data, error } = await supabase
-                    .from('contracts')
-                    .select('*')
-                    .eq('user_id', profile.id)
-                    .in('status', ['Ativo', 'Assinado', 'Cancelado'])
-                    .order('created_at', { ascending: false });
-                
-                if (!error && data) setContracts(data);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchContracts();
-    }, [profile.id]);
-
-    const handleDownloadContract = (contract: Contract) => {
-        const doc = new jsPDF();
-        
-        // Header
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text('CONTRATO DE CONFISSÃO DE DÍVIDA', 105, 20, { align: 'center' });
-        
-        // Details
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`Contrato Nº: ${contract.id.slice(0, 8).toUpperCase()}`, 20, 40);
-        doc.text(`Data: ${new Date(contract.created_at).toLocaleDateString()}`, 20, 48);
-        
-        doc.text('CREDOR: RELP CELL ELETRONICOS - CNPJ: 43.735.304/0001-00', 20, 60);
-        doc.text(`DEVEDOR: ${profile.first_name} ${profile.last_name} - CPF: ${profile.identification_number}`, 20, 68);
-        
-        doc.text('OBJETO:', 20, 85);
-        doc.text(`Produto: ${contract.items}`, 20, 93);
-        doc.text(`Valor Total: R$ ${contract.total_value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, 101);
-        doc.text(`Parcelamento: ${contract.installments}x`, 20, 109);
-        
-        // Signature
-        if (contract.signature_data) {
-            doc.text('ASSINATURA DIGITAL:', 20, 130);
-            doc.addImage(contract.signature_data, 'PNG', 20, 135, 60, 30);
-            doc.setFontSize(10);
-            doc.text('Assinado eletronicamente via App Relp Cell', 20, 170);
-        }
-
-        doc.save(`Contrato_${contract.id.slice(0, 8)}.pdf`);
-        addToast('Contrato baixado com sucesso!', 'success');
-    };
-
-    if (isLoading) return <div className="flex justify-center p-10"><LoadingSpinner /></div>;
-
-    if (contracts.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-16 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
-                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Nenhum contrato</h3>
-                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Seus contratos de compra aparecerão aqui.</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-4 animate-fade-in">
-            {contracts.map(contract => (
-                <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                    <div className="flex justify-between items-start mb-3">
-                        <div>
-                            <p className="text-xs text-slate-500 uppercase font-bold">Contrato #{contract.id.slice(0, 6)}</p>
-                            <p className="text-sm font-bold text-slate-900 dark:text-white truncate max-w-[200px]">{contract.items}</p>
-                        </div>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
-                            contract.status === 'Ativo' ? 'bg-green-100 text-green-700' : 
-                            contract.status === 'Cancelado' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                            {contract.status}
-                        </span>
-                    </div>
-                    
-                    <div className="flex justify-between items-center text-sm mb-4">
-                        <span className="text-slate-500">{new Date(contract.created_at).toLocaleDateString()}</span>
-                        <span className="font-bold text-slate-800 dark:text-white">{contract.installments}x de R$ {(contract.total_value / contract.installments).toLocaleString('pt-BR', {maximumFractionDigits: 2})}</span>
-                    </div>
-
-                    <button 
-                        onClick={() => handleDownloadContract(contract)}
-                        className="w-full py-2 flex justify-center items-center gap-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        Baixar PDF Assinado
-                    </button>
-                </div>
-            ))}
-        </div>
-    );
-};
 
 const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
     const [orders, setOrders] = useState<any[]>([]);
@@ -842,6 +732,12 @@ const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
         </div>
     );
 };
+
+const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => (
+    <div className="space-y-4 animate-fade-in text-center py-10 text-slate-500">
+        <p>Contratos disponíveis para download em breve.</p>
+    </div>
+);
 
 const FiscalNotesView: React.FC<{ profile: Profile }> = ({ profile }) => (
     <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">

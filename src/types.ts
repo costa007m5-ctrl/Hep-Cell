@@ -146,6 +146,4 @@ export interface Contract {
     installments: number;
     status: 'Ativo' | 'Pendente' | 'Assinado' | 'Cancelado' | 'pending_signature';
     created_at: string;
-    signature_data?: string | null;
-    terms_accepted?: boolean;
 }
