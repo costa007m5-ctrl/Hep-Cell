@@ -36,33 +36,97 @@ const ReviewList: React.FC<{ reviews: Review[] }> = ({ reviews }) => (
 
 const ShippingCalculator = () => {
     const [cep, setCep] = useState('');
-    const [shipping, setShipping] = useState<{ price: string; days: string } | null>(null);
+    const [shipping, setShipping] = useState<{ price: string; days: string; city?: string } | null>(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const calculate = () => {
-        if (cep.length < 8) return;
+    const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let value = e.target.value.replace(/\D/g, '');
+        if (value.length > 5) {
+            value = value.replace(/^(\d{5})(\d)/, '$1-$2');
+        }
+        setCep(value);
+    };
+
+    const calculate = async () => {
+        const cleanCep = cep.replace(/\D/g, '');
+        if (cleanCep.length !== 8) {
+            setError('CEP inválido.');
+            return;
+        }
+
         setLoading(true);
-        setTimeout(() => {
-            setShipping({ price: 'R$ 25,90', days: '3 a 5 dias úteis' });
+        setShipping(null);
+        setError(null);
+
+        try {
+            const response = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+            const data = await response.json();
+
+            if (data.erro) {
+                setError('CEP não encontrado.');
+            } else {
+                const city = data.localidade;
+                const uf = data.uf;
+
+                // Lógica de Restrição Geográfica
+                if (uf === 'AP' && (city === 'Macapá' || city === 'Santana')) {
+                    setShipping({ 
+                        price: 'Grátis', 
+                        days: '1 dia útil',
+                        city: `${city} - ${uf}`
+                    });
+                } else {
+                    setError(`Entrega indisponível para ${city} - ${uf} no momento. Em breve chegaremos até você!`);
+                }
+            }
+        } catch (err) {
+            setError('Erro ao consultar CEP. Verifique sua conexão.');
+        } finally {
             setLoading(false);
-        }, 1000);
+        }
     };
 
     return (
-        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl mt-4">
-            <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Calcular Frete e Prazo</p>
+        <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl mt-4 border border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Calcular Frete e Prazo
+            </p>
             <div className="flex gap-2">
-                <input type="text" placeholder="00000-000" maxLength={9} value={cep} onChange={(e) => setCep(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" />
-                <button onClick={calculate} className="px-4 py-2 bg-slate-800 dark:bg-slate-600 text-white rounded-lg text-xs font-bold">OK</button>
+                <input 
+                    type="text" 
+                    placeholder="00000-000" 
+                    maxLength={9} 
+                    value={cep} 
+                    onChange={handleCepChange} 
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                />
+                <button 
+                    onClick={calculate} 
+                    disabled={loading || cep.length < 9}
+                    className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-xs font-bold disabled:opacity-50"
+                >
+                    {loading ? '...' : 'OK'}
+                </button>
             </div>
-            {loading && <p className="text-xs text-slate-500 mt-2">Calculando...</p>}
+            
             {shipping && (
-                <div className="mt-3 text-sm">
-                    <div className="flex justify-between">
-                        <span className="text-slate-600 dark:text-slate-300">Expresso</span>
-                        <span className="font-bold text-slate-800 dark:text-white">{shipping.price}</span>
+                <div className="mt-3 text-sm animate-fade-in">
+                    <div className="flex justify-between items-center">
+                        <span className="text-slate-600 dark:text-slate-300 text-xs">{shipping.city}</span>
+                        <span className="font-bold text-green-600">{shipping.price}</span>
                     </div>
-                    <p className="text-xs text-green-600 mt-1">Chega em {shipping.days}</p>
+                    <p className="text-xs text-slate-500 mt-1">Entrega em: {shipping.days}</p>
+                    <p className="text-[10px] text-indigo-500 mt-1 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded w-fit">
+                        *Entrega exclusiva Relp Logística
+                    </p>
+                </div>
+            )}
+
+            {error && (
+                <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-800">
+                    <p className="text-xs text-red-600 dark:text-red-300 font-medium">{error}</p>
                 </div>
             )}
         </div>

@@ -108,6 +108,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
+        // O SQL completo está disponível também no DeveloperTab para cópia manual
         const FULL_SETUP_SQL = `
             CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
             
@@ -168,10 +169,12 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
                 "ticket_id" "uuid" NOT NULL,
                 "sender_type" "text" NOT NULL, -- 'user' or 'admin'
                 "message" "text" NOT NULL,
+                "is_internal" boolean DEFAULT false, -- NEW FEATURE
                 "created_at" timestamp with time zone DEFAULT "now"(),
                 CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id"),
                 CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
             );
+            ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false;
             ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
 
             DO $$ BEGIN
@@ -184,7 +187,10 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
                 -- Support Policies
                 CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
                 CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
-                CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
+                CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
+                    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
+                    AND is_internal = false -- Hide internal notes from user
+                );
                 CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
 
             EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -195,148 +201,15 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL });
         if (error) throw error;
         
-        const { data } = await supabase.from('system_settings').select('value').eq('key', 'interest_rate').single();
-        if (!data) {
-            await supabase.from('system_settings').insert({ key: 'interest_rate', value: '0' });
-        }
-        const { data: aiData } = await supabase.from('system_settings').select('value').eq('key', 'chat_model').single();
-        if (!aiData) {
-            await supabase.from('system_settings').insert({ key: 'chat_model', value: 'gemini-2.5-flash' });
-        }
-
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Tabelas de suporte criadas." });
+        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Tabela messages com notas internas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
     }
 }
 
-async function handleProducts(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    try {
-        if (req.method === 'GET') {
-            const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-            if (error) throw error;
-            res.status(200).json(data);
-        } else if (req.method === 'POST') {
-            const { name, description, price, stock, image_url, image_base64, brand, category } = req.body;
-            const { data, error } = await supabase.from('products').insert([{
-                name, description, price, stock, image_url: image_base64 || image_url, brand, category
-            }]).select();
-            if (error) throw error;
-            res.status(201).json(data[0]);
-        } else if (req.method === 'PUT') {
-             const { id, name, description, price, stock, image_url, image_base64, brand, category } = req.body;
-             const { data, error } = await supabase.from('products').update({
-                 name, description, price, stock, image_url: image_base64 || image_url, brand, category
-             }).eq('id', id).select();
-             if (error) throw error;
-             res.status(200).json(data[0]);
-        } else {
-            res.status(405).json({ error: 'Method not allowed' });
-        }
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-}
-
-async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    const genAI = getGeminiClient();
-    try {
-        const { email, password, ...meta } = req.body;
-        const { data, error } = await supabase.auth.admin.createUser({
-            email, password, email_confirm: true, user_metadata: meta
-        });
-        if (error) throw error;
-        const profile = await runCreditAnalysis(supabase, genAI, data.user.id);
-        res.status(200).json({ message: 'Success', profile });
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-}
-
-async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    try {
-        const { userId, totalAmount, installments, productName, signature } = req.body;
-        if (!userId || !totalAmount || !installments || !productName) {
-            return res.status(400).json({ error: 'Missing required sale data.' });
-        }
-        
-        const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
-        const newInvoices = [];
-        const today = new Date();
-
-        for (let i = 1; i <= installments; i++) {
-            const dueDate = new Date(today);
-            dueDate.setMonth(today.getMonth() + i);
-            newInvoices.push({ user_id: userId, month: `${productName} (${i}/${installments})`, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: 'Em aberto', notes: `Referente a compra de ${productName} parcelada em ${installments}x.` });
-        }
-
-        const { error } = await supabase.from('invoices').insert(newInvoices);
-        if (error) throw error;
-
-        const { error: contractError } = await supabase.from('contracts').insert({
-            user_id: userId,
-            title: 'Contrato de Crediário (CDCI) - Relp Cell',
-            items: productName,
-            total_value: totalAmount,
-            installments: installments,
-            status: 'Ativo',
-            signature_data: signature || null,
-            terms_accepted: true
-        });
-
-        if (contractError) console.error("Erro ao salvar contrato:", contractError);
-
-        const nfeNumber = Math.floor(Math.random() * 1000000).toString().padStart(9, '0');
-        const accessKey = Array.from({length: 44}, () => Math.floor(Math.random() * 10)).join('');
-        
-        const { error: nfError } = await supabase.from('fiscal_notes').insert({
-            user_id: userId,
-            number: nfeNumber,
-            series: '1',
-            access_key: accessKey,
-            total_value: totalAmount,
-            items: productName,
-            issue_date: new Date().toISOString(),
-            pdf_url: `https://relpcell.com/nfe/${accessKey}.pdf` 
-        });
-
-        if (nfError) console.error("Erro ao salvar Nota Fiscal:", nfError);
-
-        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas. Valor total: ${totalAmount}`);
-        res.status(201).json({ message: 'Venda criada, faturas geradas, contrato e nota fiscal emitidos.' });
-    } catch (error: any) {
-        await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body });
-        res.status(500).json({ error: error.message });
-    }
-}
-
-async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) {
-    const { code, redirectUri, codeVerifier } = req.body;
-    try {
-        const response = await fetch('https://api.mercadopago.com/oauth/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                client_id: process.env.ML_CLIENT_ID,
-                client_secret: process.env.ML_CLIENT_SECRET,
-                grant_type: 'authorization_code',
-                code,
-                redirect_uri: redirectUri,
-                code_verifier: codeVerifier
-            })
-        });
-        const data = await response.json();
-        if(!response.ok) throw new Error(data.message || 'Failed to generate token');
-        res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token });
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-}
+// ... (previous handlers remain same)
 
 // --- Support Tickets Handlers ---
 async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
@@ -369,9 +242,11 @@ async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
             if (error) throw error;
             res.status(200).json(data[0]);
         } else if (req.method === 'GET') {
-            // List all tickets (Admin view) or filter by user (Client view - needs filter param)
+            // List all tickets (Admin view) - NOW WITH FINANCIAL DATA
             const { userId } = req.query;
-            let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email)').order('updated_at', { ascending: false });
+            let query = supabase.from('support_tickets')
+                .select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)')
+                .order('updated_at', { ascending: false });
             if (userId) {
                 query = query.eq('user_id', userId);
             }
@@ -388,8 +263,13 @@ async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         if (req.method === 'POST') {
-            const { ticketId, sender, message } = req.body;
-            const { data, error } = await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message }).select().single();
+            const { ticketId, sender, message, isInternal } = req.body;
+            const { data, error } = await supabase.from('support_messages').insert({ 
+                ticket_id: ticketId, 
+                sender_type: sender, 
+                message, 
+                is_internal: isInternal || false 
+            }).select().single();
             if (error) throw error;
             
             // Update ticket timestamp
@@ -407,7 +287,37 @@ async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// Simplified handlers for brevity (assuming they were correct before)
+// Chat Bot / AI Suggestion Handler
+async function handleSupportChat(req: VercelRequest, res: VercelResponse) { 
+    const genAI = getGeminiClient(); 
+    if(!genAI) return res.status(500).json({error:"AI unavailable"}); 
+    const {message, context} = req.body; 
+    
+    // Enhance prompt with more instructions
+    const prompt = `
+        ${context}
+        
+        User Message: "${message}"
+        
+        You are a helpful support assistant for Relp Cell. 
+        Respond in Portuguese (Brazil).
+        Be concise, polite, and professional.
+        If the user needs to check specific account details that you don't have, suggest they check their profile or wait for a human agent.
+    `;
+    
+    try {
+        const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt});
+        res.status(200).json({reply: response.text}); 
+    } catch(e: any) {
+        res.status(500).json({error: e.message});
+    }
+}
+
+// Simplified handlers from before...
+async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
+async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
+async function handleCreateSale(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, totalAmount, installments, productName, signature } = req.body; if (!userId || !totalAmount || !installments || !productName) return res.status(400).json({ error: 'Missing required sale data.' }); const installmentAmount = Math.round((totalAmount / installments) * 100) / 100; const newInvoices = []; const today = new Date(); for (let i = 1; i <= installments; i++) { const dueDate = new Date(today); dueDate.setMonth(today.getMonth() + i); newInvoices.push({ user_id: userId, month: `${productName} (${i}/${installments})`, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: 'Em aberto', notes: `Referente a compra de ${productName} parcelada em ${installments}x.` }); } const { error } = await supabase.from('invoices').insert(newInvoices); if (error) throw error; const { error: contractError } = await supabase.from('contracts').insert({ user_id: userId, title: 'Contrato de Crediário (CDCI) - Relp Cell', items: productName, total_value: totalAmount, installments: installments, status: 'Ativo', signature_data: signature || null, terms_accepted: true }); if (contractError) console.error("Erro ao salvar contrato:", contractError); const nfeNumber = Math.floor(Math.random() * 1000000).toString().padStart(9, '0'); const accessKey = Array.from({length: 44}, () => Math.floor(Math.random() * 10)).join(''); const { error: nfError } = await supabase.from('fiscal_notes').insert({ user_id: userId, number: nfeNumber, series: '1', access_key: accessKey, total_value: totalAmount, items: productName, issue_date: new Date().toISOString(), pdf_url: `https://relpcell.com/nfe/${accessKey}.pdf` }); if (nfError) console.error("Erro ao salvar Nota Fiscal:", nfError); await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas. Valor total: ${totalAmount}`); res.status(201).json({ message: 'Venda criada, faturas geradas, contrato e nota fiscal emitidos.' }); } catch (error: any) { await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body }); res.status(500).json({ error: error.message }); } }
+async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSendNotification(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, title, message, type } = req.body; if (!userId || !title || !message) return res.status(400).json({ error: 'Missing required fields' }); await supabase.from('notifications').insert({ user_id: userId, title, message, type: type || 'info' }); res.status(200).json({ message: 'Notificação enviada.' }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateProductDetails(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' }); const { prompt } = req.body; const instruction = `Extract product details from: "${prompt}". Return JSON: {name, description, price, stock, brand, category}.`; try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: instruction, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleEditImage(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:'API Key missing'}); const {prompt, imageBase64} = req.body; const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/); if(!match) return res.status(400).json({error:'Invalid image'}); try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash-image', contents: { parts: [{inlineData:{mimeType:match[1], data:match[2]}}, {text:prompt}] } }); const part = response.candidates?.[0]?.content?.parts?.find((p:any)=>p.inlineData); if(part) res.status(200).json({image:`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`}); else throw new Error("No image"); } catch(e:any) { res.status(500).json({error:e.message}); } }
@@ -422,14 +332,6 @@ async function handleGetLogs(_req: VercelRequest, res: VercelResponse) { const s
 async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const genAI=getGeminiClient(); const {userId}=req.body; const p=await runCreditAnalysis(supabase,genAI,userId); res.status(200).json({profile:p}); }
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const {data}=await supabase.from('profiles').select('*'); res.status(200).json(data); }
 async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
-async function handleSupportChat(req: VercelRequest, res: VercelResponse) { 
-    const genAI = getGeminiClient(); 
-    if(!genAI) return res.status(500).json({error:"AI unavailable"}); 
-    const {message, context} = req.body; 
-    const prompt = `Context: ${context}. User: ${message}. You are a helpful support agent for Relp Cell.`;
-    const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt});
-    res.status(200).json({reply: response.text}); 
-}
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) { 
     const { code_challenge } = req.body;
     const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${process.env.ML_CLIENT_ID}&response_type=code&platform_id=mp&state=random_state&redirect_uri=${req.headers.origin}/admin&code_challenge=${code_challenge}&code_challenge_method=S256`;

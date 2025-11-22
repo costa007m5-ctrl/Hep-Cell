@@ -229,7 +229,7 @@ const MercadoPagoIntegration: React.FC = () => {
 const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-    const [showSql, setShowSql] = useState(false);
+    const [showSql, setShowSql] = useState(true); 
     
     const resetPasswordUrl = `${window.location.origin}/reset-password`;
 
@@ -243,18 +243,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
     // SQL Completo com Políticas RLS, Trigger de Cadastro e Função de Busca Aprimorada
-    // Agora inclui tabelas para contratos e notas fiscais
+    // Agora inclui tabelas para contratos, notas fiscais e SUPORTE
+    // E a nova tabela de MISSÕES com pontos ajustados
     const SETUP_SQL = `
--- Habilitar extensões
+-- 1. Habilitar Extensões
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
 
--- 1. Tabela de Perfis
+-- 2. Tabelas Principais (Profiles)
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( 
     "id" "uuid" NOT NULL, 
     "email" "text", 
-    "first_name" "text",
+    "first_name" "text", 
     "last_name" "text",
-    "identification_number" "text", -- CPF
+    "identification_number" "text",
     "phone" "text",
     "credit_score" integer DEFAULT 0,
     "credit_limit" numeric(10, 2) DEFAULT 0,
@@ -274,143 +275,108 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "profiles_email_key" UNIQUE ("email") 
 );
 
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "phone" "text";
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_number" "text";
+-- 3. Tabela de Missões (Gamificação)
+CREATE TABLE IF NOT EXISTS "public"."user_missions" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "user_id" "uuid" NOT NULL,
+    "mission_id" "text" NOT NULL,
+    "completed_at" timestamp with time zone DEFAULT "now"(),
+    "claimed_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "user_missions_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "user_missions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE,
+    CONSTRAINT "user_missions_unique" UNIQUE ("user_id", "mission_id")
+);
+ALTER TABLE "public"."user_missions" ENABLE ROW LEVEL SECURITY;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
-    ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_identification_number_key" UNIQUE ("identification_number");
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_phone_key') THEN
-    ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_phone_key" UNIQUE ("phone");
-  END IF;
-END $$;
+-- 4. Tabelas de Suporte (Enterprise)
+CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( 
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), 
+    "user_id" "uuid" NOT NULL, 
+    "status" "text" DEFAULT 'open', 
+    "subject" "text",
+    "category" "text",
+    "priority" "text" DEFAULT 'normal',
+    "created_at" timestamp with time zone DEFAULT "now"(), 
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "support_tickets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+);
 
+CREATE TABLE IF NOT EXISTS "public"."support_messages" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "ticket_id" "uuid" NOT NULL,
+    "sender_type" "text" NOT NULL,
+    "message" "text" NOT NULL,
+    "is_internal" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
+);
+
+-- 5. Políticas de Segurança (RLS)
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
 
 DO $$ BEGIN
+    -- Profiles
     DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
     CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-    DROP POLICY IF EXISTS "Users can insert own profile" ON "public"."profiles";
-    CREATE POLICY "Users can insert own profile" ON "public"."profiles" FOR INSERT WITH CHECK (auth.uid() = id);
+    
     DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
     CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
-END $$;
 
--- 2. TRIGGER DE CADASTRO
-CREATE OR REPLACE FUNCTION public.handle_new_user() 
-RETURNS trigger AS $$
-BEGIN
-  INSERT INTO public.profiles (
-    id, email, first_name, last_name, identification_number, phone,
-    zip_code, street_name, street_number, neighborhood, city, federal_unit
-  )
-  VALUES (
-    new.id, new.email, 
-    new.raw_user_meta_data->>'first_name', new.raw_user_meta_data->>'last_name', 
-    new.raw_user_meta_data->>'cpf', new.raw_user_meta_data->>'phone',
-    new.raw_user_meta_data->>'zip_code', new.raw_user_meta_data->>'street_name',
-    new.raw_user_meta_data->>'street_number', new.raw_user_meta_data->>'neighborhood',
-    new.raw_user_meta_data->>'city', new.raw_user_meta_data->>'federal_unit'
-  );
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+    -- Missions
+    DROP POLICY IF EXISTS "Users can view own missions" ON "public"."user_missions";
+    CREATE POLICY "Users can view own missions" ON "public"."user_missions" FOR SELECT USING (auth.uid() = user_id);
+    
+    -- Support
+    DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets";
+    CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
+    
+    DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
+    CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+    DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
+    CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
+        EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
+        AND is_internal = false
+    );
+    
+    DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
+    CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (
+        EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- 3. FUNÇÃO DE LOGIN INTELIGENTE
-CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
-RETURNS text AS $$
+-- 6. Função Segura para Resgate de Missão (RPC) - GARANTE 1X POR MISSÃO
+CREATE OR REPLACE FUNCTION claim_mission_reward(mission_id_input text, xp_reward int, reason_input text)
+RETURNS void AS $$
 DECLARE
-  found_email text;
-  clean_input text;
+  v_user_id uuid;
 BEGIN
-  clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
-  IF length(clean_input) < 5 THEN RETURN NULL; END IF;
-  SELECT email INTO found_email FROM profiles WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input LIMIT 1;
-  IF found_email IS NOT NULL THEN RETURN found_email; END IF;
-  SELECT email INTO found_email FROM profiles WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input LIMIT 1;
-  IF found_email IS NULL THEN SELECT email INTO found_email FROM profiles WHERE email = identifier_input LIMIT 1; END IF;
-  RETURN found_email;
+  v_user_id := auth.uid();
+  
+  -- Verifica se já foi resgatada
+  IF EXISTS (SELECT 1 FROM public.user_missions WHERE user_id = v_user_id AND mission_id = mission_id_input) THEN
+    RAISE EXCEPTION 'Missão já resgatada.';
+  END IF;
+
+  -- Registra a missão
+  INSERT INTO public.user_missions (user_id, mission_id, claimed_at, completed_at)
+  VALUES (v_user_id, mission_id_input, now(), now());
+
+  -- Atualiza o score (máximo 1000)
+  UPDATE public.profiles
+  SET credit_score = LEAST(1000, credit_score + xp_reward)
+  WHERE id = v_user_id;
+
+  -- Registra histórico
+  INSERT INTO public.score_history (user_id, change, new_score, reason)
+  SELECT v_user_id, xp_reward, credit_score, reason_input
+  FROM public.profiles WHERE id = v_user_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-GRANT EXECUTE ON FUNCTION get_email_by_identifier(text) TO anon, authenticated, service_role;
-
--- 4. Outras Tabelas do Sistema
-CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") );
-ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
-ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-    DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
-    CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
-END $$;
-
-CREATE TABLE IF NOT EXISTS "public"."notifications" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "message" "text" NOT NULL, "type" "text" NOT NULL DEFAULT 'info', "read" boolean NOT NULL DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"), CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
-ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-    DROP POLICY IF EXISTS "Users can view own notifications" ON "public"."notifications";
-    CREATE POLICY "Users can view own notifications" ON "public"."notifications" FOR SELECT USING (auth.uid() = user_id);
-    DROP POLICY IF EXISTS "Users can update own notifications" ON "public"."notifications";
-    CREATE POLICY "Users can update own notifications" ON "public"."notifications" FOR UPDATE USING (auth.uid() = user_id);
-END $$;
-
-CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "category" "text", "brand" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") );
-ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-    DROP POLICY IF EXISTS "Public read access products" ON "public"."products";
-    CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
-END $$;
-
--- 5. TABELA DE CONTRATOS
-CREATE TABLE IF NOT EXISTS "public"."contracts" (
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
-    "user_id" "uuid" NOT NULL,
-    "title" "text" NOT NULL,
-    "items" "text",
-    "total_value" numeric(10, 2),
-    "installments" integer,
-    "status" "text" DEFAULT 'Ativo',
-    "signature_data" "text",
-    "terms_accepted" boolean DEFAULT true,
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
-);
-ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-    DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts";
-    CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
-END $$;
-
--- 6. TABELA DE NOTAS FISCAIS
-CREATE TABLE IF NOT EXISTS "public"."fiscal_notes" (
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
-    "user_id" "uuid" NOT NULL,
-    "number" "text",
-    "series" "text",
-    "access_key" "text",
-    "total_value" numeric(10, 2),
-    "items" "text",
-    "issue_date" timestamp with time zone DEFAULT "now"(),
-    "xml_url" "text",
-    "pdf_url" "text",
-    CONSTRAINT "fiscal_notes_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "fiscal_notes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
-);
-ALTER TABLE "public"."fiscal_notes" ENABLE ROW LEVEL SECURITY;
-DO $$ BEGIN
-    DROP POLICY IF EXISTS "Users can view own fiscal notes" ON "public"."fiscal_notes";
-    CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id);
-END $$;
-
--- Admin Mock Function
-CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
     const handleSetupDatabase = async () => {
@@ -434,112 +400,50 @@ CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.ui
 
     return (
         <div className="p-4 space-y-8">
-            <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração das Variáveis de Ambiente</h2>
-                <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700">
-                     <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                        Adicione estas chaves como <strong>Variáveis de Ambiente</strong> no painel do seu projeto na Vercel para garantir a segurança e o funcionamento.
-                    </p>
-                    <ul className="list-disc list-inside text-sm text-indigo-700 dark:text-indigo-300 mt-2 space-y-2 font-mono">
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">API_KEY</code> (sua chave da API do Gemini)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">ML_CLIENT_ID</code> (ID da sua aplicação no Mercado Livre)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">ML_CLIENT_SECRET</code> (Chave secreta da sua aplicação)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">MERCADO_PAGO_ACCESS_TOKEN</code> (Será gerado abaixo)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> (URL do seu projeto Supabase)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> (Chave anônima pública do Supabase)</li>
-                        <li><code className="bg-indigo-100 dark:bg-indigo-800/50 p-1 rounded">SUPABASE_SERVICE_ROLE_KEY</code> (Sua chave secreta 'service_role' do Supabase)</li>
-                    </ul>
-                     <p className="text-sm text-indigo-700 dark:text-indigo-300 mt-4 font-semibold">
-                        Após adicionar as chaves, vá para a aba "Status & Verificação" para testar as conexões.
-                    </p>
-                </div>
-            </section>
             
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração de Recuperação de Senha</h2>
-                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 mb-6">
-                    <p className="text-sm text-purple-800 dark:text-purple-200">
-                        Para que o "Esqueci a Senha" funcione corretamente com o template bonito, configure o Supabase assim:
-                    </p>
-                    <ol className="list-decimal list-inside text-sm text-purple-700 dark:text-purple-300 mt-2 space-y-1">
-                        <li>Vá no painel do Supabase &gt; Authentication &gt; URL Configuration.</li>
-                        <li>Adicione esta URL em <strong>Site URL</strong> ou <strong>Redirect URLs</strong>:</li>
-                    </ol>
-                    <div className="mt-2 mb-4 bg-white dark:bg-slate-800 p-2 rounded border border-purple-100 dark:border-purple-800 text-xs font-mono break-all">
-                        {resetPasswordUrl}
-                    </div>
-                    
-                    <p className="text-sm text-purple-800 dark:text-purple-200 mt-4">
-                        Agora, vá em <strong>Authentication &gt; Email Templates &gt; Reset Password</strong> e cole o código abaixo:
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
+                 <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização de Segurança e Gamificação</h3>
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
+                        Para ativar o sistema de missões com validação profissional (evitar fraude de pontos), copie o código SQL abaixo e execute no Supabase. Isso cria a tabela `user_missions` e a função `claim_mission_reward`.
                     </p>
                 </div>
 
+                <div className="mb-8">
+                    <button 
+                        onClick={handleSetupDatabase}
+                        disabled={isLoading}
+                        className="hidden w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
+                    >
+                        {isLoading ? <LoadingSpinner /> : 'Tentar Setup Automático'}
+                    </button>
+                </div>
+
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Setup</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                        Este script configura o sistema de missões, suporte e garante a segurança dos dados.
+                    </p>
+                    
+                    <CodeBlock
+                        title="SQL Completo de Setup"
+                        explanation="Copie e cole no SQL Editor do Supabase."
+                        code={SETUP_SQL}
+                    />
+                </div>
+            </section>
+
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração de Recuperação de Senha</h2>
                 <CodeBlock 
                     title="Template HTML para Email de Reset" 
-                    explanation="Copie este código e cole no template 'Reset Password' do Supabase para ter um email profissional com as cores da Relp Cell."
+                    explanation="Copie este código e cole no template 'Reset Password' do Supabase."
                     code={emailTemplateHTML}
                 />
             </section>
 
             <MercadoPagoIntegration />
-
-             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Setup do Banco de Dados e Automações</h2>
-                 <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
-                    <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
-                    <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        O processo automatiza a criação das tabelas (incluindo <strong>Contratos</strong> e <strong>Notas Fiscais</strong>) e instala o <strong>Gatilho Automático</strong>.
-                        Isso garante que quando um usuário cria conta, os dados sejam salvos corretamente.
-                    </p>
-                </div>
-
-                <div className="mb-8">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Opção 1: Automático (Recomendado)</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Tenta executar o SQL diretamente pelo servidor. Se falhar, use a opção manual abaixo.
-                    </p>
-                    {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
-                    <button 
-                        onClick={handleSetupDatabase}
-                        disabled={isLoading}
-                        className="w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
-                    >
-                        {isLoading ? <LoadingSpinner /> : 'Executar Setup do Banco'}
-                    </button>
-                </div>
-
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Opção 2: Manual (Garantido)</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Se o botão acima não funcionar, copie o código abaixo, vá no <strong>SQL Editor</strong> do seu painel Supabase e clique em Run.
-                    </p>
-                    <button 
-                        onClick={() => setShowSql(!showSql)}
-                        className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline mb-3"
-                    >
-                        {showSql ? 'Ocultar Código SQL' : 'Mostrar Código SQL para Copiar'}
-                    </button>
-                    
-                    {showSql && (
-                        <CodeBlock
-                            title="SQL Completo de Setup"
-                            explanation="Inclui criação de tabelas, triggers de cadastro e tabelas de contratos/notas fiscais."
-                            code={SETUP_SQL}
-                        />
-                    )}
-                </div>
-
-                <div className="mt-8 border-t border-slate-200 dark:border-slate-700 pt-6">
-                    <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-2">Pré-requisito para o botão automático</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                        Para que o botão "Executar Setup" funcione, você precisa rodar este pequeno comando SQL uma única vez no Supabase para permitir que o Admin execute comandos remotos.
-                    </p>
-                    <CodeBlock
-                        title="Função RPC de Admin"
-                        code={rpcFunctionSQL}
-                    />
-                </div>
-            </section>
         </div>
     );
 };

@@ -227,7 +227,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
         {/* Main Financial Card */}
         <div className="relative mx-2 h-52 bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 overflow-hidden group transition-transform active:scale-[0.99]">
              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full opacity-20 blur-3xl -mr-20 -mt-20"></div>
-             <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600 rounded-full opacity-20 blur-3xl -ml-10 -mb-10"></div>
+             <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600 rounded-full opacity-20 blur-2xl -ml-10 -mb-10"></div>
              <div className="absolute top-1/2 left-1/2 w-32 h-32 bg-pink-500 rounded-full opacity-10 blur-2xl -translate-x-1/2 -translate-y-1/2"></div>
 
              <div className="relative z-10 flex flex-col h-full justify-between">
@@ -285,8 +285,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                 onClick={() => { setModalView('limit'); setIsModalOpen(true); }}
             />
              <ActionButton 
-                label="Meu Score" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+                label="Hub de Score" 
+                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
                 onClick={() => { setModalView('score'); setIsModalOpen(true); }}
             />
         </div>
@@ -329,8 +329,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                     />
                 )}
                 <ActivityItem 
-                    title="Análise de Crédito" 
-                    date="Realizada recentemente" 
+                    title="Hub de Score" 
+                    date="Verifique sua pontuação" 
                     type="info" 
                     onClick={() => { setModalView('score'); setIsModalOpen(true); }}
                 />
@@ -348,10 +348,21 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}>
-        {modalView === 'score' && <ScoreHistoryView currentScore={profileData?.credit_score ?? 0} />}
-        {modalView === 'limit' && profileData && <LimitInfoView profile={profileData} onClose={() => setIsModalOpen(false)} />}
-      </Modal>
+      {/* Modals & Full Screen Views */}
+      {modalView === 'score' && isModalOpen && (
+          <ScoreHistoryView 
+            currentScore={profileData?.credit_score ?? 0} 
+            onClose={() => setIsModalOpen(false)} 
+            onNavigate={(tab: Tab) => {
+                setIsModalOpen(false);
+                setActiveTab(tab);
+            }}
+          />
+      )}
+      
+      {modalView === 'limit' && isModalOpen && profileData && (
+          <LimitInfoView profile={profileData} onClose={() => setIsModalOpen(false)} />
+      )}
     </>
   );
 };

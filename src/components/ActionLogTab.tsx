@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -116,7 +117,7 @@ const ActionLogTab: React.FC = () => {
         return (
              <ul role="list" className="divide-y divide-slate-200 dark:divide-slate-700">
                 {logs.map((log) => (
-                    <li key={log.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                    <li key={log.id} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                         <div className="flex items-start space-x-3">
                             <div className="flex-shrink-0 pt-1">
                                 {log.status === 'SUCCESS' ? <SuccessIcon /> : <FailureIcon />}
@@ -138,13 +139,13 @@ const ActionLogTab: React.FC = () => {
                                      <div className="mt-2 flex items-center gap-4">
                                         {log.details?.error && (
                                             <div className="flex-1 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500/30 rounded-md">
-                                                <p className="text-xs text-red-800 dark:text-red-300 font-mono">{log.details.error}</p>
+                                                <p className="text-xs text-red-800 dark:text-red-300 font-mono break-all">{log.details.error}</p>
                                             </div>
                                         )}
                                         <button 
                                             onClick={handleRepairError}
                                             disabled={isRepairing}
-                                            className="flex-shrink-0 flex items-center gap-2 py-1 px-3 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-md shadow-sm disabled:opacity-50"
+                                            className="flex-shrink-0 flex items-center gap-2 py-1 px-3 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-md shadow-sm disabled:opacity-50 transition-colors"
                                             title="Tenta corrigir o problema executando o setup do banco de dados novamente."
                                         >
                                             {isRepairing ? <LoadingSpinner/> : (
@@ -173,7 +174,7 @@ const ActionLogTab: React.FC = () => {
                         Visualize as atualizações e configurações automáticas realizadas.
                     </p>
                 </div>
-                <button onClick={fetchLogs} disabled={isLoading} className="flex-shrink-0 flex justify-center items-center gap-2 py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50">
+                <button onClick={fetchLogs} disabled={isLoading} className="flex-shrink-0 flex justify-center items-center gap-2 py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" />
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" />

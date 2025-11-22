@@ -1,19 +1,36 @@
+
 import React, { useState } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import InputField from './InputField';
 import { supabase } from '../services/clients';
 
 interface LimitRequestFormProps {
     currentLimit: number;
     onClose: () => void;
+    score: number;
 }
 
-const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose }) => {
+const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose, score }) => {
     const [requestedAmount, setRequestedAmount] = useState('');
     const [justification, setJustification] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+    
+    // Lógica de "Chance de Aprovação" baseada no Score
+    const approvalChance = Math.min(100, Math.max(10, score / 10));
+    let chanceColor = 'bg-red-500';
+    let chanceText = 'Baixa';
+    let chanceMessage = "Seu score precisa melhorar um pouco.";
+    
+    if (approvalChance > 70) {
+        chanceColor = 'bg-emerald-500';
+        chanceText = 'Alta';
+        chanceMessage = "Você tem um ótimo perfil para aumento!";
+    } else if (approvalChance > 40) {
+        chanceColor = 'bg-amber-500';
+        chanceText = 'Média';
+        chanceMessage = "Continue pagando em dia para aumentar suas chances.";
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -22,7 +39,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
 
         const requestedValue = parseFloat(requestedAmount);
         if (isNaN(requestedValue) || requestedValue <= currentLimit) {
-            setMessage({ text: 'Por favor, insira um valor maior que o seu limite atual.', type: 'error' });
+            setMessage({ text: 'O valor solicitado deve ser maior que o atual.', type: 'error' });
             setIsSubmitting(false);
             return;
         }
@@ -41,74 +58,111 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
 
             if (error) throw error;
 
-            // Atualiza a data da última solicitação no perfil para controle de spam
             await supabase.from('profiles').update({ last_limit_request_date: new Date().toISOString() }).eq('id', user.id);
 
-            setMessage({ text: 'Sua solicitação foi enviada com sucesso! Nossa equipe analisará em até 3 dias úteis.', type: 'success' });
-            
-            setTimeout(() => {
-                onClose();
-            }, 3000);
+            setMessage({ text: 'Pedido enviado para análise!', type: 'success' });
+            setTimeout(onClose, 3000);
             
         } catch (error: any) {
-            console.error("Error requesting limit:", error);
-            setMessage({ text: 'Ocorreu um erro ao enviar sua solicitação. Tente novamente mais tarde.', type: 'error' });
+            setMessage({ text: 'Erro ao enviar solicitação.', type: 'error' });
         } finally {
             setIsSubmitting(false);
         }
     };
 
     if (message?.type === 'success') {
-        return <Alert message={message.text} type="success" />;
+        return (
+            <div className="flex flex-col items-center justify-center text-center p-8 h-full animate-fade-in">
+                <div className="w-24 h-24 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-emerald-500/20">
+                    <svg className="w-12 h-12 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Pedido Enviado!</h3>
+                <p className="text-slate-500 dark:text-slate-400 mb-8 max-w-xs text-sm">Nossa equipe analisará seu perfil e responderemos em até 3 dias úteis.</p>
+                <button onClick={onClose} className="px-8 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Voltar</button>
+            </div>
+        );
     }
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="text-center">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Solicitar Aumento</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Seu pedido passará por uma análise de crédito.
-                </p>
-            </div>
-            
-            {message && <Alert message={message.text} type={message.type} />}
-
-            <InputField
-                label="Novo Limite Desejado (R$)"
-                type="number"
-                name="requestedAmount"
-                value={requestedAmount}
-                onChange={(e) => setRequestedAmount(e.target.value)}
-                placeholder={String(currentLimit + 500)}
-                required
-                min={currentLimit + 1}
-            />
-
-            <div>
-                <label htmlFor="justification" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Por que você precisa de um limite maior? (Opcional)
-                </label>
-                <textarea
-                    id="justification"
-                    name="justification"
-                    rows={3}
-                    value={justification}
-                    onChange={(e) => setJustification(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white"
-                    placeholder="Ex: Compra de um novo aparelho, despesas inesperadas..."
-                />
+        <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
+            {/* Header */}
+            <div className="bg-white dark:bg-slate-900 px-4 pt-safe pb-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <button onClick={onClose} className="p-2 -ml-2 text-slate-500 hover:text-slate-900 dark:hover:text-white font-medium transition-colors">
+                    Cancelar
+                </button>
+                <h2 className="font-bold text-slate-900 dark:text-white">Ajuste de Limite</h2>
+                <div className="w-16"></div> 
             </div>
 
-            <div className="pt-2">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                <div className="text-center pt-4">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Limite Atual</p>
+                    <p className="text-4xl font-black text-slate-900 dark:text-white">
+                        <span className="text-xl text-slate-400 font-bold mr-1">R$</span>
+                        {currentLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
+                </div>
+
+                {/* Smart Analysis Card */}
+                <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 relative overflow-hidden">
+                    <div className={`absolute top-0 left-0 w-1 h-full ${chanceColor}`}></div>
+                    <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">Probabilidade</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${chanceColor}`}>{chanceText}</span>
+                    </div>
+                    <p className="text-sm font-medium text-slate-800 dark:text-white mb-3">
+                        {chanceMessage}
+                    </p>
+                    <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div className={`h-full transition-all duration-1000 ease-out ${chanceColor}`} style={{ width: `${approvalChance}%` }}></div>
+                    </div>
+                </div>
+                
+                {message && <Alert message={message.text} type={message.type} />}
+
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Quanto você gostaria?</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">R$</span>
+                            <input
+                                type="number"
+                                value={requestedAmount}
+                                onChange={(e) => setRequestedAmount(e.target.value)}
+                                placeholder="0,00"
+                                required
+                                min={currentLimit + 1}
+                                className="w-full pl-12 pr-4 py-4 text-2xl font-bold bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-900 dark:text-white placeholder-slate-300"
+                            />
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 ml-1">Recomendado: Até R$ {(currentLimit * 1.3).toFixed(0)}</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">
+                            Motivo <span className="font-normal text-slate-400 ml-1">(Opcional)</span>
+                        </label>
+                        <textarea
+                            rows={3}
+                            value={justification}
+                            onChange={(e) => setJustification(e.target.value)}
+                            className="w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-900 dark:text-white resize-none text-sm"
+                            placeholder="Ex: Quero comprar um iPhone 15..."
+                        />
+                    </div>
+                </div>
+            </form>
+
+            <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 pb-safe">
                  <button
-                    type="submit"
+                    onClick={handleSubmit}
                     disabled={isSubmitting}
-                    className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                 >
-                    {isSubmitting ? <LoadingSpinner /> : 'Enviar Solicitação'}
+                    {isSubmitting ? <LoadingSpinner /> : 'Enviar Pedido de Análise'}
                 </button>
             </div>
-        </form>
+        </div>
     );
 };
 
