@@ -22,16 +22,16 @@ export interface Invoice {
   month: string;
   due_date: string;
   amount: number;
-  status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado';
+  status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado' | 'Aguardando Assinatura'; // Novo Status
   payment_method?: string | null;
   payment_date?: string | null;
   payment_id?: string | null;
-  payment_code?: string | null; // Novo: Para Pix Copia e Cola ou código geral
-  payment_expiration?: string | null; // Novo: Data de expiração do código
+  payment_code?: string | null; 
+  payment_expiration?: string | null; 
   boleto_url?: string | null;
   boleto_barcode?: string | null;
   notes?: string | null;
-  discountValue?: number; // Adicionado para interface
+  discountValue?: number; 
   created_at: string;
 }
 
@@ -77,15 +77,17 @@ export interface Product {
   stock: number;
   image_url: string | null;
   category?: string; 
-  brand?: string; // Novo campo para Marca
+  brand?: string; 
   rating?: number; 
   reviews_count?: number; 
   is_new?: boolean; 
   created_at: string;
+  barcode?: string; // Novo campo para PDV
 }
 
 export interface CartItem extends Product {
     quantity: number;
+    discount?: number; // Desconto individual
 }
 
 export interface Address {
@@ -132,5 +134,16 @@ export interface LimitRequest {
     current_limit: number;
     justification: string | null;
     status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+}
+
+export interface Contract {
+    id: string;
+    user_id: string;
+    title: string;
+    items: string;
+    total_value: number;
+    installments: number;
+    status: 'Ativo' | 'Pendente' | 'Assinado' | 'Cancelado' | 'pending_signature';
     created_at: string;
 }

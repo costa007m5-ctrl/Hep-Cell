@@ -6,13 +6,34 @@ import { CardSkeleton } from './Skeleton';
 import ScoreHistoryView from './ScoreHistoryView';
 import LimitInfoView from './LimitInfoView';
 import Modal from './Modal';
-import { Profile, Invoice, Tab } from '../types';
+import { Profile, Invoice, Tab, Contract } from '../types';
+import SignaturePad from './SignaturePad';
+import LoadingSpinner from './LoadingSpinner';
 
 interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
 }
 
 // --- Componentes Internos ---
+
+const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }> = ({ contract, onSign }) => (
+    <div className="mx-4 mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+            <div className="p-2 bg-yellow-100 dark:bg-yellow-800 rounded-full text-yellow-700 dark:text-yellow-200">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+                <h3 className="font-bold text-yellow-800 dark:text-yellow-100">Contrato Pendente</h3>
+                <p className="text-xs text-yellow-700 dark:text-yellow-200 mt-1">
+                    Você tem uma compra de <strong>{contract.items}</strong> aguardando assinatura. Assine em até 24h para evitar o cancelamento.
+                </p>
+            </div>
+        </div>
+        <button onClick={onSign} className="w-full py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-lg text-sm shadow-md transition-colors">
+            Assinar Agora
+        </button>
+    </div>
+);
 
 const StoryCircle: React.FC<{ img: string; label: string; viewed?: boolean; onClick?: () => void }> = ({ img, label, viewed, onClick }) => (
     <button onClick={onClick} className="flex flex-col items-center space-y-1 min-w-[72px] group">
@@ -66,13 +87,16 @@ const ActivityItem: React.FC<{ title: string; date: string; amount?: string; typ
 const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [pendingContract, setPendingContract] = useState<Contract | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   // UI States
   const [showValues, setShowValues] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalView, setModalView] = useState<'score' | 'limit' | null>(null);
+  const [modalView, setModalView] = useState<'score' | 'limit' | 'sign_contract' | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [signature, setSignature] = useState<string | null>(null);
+  const [isSigning, setIsSigning] = useState(false);
 
   // Mock Data for Stories
   const stories = [
@@ -82,7 +106,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       { id: 4, img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
   ];
 
-  // PWA Install Prompt Logic
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -107,19 +130,23 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     return 'Boa noite';
   };
 
-  // Data Fetching
   useEffect(() => {
     const fetchHomeData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const [profile, invoicesData] = await Promise.all([
+          const [profile, invoicesData, contractsData] = await Promise.all([
             getProfile(user.id),
-            supabase.from('invoices').select('*').eq('user_id', user.id)
+            supabase.from('invoices').select('*').eq('user_id', user.id),
+            supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1)
           ]);
 
           setProfileData({ id: user.id, email: user.email, ...profile });
           setInvoices(invoicesData.data || []);
+          
+          if (contractsData.data && contractsData.data.length > 0) {
+              setPendingContract(contractsData.data[0]);
+          }
         }
       } catch (error) {
         console.error("Erro ao buscar dados:", error);
@@ -130,7 +157,35 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     fetchHomeData();
   }, []);
   
-  // Financial Calculations
+  const handleSignContract = async () => {
+      if (!signature || !pendingContract) return;
+      setIsSigning(true);
+      try {
+          // 1. Atualiza Contrato
+          await supabase.from('contracts').update({ 
+              status: 'Ativo', 
+              signature_data: signature,
+              terms_accepted: true 
+          }).eq('id', pendingContract.id);
+
+          // 2. Ativa as Faturas (usando lógica de tempo/user pois não temos FK direta)
+          // Simplificação: Ativa todas 'Aguardando Assinatura' deste usuário
+          await supabase.from('invoices').update({ status: 'Em aberto' }).eq('user_id', pendingContract.user_id).eq('status', 'Aguardando Assinatura');
+
+          setPendingContract(null);
+          setIsModalOpen(false);
+          // Recarrega faturas
+          const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
+          setInvoices(data || []);
+
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao assinar contrato.");
+      } finally {
+          setIsSigning(false);
+      }
+  };
+
   const totalDebt = useMemo(() => invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').reduce((acc, inv) => acc + inv.amount, 0), [invoices]);
   const creditLimit = profileData?.credit_limit || 0;
   const availableLimit = Math.max(0, creditLimit - totalDebt);
@@ -196,6 +251,14 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                 </button>
             </div>
         </div>
+
+        {/* Pending Contract Alert */}
+        {pendingContract && (
+            <PendingContractAlert 
+                contract={pendingContract} 
+                onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} 
+            />
+        )}
 
         {/* Stories Rail */}
         <div className="flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide">
@@ -362,6 +425,26 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       
       {modalView === 'limit' && isModalOpen && profileData && (
           <LimitInfoView profile={profileData} onClose={() => setIsModalOpen(false)} />
+      )}
+
+      {modalView === 'sign_contract' && isModalOpen && pendingContract && (
+          <Modal isOpen={true} onClose={() => setIsModalOpen(false)}>
+              <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura Digital</h3>
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-40 overflow-y-auto">
+                      <p>Eu, {profileData?.first_name} {profileData?.last_name}, CPF {profileData?.identification_number}, reconheço a dívida referente a compra de {pendingContract.items} no valor total de {pendingContract.total_value?.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}, parcelado em {pendingContract.installments}x.</p>
+                  </div>
+                  <label className="block text-sm font-medium mb-2">Assine abaixo:</label>
+                  <SignaturePad onEnd={setSignature} />
+                  <button 
+                    onClick={handleSignContract} 
+                    disabled={!signature || isSigning}
+                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                      {isSigning ? <LoadingSpinner /> : 'Confirmar e Liberar Compra'}
+                  </button>
+              </div>
+          </Modal>
       )}
     </>
   );
