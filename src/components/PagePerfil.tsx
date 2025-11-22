@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
-import { Profile, Address } from '../types';
+import { Profile, Address, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
@@ -12,6 +12,14 @@ import jsPDF from 'jspdf';
 interface PagePerfilProps {
     session: Session;
 }
+
+const COMPANY_DATA = {
+    razaoSocial: "RELP CELL ELETRONICOS", // Nome fantasia ou razão social baseada no contexto
+    cnpj: "43.735.304/0001-00",
+    endereco: "Endereço Comercial, Estado do Amapá", // Ajustado conforme solicitado
+    cidadeUF: "Macapá - AP", // Assumindo capital do estado fornecido, ajustável
+    telefone: "(96) 99171-8167"
+};
 
 // --- Componentes Auxiliares ---
 
@@ -50,46 +58,118 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
 
 // --- Sub-Views ---
 
-const ContractsView: React.FC = () => {
+const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const contracts = [
-        { id: 1, title: 'Termo de Adesão - Crediário', date: '10/01/2024', status: 'Ativo' },
-        { id: 2, title: 'Contrato de Compra e Venda', date: '15/05/2024', status: 'Finalizado' },
+        { id: 12024, title: 'Contrato de Crediário (CDCI)', date: '10/01/2024', status: 'Ativo', value: 4500.00, installments: 12, items: 'iPhone 15 128GB' },
     ];
 
-    const generateContractPDF = (contract: any) => {
+    const generateDetailedContract = (contract: any) => {
         const doc = new jsPDF();
-        
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(18);
-        doc.text("RELP CELL - CONTRATO DIGITAL", 105, 20, { align: "center" });
-        
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Documento: ${contract.title}`, 20, 40);
-        doc.text(`Data de Assinatura: ${contract.date}`, 20, 50);
-        doc.text(`Status: ${contract.status}`, 20, 60);
-        
-        doc.setFont("helvetica", "bold");
-        doc.text("CLÁUSULA 1 - DO OBJETO", 20, 80);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        const text = "O presente contrato tem por objeto estabelecer as condições gerais de uso do crediário da Relp Cell, incluindo limites de crédito, vencimentos e taxas de juros aplicáveis.";
-        const splitText = doc.splitTextToSize(text, 170);
-        doc.text(splitText, 20, 90);
+        const margin = 20;
+        let y = 20;
+        const lineHeight = 5;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const maxLineWidth = pageWidth - (margin * 2);
 
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.text("CLÁUSULA 2 - DO PAGAMENTO", 20, 120);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        const text2 = "O cliente compromete-se a efetuar os pagamentos das faturas até a data de vencimento. O não pagamento acarretará em multas e juros conforme legislação vigente.";
-        const splitText2 = doc.splitTextToSize(text2, 170);
-        doc.text(splitText2, 20, 130);
+        // --- Helper Functions ---
+        const addText = (text: string, fontSize: number = 10, fontType: string = "normal", align: "left" | "center" | "right" | "justify" = "left") => {
+            doc.setFont("helvetica", fontType);
+            doc.setFontSize(fontSize);
+            const lines = doc.splitTextToSize(text, maxLineWidth);
+            
+            if (y + (lines.length * lineHeight) > 280) {
+                doc.addPage();
+                y = 20;
+            }
 
+            doc.text(lines, align === "center" ? pageWidth / 2 : margin, y, { align: align === "justify" ? "left" : align, maxWidth: maxLineWidth });
+            y += (lines.length * lineHeight) + 2;
+        };
+
+        // --- Header ---
+        addText("CONTRATO DE CONFISSÃO DE DÍVIDA COM GARANTIA DE RESERVA DE DOMÍNIO", 12, "bold", "center");
+        addText(`Nº DO CONTRATO: ${contract.id}/${new Date().getFullYear()}`, 9, "bold", "center");
+        y += 5;
+
+        // --- 1. Partes ---
+        addText("1. DAS PARTES CONTRATANTES", 10, "bold");
+        const credoraText = `CREDORA: ${COMPANY_DATA.razaoSocial}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº ${COMPANY_DATA.cnpj}, estabelecida no ${COMPANY_DATA.endereco}, WhatsApp/Celular: ${COMPANY_DATA.telefone}.`;
+        addText(credoraText, 9, "normal", "justify");
+        
+        const devedorText = `DEVEDOR(A) / COMPRADOR(A): ${profile.first_name} ${profile.last_name || ''}, inscrito(a) no CPF/MF sob o nº ${profile.identification_number || '__________________'}, residente e domiciliado(a) na ${profile.street_name || 'Endereço não informado'}, nº ${profile.street_number || ''}, ${profile.neighborhood || ''}, ${profile.city || ''} - ${profile.federal_unit || ''}, Telefone: ${profile.phone || ''}.`;
+        addText(devedorText, 9, "normal", "justify");
+        y += 2;
+
+        // --- 2. Objeto ---
+        addText("2. DO OBJETO E DA DÍVIDA", 10, "bold");
+        addText(`O presente contrato tem por objeto o financiamento da compra do produto: ${contract.items}, adquirido na loja da CREDORA.`, 9, "normal", "justify");
+        addText(`O DEVEDOR reconhece e confessa a dívida líquida, certa e exigível no valor total de R$ ${contract.value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.`, 9, "normal", "justify");
+        y += 2;
+
+        // --- 3. Pagamento ---
+        addText("3. DA FORMA DE PAGAMENTO", 10, "bold");
+        addText(`A dívida será paga em ${contract.installments} parcelas mensais e consecutivas.`, 9);
+        addText(`O não recebimento do boleto ou carnê não isenta o DEVEDOR da obrigação de efetuar o pagamento na data de vencimento, devendo contatar a CREDORA via WhatsApp ${COMPANY_DATA.telefone}.`, 9, "normal", "justify");
+        y += 2;
+
+        // --- 4. Reserva de Domínio (Critical for "Crediário") ---
+        addText("4. DA RESERVA DE DOMÍNIO (Art. 521 CC/02)", 10, "bold");
+        const clause4 = "Em garantia do cumprimento das obrigações assumidas neste instrumento, fica instituída a RESERVA DE DOMÍNIO em favor da CREDORA sobre o bem objeto deste contrato. A transferência plena da propriedade ao DEVEDOR somente ocorrerá após a quitação integral de todas as parcelas e encargos.";
+        addText(clause4, 9, "normal", "justify");
+        addText("Parágrafo Único: Em caso de inadimplência, fica a CREDORA expressamente autorizada a pleitear a busca e apreensão do bem, bem como a reintegração de posse liminar, independentemente de prévia notificação judicial, arcando o DEVEDOR com as custas processuais, honorários advocatícios e eventuais depreciações do bem.", 9, "italic", "justify");
+        y += 2;
+
+        // --- 5. Atraso e Multa ---
+        addText("5. DA INADIMPLÊNCIA E ENCARGOS", 10, "bold");
+        addText("O não pagamento de qualquer parcela na data de seu vencimento sujeitará o DEVEDOR, de pleno direito e independentemente de aviso, ao pagamento de:", 9);
+        addText("a) Multa moratória de 2% (dois por cento) sobre o valor do débito;", 9);
+        addText("b) Juros de mora de 1% (um por cento) ao mês, calculados pro rata die;", 9);
+        addText("c) Atualização monetária pelo índice IGP-M/FGV ou outro que o substitua.", 9);
+        y += 2;
+
+        // --- 6. Vencimento Antecipado ---
+        addText("6. DO VENCIMENTO ANTECIPADO", 10, "bold");
+        addText("A falta de pagamento de qualquer parcela por prazo superior a 30 (trinta) dias acarretará o vencimento antecipado de todas as parcelas vincendas, facultando à CREDORA a execução imediata do saldo devedor total, acrescido dos encargos previstos na Cláusula 5.", 9, "normal", "justify");
+        y += 2;
+
+        // --- 7. SPC/Serasa ---
+        addText("7. DA PROTEÇÃO AO CRÉDITO", 10, "bold");
+        addText("O DEVEDOR autoriza expressamente a CREDORA a promover o registro de seu nome e CPF junto aos órgãos de proteção ao crédito (SPC, SERASA, SCPC) em caso de inadimplência de qualquer parcela superior a 10 (dez) dias.", 9, "normal", "justify");
+        y += 2;
+
+        // --- 8. Foro ---
+        addText("8. DO FORO", 10, "bold");
+        addText("As partes elegem o foro da Comarca de Macapá, Estado do Amapá, para dirimir quaisquer dúvidas oriundas deste contrato, renunciando a qualquer outro, por mais privilegiado que seja.", 9, "normal", "justify");
+        
+        y += 10;
+        addText("E, por estarem justos e contratados, firmam o presente documento eletronicamente.", 9, "normal", "center");
+        y += 10;
+        
+        // --- Assinaturas ---
+        const signY = y;
+        
+        // Linha Empresa
+        doc.line(margin, signY, margin + 70, signY);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text(COMPANY_DATA.razaoSocial, margin + 35, signY + 4, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.text(`CNPJ: ${COMPANY_DATA.cnpj}`, margin + 35, signY + 8, { align: "center" });
+
+        // Linha Cliente
+        doc.line(pageWidth - margin - 70, signY, pageWidth - margin, signY);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${profile.first_name} ${profile.last_name || ''}`, pageWidth - margin - 35, signY + 4, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.text(`CPF: ${profile.identification_number || ''}`, pageWidth - margin - 35, signY + 8, { align: "center" });
+
+        // Rodapé
+        doc.setFontSize(7);
         doc.setTextColor(150);
-        doc.text("Assinado Digitalmente via App Relp Cell", 105, 280, { align: "center" });
-        
-        doc.save(`contrato_relp_${contract.id}.pdf`);
+        doc.text(`Contrato gerado digitalmente pelo App Relp Cell em ${new Date().toLocaleString('pt-BR')}. Hash de segurança: ${Math.random().toString(36).substring(7).toUpperCase()}`, margin, 290);
+
+        doc.save(`Contrato_RelpCell_${contract.id}.pdf`);
     };
 
     return (
@@ -97,24 +177,24 @@ const ContractsView: React.FC = () => {
             <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 flex items-start gap-3">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 <div>
-                    <h4 className="font-bold text-indigo-900 dark:text-indigo-100 text-sm">Documentos Digitais</h4>
-                    <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1">Aqui ficam armazenados todos os contratos aceitos digitalmente por você.</p>
+                    <h4 className="font-bold text-indigo-900 dark:text-indigo-100 text-sm">Contratos e Termos</h4>
+                    <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1">Documentos com validade jurídica e reserva de domínio.</p>
                 </div>
             </div>
 
             {contracts.map(contract => (
-                <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center shadow-sm">
                     <div>
                         <p className="font-bold text-slate-800 dark:text-white text-sm">{contract.title}</p>
-                        <p className="text-xs text-slate-500 mt-1">Assinado em {contract.date}</p>
+                        <p className="text-xs text-slate-500 mt-1">Referente: {contract.items}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${contract.status === 'Ativo' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                             {contract.status}
                         </span>
                         <button 
-                            onClick={() => generateContractPDF(contract)}
-                            className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline flex items-center gap-1"
+                            onClick={() => generateDetailedContract(contract)}
+                            className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                             Baixar PDF
@@ -126,80 +206,217 @@ const ContractsView: React.FC = () => {
     );
 };
 
-const FiscalNotesView: React.FC = () => {
+const FiscalNotesView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const notes = [
-        { id: 'NFE-4592', items: 'iPhone 13 Pro 128GB', value: 'R$ 4.500,00', date: '15/05/2024', key: '3524 0512 3456 7890 1234 5500 1000 0045 9210 0000 0000' },
+        { id: '000.004.592', serie: '1', items: 'iPhone 15 Pro 128GB', value: 6800.00, date: '15/05/2024', key: '3524 0512 3456 7890 1234 5500 1000 0045 9210 0000 0000' },
     ];
 
-    const generateFiscalNotePDF = (note: any) => {
+    const generateRealLookingDANFE = (note: any) => {
         const doc = new jsPDF();
+        doc.setLineWidth(0.2);
         
-        // Header DANFE Simulado
-        doc.setLineWidth(0.5);
-        doc.rect(10, 10, 190, 30);
+        // --- HEADER DANFE ---
+        // Left Box (Stub)
+        doc.rect(10, 10, 30, 25);
+        doc.setFontSize(6);
+        doc.text("RECEBEMOS DE", 11, 14);
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.text("DANFE", 20, 20);
-        doc.setFontSize(10);
-        doc.text("Documento Auxiliar da Nota Fiscal Eletrônica", 20, 25);
-        doc.text("0 - Entrada", 150, 20);
-        doc.text("1 - Saída", 150, 25);
-        doc.setFontSize(12);
-        doc.text(`Nº ${note.id}`, 150, 35);
-
-        // Emitente
-        doc.rect(10, 45, 190, 20);
-        doc.setFontSize(10);
-        doc.text("EMITENTE: RELP CELL ELETRONICOS LTDA", 15, 55);
-        doc.text("CNPJ: 00.000.000/0001-91", 15, 60);
-
-        // Destinatário
-        doc.rect(10, 70, 190, 20);
-        doc.text("DESTINATÁRIO: CLIENTE CONSUMIDOR", 15, 80);
-        doc.text(`DATA EMISSÃO: ${note.date}`, 150, 80);
-
-        // Produtos
-        doc.rect(10, 95, 190, 50);
-        doc.setFont("helvetica", "bold");
-        doc.text("DADOS DO PRODUTO/SERVIÇO", 15, 105);
+        doc.text(COMPANY_DATA.razaoSocial, 11, 18);
         doc.setFont("helvetica", "normal");
-        doc.text(`DESCRIÇÃO: ${note.items}`, 15, 115);
-        doc.text("QTD: 1", 130, 115);
-        doc.text(`VALOR TOTAL: ${note.value}`, 160, 115);
-
-        // Chave de Acesso
-        doc.rect(10, 150, 190, 15);
-        doc.setFontSize(8);
-        doc.text("CHAVE DE ACESSO", 15, 155);
-        doc.setFont("courier", "bold");
+        doc.text("OS PRODUTOS CONSTANTES", 11, 22);
+        doc.text("DA NOTA FISCAL INDICADA", 11, 26);
+        
+        // NF-e Info Box Center
+        doc.rect(40, 10, 160, 25);
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("NF-e", 120, 18, {align: 'center'});
         doc.setFontSize(10);
-        doc.text(note.key, 15, 162);
+        doc.text(`Nº ${note.id}`, 120, 24, {align: 'center'});
+        doc.text(`SÉRIE ${note.serie}`, 120, 29, {align: 'center'});
+        
+        // Emitente Box
+        doc.rect(10, 35, 80, 35);
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text(COMPANY_DATA.razaoSocial, 12, 42);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.text(COMPANY_DATA.endereco, 12, 47);
+        doc.text(COMPANY_DATA.cidadeUF, 12, 51);
+        doc.text(`Fone/WhatsApp: ${COMPANY_DATA.telefone}`, 12, 55);
+        doc.setFont("helvetica", "bold");
+        doc.text(`CNPJ: ${COMPANY_DATA.cnpj}`, 12, 63);
+        doc.text("IE: ISENTO", 50, 63);
 
-        doc.save(`nfe_${note.id}.pdf`);
+        // DANFE Label Box
+        doc.rect(90, 35, 30, 35);
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("DANFE", 105, 45, {align: 'center'});
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.text("Documento Auxiliar", 105, 50, {align: 'center'});
+        doc.text("da Nota Fiscal", 105, 54, {align: 'center'});
+        doc.text("Eletrônica", 105, 58, {align: 'center'});
+        doc.text("0 - Entrada", 93, 64);
+        doc.text("1 - Saída", 93, 68);
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("1", 115, 66); // Indica Saída
+        doc.rect(112, 62, 6, 6); // Box do tipo
+
+        // Barcode and Key Box
+        doc.rect(120, 35, 80, 35);
+        // Fake Barcode (Lines)
+        doc.setFillColor(0, 0, 0);
+        doc.rect(125, 38, 70, 10, 'F'); 
+        doc.setFontSize(7);
+        doc.text("CHAVE DE ACESSO", 122, 53);
+        doc.setFont("courier", "bold");
+        doc.setFontSize(8);
+        doc.text(note.key, 122, 58);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.text("Consulta de autenticidade no portal nacional da NF-e", 122, 65);
+        doc.text("www.nfe.fazenda.gov.br/portal ou no site da Sefaz Autorizadora", 122, 69);
+
+        // Natureza Operação
+        doc.rect(10, 70, 190, 7);
+        doc.setFontSize(6);
+        doc.text("NATUREZA DA OPERAÇÃO", 11, 72);
+        doc.setFontSize(8);
+        doc.text("VENDA DE MERCADORIA ADQUIRIDA DE TERCEIROS", 11, 76);
+        doc.text("PROTOCOLO DE AUTORIZAÇÃO DE USO", 120, 72);
+        doc.text("135230000000000 - " + note.date, 120, 76);
+
+        // --- DESTINATÁRIO ---
+        doc.rect(10, 79, 190, 22);
+        doc.setFillColor(230, 230, 230);
+        doc.rect(10, 79, 190, 4, 'F'); // Header bg
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.text("DESTINATÁRIO / REMETENTE", 95, 82, { align: "center" });
+        
+        doc.setFont("helvetica", "normal");
+        doc.text("NOME / RAZÃO SOCIAL", 11, 86);
+        doc.text("CPF / CNPJ", 130, 86);
+        doc.text("DATA DA EMISSÃO", 175, 86);
+        
+        doc.setFontSize(9);
+        doc.text(`${profile.first_name} ${profile.last_name || ''}`.toUpperCase(), 11, 90);
+        doc.text(profile.identification_number || '', 130, 90);
+        doc.text(note.date, 175, 90);
+
+        doc.setFontSize(7);
+        doc.text("ENDEREÇO", 11, 94);
+        doc.text("BAIRRO / DISTRITO", 100, 94);
+        doc.text("CEP", 145, 94);
+        
+        doc.setFontSize(9);
+        doc.text(`${profile.street_name || ''}, ${profile.street_number || ''}`.toUpperCase(), 11, 98);
+        doc.text((profile.neighborhood || '').toUpperCase(), 100, 98);
+        doc.text(profile.zip_code || '', 145, 98);
+
+        // --- CÁLCULO DO IMPOSTO ---
+        doc.rect(10, 103, 190, 12);
+        doc.setFontSize(7);
+        doc.text("CÁLCULO DO IMPOSTO", 12, 106);
+        
+        const taxBoxW = 190 / 5;
+        const labels = ["BASE CÁLC. ICMS", "VALOR DO ICMS", "BASE CÁLC. ICMS ST", "VALOR DO ICMS ST", "VALOR TOTAL PRODUTOS"];
+        const values = ["0,00", "0,00", "0,00", "0,00", note.value.toFixed(2).replace('.', ',')];
+        
+        labels.forEach((label, i) => {
+            doc.text(label, 12 + (i * taxBoxW), 109);
+            doc.setFont("helvetica", "bold");
+            doc.text(values[i], 12 + (i * taxBoxW), 113);
+            doc.setFont("helvetica", "normal");
+        });
+
+        doc.rect(10, 115, 190, 12);
+        const labels2 = ["VALOR DO FRETE", "VALOR DO SEGURO", "DESCONTO", "OUTRAS DESP.", "VALOR TOTAL DA NOTA"];
+        const values2 = ["0,00", "0,00", "0,00", "0,00", note.value.toFixed(2).replace('.', ',')];
+        
+        labels2.forEach((label, i) => {
+            doc.text(label, 12 + (i * taxBoxW), 121);
+            doc.setFont("helvetica", "bold");
+            doc.text(values2[i], 12 + (i * taxBoxW), 125);
+            doc.setFont("helvetica", "normal");
+        });
+
+        // --- DADOS DO PRODUTO ---
+        doc.rect(10, 129, 190, 80);
+        doc.setFillColor(230, 230, 230);
+        doc.rect(10, 129, 190, 5, 'F');
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS DO PRODUTO / SERVIÇO", 95, 132, { align: "center" });
+        
+        // Headers da Tabela
+        const colX = [12, 30, 90, 100, 110, 120, 140, 160];
+        const headers = ["CÓDIGO", "DESCRIÇÃO", "NCM", "CST", "CFOP", "UNID", "QTD", "V. UNIT", "V. TOTAL"];
+        
+        headers.forEach((h, i) => doc.text(h, colX[i] || (12 + i*20), 137));
+        doc.line(10, 138, 200, 138);
+
+        // Item Row
+        doc.setFont("helvetica", "normal");
+        doc.text("001", 12, 143);
+        doc.text(note.items.toUpperCase(), 30, 143);
+        doc.text("85171231", 90, 143);
+        doc.text("000", 100, 143);
+        doc.text("5102", 110, 143);
+        doc.text("UN", 120, 143);
+        doc.text("1", 140, 143);
+        doc.text(note.value.toFixed(2).replace('.', ','), 160, 143);
+        doc.text(note.value.toFixed(2).replace('.', ','), 180, 143);
+
+        // --- DADOS ADICIONAIS ---
+        doc.rect(10, 212, 190, 40);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS ADICIONAIS", 12, 216);
+        doc.setFont("helvetica", "normal");
+        doc.text("INFORMAÇÕES COMPLEMENTARES", 12, 220);
+        doc.text("Documento emitido por ME ou EPP optante pelo Simples Nacional.", 12, 225);
+        doc.text(`Pedido: ${note.id}`, 12, 229);
+        doc.text("Não gera direito a crédito fiscal de IPI.", 12, 233);
+        doc.text(`Local de Entrega: ${profile.city} - ${profile.federal_unit}`, 12, 237);
+
+        doc.save(`NF_${note.id}.pdf`);
     };
 
     return (
         <div className="space-y-4 animate-fade-in">
+             <div className="bg-teal-50 dark:bg-teal-900/20 p-4 rounded-xl border border-teal-100 dark:border-teal-800 flex items-start gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-teal-600 dark:text-teal-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <div>
+                    <h4 className="font-bold text-teal-900 dark:text-teal-100 text-sm">Notas Fiscais (DANFE)</h4>
+                    <p className="text-xs text-teal-700 dark:text-teal-300 mt-1">Documentos oficiais emitidos por {COMPANY_DATA.razaoSocial}.</p>
+                </div>
+            </div>
+
              {notes.length > 0 ? (
                 notes.map((note, idx) => (
-                    <div key={idx} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 dark:bg-orange-900/10 rounded-bl-full -mr-4 -mt-4"></div>
-                        <div className="relative z-10">
-                            <div className="flex justify-between items-start mb-2">
-                                <h4 className="font-bold text-slate-800 dark:text-white">{note.id}</h4>
-                                <span className="text-xs text-slate-500">{note.date}</span>
+                    <div key={idx} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden shadow-sm hover:border-teal-200 transition-colors">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h4 className="font-bold text-slate-800 dark:text-white text-sm">Nota Nº {note.id}</h4>
+                                <span className="text-xs text-slate-500">Emitida em {note.date}</span>
                             </div>
-                            <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">{note.items}</p>
-                            <div className="flex justify-between items-center pt-3 border-t border-slate-50 dark:border-slate-700">
-                                <span className="font-bold text-slate-900 dark:text-white">{note.value}</span>
-                                <button 
-                                    onClick={() => generateFiscalNotePDF(note)}
-                                    className="flex items-center gap-1 text-orange-600 dark:text-orange-400 text-xs font-bold hover:bg-orange-50 dark:hover:bg-orange-900/20 px-2 py-1 rounded transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                    Baixar DANFE
-                                </button>
-                            </div>
+                            <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                R$ {note.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 mb-3 bg-slate-50 dark:bg-slate-900/50 p-2 rounded">{note.items}</p>
+                        <div className="flex justify-end">
+                            <button 
+                                onClick={() => generateRealLookingDANFE(note)}
+                                className="flex items-center gap-1 text-teal-600 dark:text-teal-400 text-xs font-bold hover:bg-teal-50 dark:hover:bg-teal-900/20 px-3 py-1.5 rounded-lg transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Baixar DANFE
+                            </button>
                         </div>
                     </div>
                 ))
@@ -208,6 +425,144 @@ const FiscalNotesView: React.FC = () => {
                     <p className="text-slate-500 dark:text-slate-400">Nenhuma nota fiscal encontrada.</p>
                 </div>
              )}
+        </div>
+    );
+};
+
+// --- Nova View de Comprovantes ---
+const PaymentReceiptsView: React.FC<{ userId: string; profile: Profile }> = ({ userId, profile }) => {
+    const [payments, setPayments] = useState<Invoice[]>([]);
+    const [loading, setLoading] = useState(true);
+    const { addToast } = useToast();
+
+    useEffect(() => {
+        const fetchPaidInvoices = async () => {
+            const { data, error } = await supabase
+                .from('invoices')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('status', 'Paga')
+                .order('payment_date', { ascending: false });
+            
+            if (data) setPayments(data);
+            setLoading(false);
+        };
+        fetchPaidInvoices();
+    }, [userId]);
+
+    const generateReceipt = (invoice: Invoice) => {
+        const doc = new jsPDF();
+        
+        // Cabeçalho da Empresa
+        doc.setFillColor(79, 70, 229); // Indigo
+        doc.rect(0, 0, 210, 30, 'F');
+        doc.setFontSize(18);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.text(COMPANY_DATA.razaoSocial, 105, 15, { align: 'center' });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Comprovante de Pagamento`, 105, 23, { align: 'center' });
+
+        doc.setTextColor(0, 0, 0);
+        
+        let y = 40;
+        
+        // Detalhes do Pagamento
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS DO PAGAMENTO", 20, y);
+        doc.line(20, y+2, 190, y+2);
+        y += 10;
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`ID da Transação: ${invoice.payment_id || invoice.id.substring(0, 8)}`, 20, y);
+        y += 6;
+        doc.text(`Data do Pagamento: ${new Date(invoice.payment_date!).toLocaleDateString('pt-BR')} às ${new Date(invoice.payment_date!).toLocaleTimeString('pt-BR')}`, 20, y);
+        y += 6;
+        doc.text(`Valor Pago: R$ ${invoice.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y);
+        y += 6;
+        doc.text(`Referente a: ${invoice.month}`, 20, y);
+        y += 10;
+
+        // Dados do Pagador
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS DO PAGADOR", 20, y);
+        doc.line(20, y+2, 190, y+2);
+        y += 10;
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Nome: ${profile.first_name} ${profile.last_name}`, 20, y);
+        y += 6;
+        doc.text(`CPF: ${profile.identification_number || 'Não informado'}`, 20, y);
+        y += 10;
+
+        // Dados do Recebedor
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text("DADOS DO RECEBEDOR", 20, y);
+        doc.line(20, y+2, 190, y+2);
+        y += 10;
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Razão Social: ${COMPANY_DATA.razaoSocial}`, 20, y);
+        y += 6;
+        doc.text(`CNPJ: ${COMPANY_DATA.cnpj}`, 20, y);
+        y += 20;
+
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text("Este documento é um comprovante válido de quitação do débito acima descrito.", 105, y, { align: 'center' });
+        doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 105, y+5, { align: 'center' });
+
+        doc.save(`comprovante_${invoice.id}.pdf`);
+        addToast('Comprovante baixado!', 'success');
+    };
+
+    if (loading) return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
+
+    return (
+        <div className="space-y-4 animate-fade-in">
+            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border border-green-100 dark:border-green-800 flex items-start gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600 dark:text-green-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    <h4 className="font-bold text-green-900 dark:text-green-100 text-sm">Comprovantes de Pagamento</h4>
+                    <p className="text-xs text-green-700 dark:text-green-300 mt-1">Histórico de todos os seus pagamentos confirmados.</p>
+                </div>
+            </div>
+
+            {payments.length > 0 ? (
+                <div className="space-y-3">
+                    {payments.map(payment => (
+                        <div key={payment.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center shadow-sm">
+                            <div>
+                                <p className="font-bold text-slate-800 dark:text-white text-sm">{payment.month}</p>
+                                <p className="text-xs text-slate-500 mt-1">Pago em: {new Date(payment.payment_date!).toLocaleDateString('pt-BR')}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                                <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                    {payment.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                                <button 
+                                    onClick={() => generateReceipt(payment)}
+                                    className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline flex items-center gap-1 mt-1"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    Recibo
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-10 text-slate-500 dark:text-slate-400">
+                    Nenhum pagamento realizado ainda.
+                </div>
+            )}
         </div>
     );
 };
@@ -406,7 +761,7 @@ const AddressView = ({ userId }: { userId: string }) => (
 
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -522,6 +877,13 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                         <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Meus Documentos</h3>
 
                         <MenuItem 
+                            label="Comprovantes" 
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                            onClick={() => setActiveView('receipts')}
+                            colorClass="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                        />
+
+                        <MenuItem 
                             label="Contratos" 
                             icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
                             onClick={() => setActiveView('contracts')}
@@ -546,7 +908,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                         
                         <MenuItem 
                             label="Configurações" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
                             onClick={() => setActiveView('settings')}
                             colorClass="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
                         />
@@ -587,6 +949,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                             {activeView === 'addresses' && 'Endereços'}
                             {activeView === 'contracts' && 'Contratos'}
                             {activeView === 'fiscal_notes' && 'Notas Fiscais'}
+                            {activeView === 'receipts' && 'Comprovantes'}
                             {activeView === 'settings' && 'Configurações'}
                             {activeView === 'referral' && 'Indique e Ganhe'}
                             {activeView === 'help' && 'Central de Ajuda'}
@@ -596,8 +959,9 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
                     {activeView === 'addresses' && <AddressView userId={session.user.id} />}
-                    {activeView === 'contracts' && <ContractsView />}
-                    {activeView === 'fiscal_notes' && <FiscalNotesView />}
+                    {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
+                    {activeView === 'fiscal_notes' && profile && <FiscalNotesView profile={profile} />}
+                    {activeView === 'receipts' && profile && <PaymentReceiptsView userId={session.user.id} profile={profile} />}
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(updated) => setProfile(updated)} />}
                     {activeView === 'settings' && <SettingsView />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
