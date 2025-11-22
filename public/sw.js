@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'relp-cell-v15'; // Versão incrementada para forçar atualização
+const CACHE_NAME = 'relp-cell-v16'; // Versão incrementada
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -10,17 +10,16 @@ const STATIC_ASSETS = [
 
 // Instalação: Cacheia o Shell do App
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // Força ativação imediata
+  self.skipWaiting(); // Força ativação imediata do SW
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Caching static assets');
-      // Importante: Cacheia explicitamente o index.html
       return cache.addAll(STATIC_ASSETS);
     })
   );
 });
 
-// Ativação: Limpa caches antigos
+// Ativação: Limpa caches antigos e assume controle
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -31,11 +30,11 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim())
+    }).then(() => self.clients.claim()) // Assume controle imediatamente
   );
 });
 
-// Listener para mensagem de skipWaiting
+// Listener para mensagem de skipWaiting (redundância)
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
@@ -52,7 +51,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 2. Tratamento de Navegação (HTML)
-  // Isso é CRÍTICO para a instalação funcionar. Se a rede falhar, DEVE retornar o index.html
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -62,7 +60,6 @@ self.addEventListener('fetch', (event) => {
                 if (response) {
                     return response;
                 }
-                // Se não achar /index.html, tenta a raiz '/'
                 return caches.match('/');
             });
         })
@@ -74,7 +71,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       return cachedResponse || fetch(event.request).catch(() => {
-          // Retorna null se falhar, para não quebrar a página inteira
           return null;
       });
     })

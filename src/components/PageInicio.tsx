@@ -49,7 +49,7 @@ const ActivityItem: React.FC<{ title: string; date: string; amount?: string; typ
     return (
         <div 
             onClick={onClick}
-            className={`flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-50 dark:border-slate-700/50 ${onClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors' : ''}`}
+            className={`flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-50 dark:border-slate-700/50 ${onClick ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors active:scale-95' : ''}`}
         >
             <div className="flex items-center gap-3">
                 {getIcon()}
@@ -321,11 +321,16 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                         onClick={() => setActiveTab(Tab.FATURAS)}
                     />
                 ) : (
-                    <ActivityItem title="Tudo em dia!" date="Nenhuma fatura pendente" type="info" onClick={() => setActiveTab(Tab.FATURAS)} />
+                    <ActivityItem 
+                        title="Tudo em dia!" 
+                        date="Nenhuma fatura pendente" 
+                        type="info" 
+                        onClick={() => setActiveTab(Tab.FATURAS)} 
+                    />
                 )}
                 <ActivityItem 
                     title="Análise de Crédito" 
-                    date="Realizada em 10 Out" 
+                    date="Realizada recentemente" 
                     type="info" 
                     onClick={() => { setModalView('score'); setIsModalOpen(true); }}
                 />

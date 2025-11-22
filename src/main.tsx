@@ -15,9 +15,25 @@ root.render(
   </React.StrictMode>
 );
 
+// Função para notificar o usuário sobre a atualização
+function notifyUpdate() {
+    if (Notification.permission === 'granted') {
+        new Notification('Nova Atualização Disponível!', {
+            body: 'O Relp Cell foi atualizado com novas funções. Toque para recarregar.',
+            icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+            tag: 'app-update'
+        });
+    }
+}
+
 // Service Worker Registration for PWA & Updates
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    // Solicita permissão de notificação logo no início para garantir
+    if (Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+
     navigator.serviceWorker
       .register('/sw.js')
       .then((registration) => {
@@ -28,16 +44,24 @@ if ('serviceWorker' in navigator) {
            notifyUpdate();
         }
 
+        // Ouve mudanças no controlador (SW ativado)
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+        });
+
         registration.onupdatefound = () => {
           const installingWorker = registration.installing;
           if (installingWorker) {
             installingWorker.onstatechange = () => {
               if (installingWorker.state === 'installed') {
                 if (navigator.serviceWorker.controller) {
-                  // Novo conteúdo disponível; por favor, atualize.
+                  // Nova atualização disponível
+                  console.log('Nova versão disponível.');
                   notifyUpdate();
                 } else {
-                  // Conteúdo em cache para uso offline.
                   console.log('Conteúdo em cache para uso offline.');
                 }
               }
@@ -47,18 +71,4 @@ if ('serviceWorker' in navigator) {
       })
       .catch((err) => console.log('Erro ao registrar SW:', err));
   });
-}
-
-// Função para notificar o usuário sobre a atualização
-function notifyUpdate() {
-    // Verifica permissão para notificação nativa
-    if (Notification.permission === 'granted') {
-        new Notification('Nova Atualização Disponível!', {
-            body: 'Uma nova versão do Relp Cell foi instalada. Toque para atualizar.',
-            icon: '/icon-192.png' // Ajuste conforme necessário
-        });
-    }
-    
-    // Também pode exibir um toast ou recarregar a página automaticamente se preferir
-    // window.location.reload();
 }
