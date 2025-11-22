@@ -273,6 +273,10 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "profiles_email_key" UNIQUE ("email") 
 );
 
+-- GARANTIR COLUNAS (Correção para erro 42703 se a tabela já existir sem a coluna)
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "phone" "text";
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_number" "text";
+
 -- Constraints para garantir unicidade de CPF e Telefone (importante para login)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
