@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
-import { Profile, Contract } from '../types';
+import { Profile, Contract, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
@@ -217,6 +217,89 @@ const ServiceStatus: React.FC = () => {
 
 // --- Views Implementadas ---
 
+const DateChangeRequestView: React.FC<{ profile: Profile; onClose: () => void }> = ({ profile, onClose }) => {
+    const [selectedDay, setSelectedDay] = useState<number>(10);
+    const [reason, setReason] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const { addToast } = useToast();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsLoading(true);
+        try {
+            const { error } = await supabase.from('due_date_requests').insert({
+                user_id: profile.id,
+                requested_day: selectedDay,
+                reason: reason,
+                status: 'pending'
+            });
+
+            if (error) throw error;
+
+            addToast('Solicitação enviada! Aguarde análise.', 'success');
+            onClose();
+        } catch (err: any) {
+            addToast('Erro ao enviar solicitação.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6 animate-fade-in">
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                <h4 className="font-bold text-blue-800 dark:text-blue-200 mb-2 text-sm">Alteração de Vencimento</h4>
+                <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+                    Ao alterar a data, suas <strong>faturas futuras</strong> serão recalculadas. Faturas já fechadas não sofrem alteração. 
+                    Esta ação pode envolver recálculo de juros proporcionais aos dias adicionais.
+                </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Novo Dia de Vencimento</label>
+                    <div className="grid grid-cols-3 gap-3">
+                        {[5, 15, 25].map(day => (
+                            <button
+                                key={day}
+                                type="button"
+                                onClick={() => setSelectedDay(day)}
+                                className={`py-3 rounded-xl font-bold border transition-all ${
+                                    selectedDay === day 
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md transform scale-105' 
+                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50'
+                                }`}
+                            >
+                                Dia {day.toString().padStart(2, '0')}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Motivo da Troca</label>
+                    <textarea 
+                        value={reason}
+                        onChange={e => setReason(e.target.value)}
+                        required
+                        placeholder="Ex: Recebo meu salário dia 20..."
+                        className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        rows={3}
+                    />
+                </div>
+
+                <button 
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2"
+                >
+                    {isLoading ? <LoadingSpinner /> : 'Solicitar Alteração'}
+                </button>
+            </form>
+        </div>
+    );
+};
+
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -257,7 +340,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         doc.text(`Contrato Nº: ${contract.id.slice(0, 8).toUpperCase()}`, 20, 40);
         doc.text(`Data: ${new Date(contract.created_at).toLocaleDateString()}`, 20, 48);
         
-        doc.text('CREDOR: RELP CELL ELETRONICOS - CNPJ: 43.735.304/0001-00', 20, 60);
+        doc.text('CREDOR: RELP CELL ELETRONICOS LTDA - CNPJ: 43.735.304/0001-00', 20, 60);
         doc.text(`DEVEDOR: ${profile.first_name} ${profile.last_name} - CPF: ${profile.identification_number}`, 20, 68);
         
         doc.text('OBJETO:', 20, 85);
@@ -843,11 +926,191 @@ const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
     );
 };
 
-const FiscalNotesView: React.FC<{ profile: Profile }> = ({ profile }) => (
-    <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <p>Nenhuma nota fiscal encontrada.</p>
-    </div>
-);
+// --- NOVO COMPONENTE DE NOTAS FISCAIS ---
+const FiscalNotesView: React.FC<{ profile: Profile }> = ({ profile }) => {
+    const [notes, setNotes] = useState<Invoice[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const { addToast } = useToast();
+
+    useEffect(() => {
+        const fetchPaidInvoices = async () => {
+            setIsLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from('invoices')
+                    .select('*')
+                    .eq('user_id', profile.id)
+                    .eq('status', 'Paga') // Busca apenas faturas pagas
+                    .order('payment_date', { ascending: false });
+                
+                if (!error && data) setNotes(data);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchPaidInvoices();
+    }, [profile.id]);
+
+    const generateDanfe = async (invoice: Invoice) => {
+        addToast('Gerando NFe...', 'info');
+        // Simula um pequeno delay para feedback
+        await new Promise(r => setTimeout(r, 800));
+
+        const doc = new jsPDF();
+        
+        // Configurações de fonte
+        doc.setFont('courier', 'bold');
+        doc.setFontSize(14);
+        doc.text('DANFE - Documento Auxiliar da Nota Fiscal Eletrônica', 105, 15, { align: 'center' });
+        
+        doc.setFontSize(10);
+        doc.setFont('courier', 'normal');
+        doc.text('SAÍDA', 180, 15);
+        
+        // Dados da Empresa
+        doc.rect(10, 20, 190, 30); // Box Empresa
+        doc.setFontSize(12);
+        doc.setFont('courier', 'bold');
+        doc.text('RELP CELL ELETRONICOS LTDA', 15, 30);
+        doc.setFontSize(9);
+        doc.setFont('courier', 'normal');
+        doc.text('Rua Claudomiro de Moraes, 256 - Congós', 15, 35);
+        doc.text('Macapá - AP | CEP: 68900-000', 15, 40);
+        doc.text('CNPJ: 43.735.304/0001-00 | IE: Isento', 15, 45);
+
+        // Chave de Acesso
+        const accessKey = `162405${invoice.id.replace(/-/g, '').substring(0, 34)}55001000000001`;
+        doc.rect(120, 20, 80, 30); // Box Chave
+        doc.setFontSize(8);
+        doc.text('CHAVE DE ACESSO', 125, 25);
+        doc.setFontSize(9);
+        doc.text(accessKey.match(/.{1,4}/g)?.join(' ') || accessKey, 125, 35);
+        
+        // Dados do Destinatário
+        doc.rect(10, 55, 190, 30);
+        doc.setFontSize(8);
+        doc.text('DESTINATÁRIO / REMETENTE', 12, 60);
+        doc.setFontSize(10);
+        doc.text(`NOME/RAZÃO SOCIAL: ${profile.first_name?.toUpperCase()} ${profile.last_name?.toUpperCase()}`, 15, 68);
+        doc.text(`CPF/CNPJ: ${profile.identification_number || '000.000.000-00'}`, 140, 68);
+        doc.text(`ENDEREÇO: ${profile.street_name}, ${profile.street_number} - ${profile.neighborhood}`, 15, 75);
+        doc.text(`MUNICÍPIO: ${profile.city || 'Macapá'}`, 15, 82);
+        doc.text(`UF: ${profile.federal_unit || 'AP'}`, 140, 82);
+
+        // Dados da Fatura
+        doc.rect(10, 90, 190, 15);
+        doc.setFontSize(8);
+        doc.text('DADOS DA FATURA', 12, 95);
+        doc.setFontSize(10);
+        doc.text(`Número: ${invoice.id.slice(0,8)}`, 15, 102);
+        doc.text(`Vencimento: ${new Date(invoice.due_date).toLocaleDateString()}`, 80, 102);
+        doc.text(`Valor: R$ ${invoice.amount.toFixed(2)}`, 150, 102);
+
+        // Itens
+        doc.rect(10, 110, 190, 100);
+        doc.setFontSize(8);
+        doc.text('DADOS DO PRODUTO/SERVIÇO', 12, 115);
+        
+        // Tabela Header
+        doc.line(10, 120, 200, 120);
+        doc.text('CÓDIGO', 15, 125);
+        doc.text('DESCRIÇÃO', 40, 125);
+        doc.text('QTD', 130, 125);
+        doc.text('UNIT', 150, 125);
+        doc.text('TOTAL', 180, 125);
+        doc.line(10, 128, 200, 128);
+
+        // Item Row
+        doc.setFont('courier', 'normal');
+        doc.text('001', 15, 135);
+        const desc = invoice.month.length > 35 ? invoice.month.substring(0, 35) + '...' : invoice.month;
+        doc.text(desc.toUpperCase(), 40, 135);
+        doc.text('1', 132, 135);
+        doc.text(invoice.amount.toFixed(2), 150, 135);
+        doc.text(invoice.amount.toFixed(2), 180, 135);
+
+        // Totais
+        doc.rect(10, 215, 190, 20);
+        doc.setFontSize(9);
+        doc.text('CÁLCULO DO IMPOSTO', 12, 220);
+        doc.text(`BASE DE CÁLCULO DO ICMS: 0,00`, 15, 228);
+        doc.text(`VALOR DO ICMS: 0,00`, 80, 228);
+        doc.text(`VALOR TOTAL DOS PRODUTOS: R$ ${invoice.amount.toFixed(2)}`, 15, 233);
+        doc.text(`VALOR TOTAL DA NOTA: R$ ${invoice.amount.toFixed(2)}`, 140, 233);
+
+        // Footer
+        doc.setFontSize(7);
+        doc.text('Documento emitido por ME ou EPP optante pelo Simples Nacional.', 10, 250);
+        doc.text('Não gera direito a crédito fiscal de IPI.', 10, 254);
+        
+        // Código de Barras Simulado
+        doc.setLineWidth(0.5);
+        let x = 10;
+        for (let i = 0; i < 50; i++) {
+            const w = Math.random() > 0.5 ? 1 : 2;
+            doc.line(x, 260, x, 280);
+            x += w + 1;
+        }
+
+        doc.save(`NFe_${invoice.id.slice(0, 8)}.pdf`);
+        addToast('Nota Fiscal baixada!', 'success');
+    };
+
+    if (isLoading) return <div className="flex justify-center p-10"><LoadingSpinner /></div>;
+
+    if (notes.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Nenhuma Nota Fiscal</h3>
+                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Suas notas fiscais aparecerão aqui após a confirmação do pagamento.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4 animate-fade-in">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800 mb-4">
+                <p className="text-xs text-yellow-800 dark:text-yellow-200 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                    As notas fiscais são geradas automaticamente após a compensação bancária.
+                </p>
+            </div>
+
+            {notes.map(note => (
+                <div key={note.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start mb-2">
+                        <div>
+                            <p className="text-xs text-slate-500 uppercase font-bold">Emissão: {new Date(note.payment_date || note.created_at).toLocaleDateString()}</p>
+                            <p className="text-sm font-bold text-slate-900 dark:text-white truncate max-w-[200px]">{note.month}</p>
+                        </div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-sm font-bold text-green-600 dark:text-green-400">R$ {note.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                            <span className="text-[10px] text-slate-400">NFe #{note.id.slice(0,6).toUpperCase()}</span>
+                        </div>
+                    </div>
+                    
+                    <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-2 flex gap-2">
+                        <button 
+                            onClick={() => generateDanfe(note)}
+                            className="flex-1 py-2 flex justify-center items-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                            Baixar DANFE (PDF)
+                        </button>
+                        <button className="px-3 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
 
 const PaymentReceiptsView: React.FC<{ userId: string; profile: Profile }> = ({ userId, profile }) => (
     <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -1404,7 +1667,7 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
 };
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts' | 'date_change'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1421,11 +1684,9 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
         load();
     }, [session]);
 
-    // Verifica se deve abrir uma seção específica (vinda das missões)
     useEffect(() => {
         const section = sessionStorage.getItem('relp_profile_section');
         if (section) {
-            // Pequeno delay para garantir que o componente montou
             setTimeout(() => {
                 setActiveView(section as any);
                 sessionStorage.removeItem('relp_profile_section');
@@ -1545,9 +1806,17 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
 
                         <MenuItem 
                             label="Notas Fiscais" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
                             onClick={() => setActiveView('fiscal_notes')}
-                            colorClass="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
+                            colorClass="bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        />
+
+                        <MenuItem 
+                            label="Alterar Vencimento" 
+                            description="Mude a data de pagamento"
+                            icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+                            onClick={() => setActiveView('date_change')}
+                            colorClass="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
                         />
 
                         <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Preferências & Suporte</h3>
@@ -1607,6 +1876,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                             {activeView === 'settings' && 'Configurações'}
                             {activeView === 'referral' && 'Indique e Ganhe'}
                             {activeView === 'help' && 'Central de Atendimento'}
+                            {activeView === 'date_change' && 'Alterar Vencimento'}
                         </h2>
                     </div>
 
@@ -1620,6 +1890,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
                     {activeView === 'help' && <HelpView userId={session.user.id} />}
+                    {activeView === 'date_change' && profile && <DateChangeRequestView profile={profile} onClose={() => setActiveView('main')} />}
                 </div>
             )}
         </div>
