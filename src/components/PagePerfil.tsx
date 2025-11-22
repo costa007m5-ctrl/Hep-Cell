@@ -49,6 +49,78 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
 
 // --- Sub-Views ---
 
+const ContractsView: React.FC = () => {
+    const contracts = [
+        { id: 1, title: 'Termo de Adesão - Crediário', date: '10/01/2024', status: 'Ativo' },
+        { id: 2, title: 'Contrato de Compra e Venda', date: '15/05/2024', status: 'Finalizado' },
+    ];
+
+    return (
+        <div className="space-y-4 animate-fade-in">
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 flex items-start gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <div>
+                    <h4 className="font-bold text-indigo-900 dark:text-indigo-100 text-sm">Documentos Digitais</h4>
+                    <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-1">Aqui ficam armazenados todos os contratos aceitos digitalmente por você.</p>
+                </div>
+            </div>
+
+            {contracts.map(contract => (
+                <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <div>
+                        <p className="font-bold text-slate-800 dark:text-white text-sm">{contract.title}</p>
+                        <p className="text-xs text-slate-500 mt-1">Assinado em {contract.date}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${contract.status === 'Ativo' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
+                            {contract.status}
+                        </span>
+                        <button className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline">
+                            Visualizar PDF
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const FiscalNotesView: React.FC = () => {
+    const notes = [
+        { id: 'NFE-4592', items: 'iPhone 13 Pro', value: 'R$ 4.500,00', date: '15/05/2024' },
+    ];
+
+    return (
+        <div className="space-y-4 animate-fade-in">
+             {notes.length > 0 ? (
+                notes.map((note, idx) => (
+                    <div key={idx} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 dark:bg-orange-900/10 rounded-bl-full -mr-4 -mt-4"></div>
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-start mb-2">
+                                <h4 className="font-bold text-slate-800 dark:text-white">{note.id}</h4>
+                                <span className="text-xs text-slate-500">{note.date}</span>
+                            </div>
+                            <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">{note.items}</p>
+                            <div className="flex justify-between items-center pt-3 border-t border-slate-50 dark:border-slate-700">
+                                <span className="font-bold text-slate-900 dark:text-white">{note.value}</span>
+                                <button className="flex items-center gap-1 text-orange-600 dark:text-orange-400 text-xs font-bold hover:bg-orange-50 dark:hover:bg-orange-900/20 px-2 py-1 rounded transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    Baixar XML/PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ))
+             ) : (
+                <div className="text-center py-10">
+                    <p className="text-slate-500 dark:text-slate-400">Nenhuma nota fiscal encontrada.</p>
+                </div>
+             )}
+        </div>
+    );
+};
+
 const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
     const [formData, setFormData] = useState({
         first_name: profile.first_name || '',
@@ -218,9 +290,6 @@ const HelpView: React.FC = () => {
 };
 
 // --- Views existentes (Reutilizadas com pequenos ajustes de estilo) ---
-// Omitindo implementação detalhada de OrdersView, WalletView, AddressView para focar na integração principal.
-// Assumindo que elas existem ou podem ser importadas. Para simplicidade, vou incluir versões minimizadas aqui.
-
 const OrdersView = ({ userId }: { userId: string }) => (
     <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
         <p>Histórico de pedidos será carregado aqui.</p>
@@ -246,7 +315,7 @@ const AddressView = ({ userId }: { userId: string }) => (
 
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -359,6 +428,22 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                             colorClass="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
                         />
 
+                        <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Meus Documentos</h3>
+
+                        <MenuItem 
+                            label="Contratos" 
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+                            onClick={() => setActiveView('contracts')}
+                            colorClass="bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400"
+                        />
+
+                        <MenuItem 
+                            label="Notas Fiscais" 
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
+                            onClick={() => setActiveView('fiscal_notes')}
+                            colorClass="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
+                        />
+
                         <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Preferências</h3>
 
                         <MenuItem 
@@ -409,6 +494,8 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                             {activeView === 'orders' && 'Meus Pedidos'}
                             {activeView === 'wallet' && 'Carteira'}
                             {activeView === 'addresses' && 'Endereços'}
+                            {activeView === 'contracts' && 'Contratos'}
+                            {activeView === 'fiscal_notes' && 'Notas Fiscais'}
                             {activeView === 'settings' && 'Configurações'}
                             {activeView === 'referral' && 'Indique e Ganhe'}
                             {activeView === 'help' && 'Central de Ajuda'}
@@ -418,6 +505,8 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session }) => {
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
                     {activeView === 'addresses' && <AddressView userId={session.user.id} />}
+                    {activeView === 'contracts' && <ContractsView />}
+                    {activeView === 'fiscal_notes' && <FiscalNotesView />}
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(updated) => setProfile(updated)} />}
                     {activeView === 'settings' && <SettingsView />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
