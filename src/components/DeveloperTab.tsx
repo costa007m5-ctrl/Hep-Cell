@@ -42,7 +42,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">{title}</h3>
             {explanation && <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{explanation}</p>}
             <div className="relative">
-                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-sm">
+                <pre className="bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto text-left text-sm custom-scrollbar max-h-64">
                     <code>{code.trim()}</code>
                 </pre>
                 <button
@@ -55,6 +55,45 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ title, code, explanation }) => {
         </div>
     );
 };
+
+const emailTemplateHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recuperação de Senha</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0; }
+    .container { max-width: 500px; margin: 40px auto; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; }
+    .header { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 30px; text-align: center; }
+    .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; }
+    .content { padding: 30px; text-align: center; color: #374151; }
+    .content p { margin-bottom: 20px; line-height: 1.6; font-size: 16px; }
+    .btn { display: inline-block; background-color: #4f46e5; color: #ffffff !important; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: bold; font-size: 16px; margin-top: 10px; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); transition: background-color 0.3s; }
+    .btn:hover { background-color: #4338ca; }
+    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
+    .small { font-size: 12px; color: #6b7280; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div className="container">
+    <div className="header">
+      <h1>Relp Cell</h1>
+    </div>
+    <div className="content">
+      <h2>Esqueceu sua senha?</h2>
+      <p>Não se preocupe, acontece com todo mundo. Clique no botão abaixo para criar uma nova senha segura.</p>
+      <a href="{{ .ConfirmationURL }}" class="btn">Redefinir Minha Senha</a>
+      <p class="small">Se você não solicitou esta alteração, pode ignorar este email com segurança.</p>
+    </div>
+    <div className="footer">
+      <p>&copy; Relp Cell - Todos os direitos reservados.</p>
+    </div>
+  </div>
+</body>
+</html>
+`;
 
 const MercadoPagoIntegration: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
@@ -191,6 +230,7 @@ const DeveloperTab: React.FC = () => {
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     
     const authHookUrl = `${window.location.origin}/api/mercadopago/auth-hook`;
+    const resetPasswordUrl = `${window.location.origin}/reset-password`;
 
     const rpcFunctionSQL = `
 CREATE OR REPLACE FUNCTION execute_admin_sql(sql_query text)
@@ -243,6 +283,32 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                 </div>
             </section>
             
+            <section>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração de Recuperação de Senha</h2>
+                <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700 mb-6">
+                    <p className="text-sm text-purple-800 dark:text-purple-200">
+                        Para que o "Esqueci a Senha" funcione corretamente com o template bonito, configure o Supabase assim:
+                    </p>
+                    <ol className="list-decimal list-inside text-sm text-purple-700 dark:text-purple-300 mt-2 space-y-1">
+                        <li>Vá no painel do Supabase &gt; Authentication &gt; URL Configuration.</li>
+                        <li>Adicione esta URL em <strong>Site URL</strong> ou <strong>Redirect URLs</strong>:</li>
+                    </ol>
+                    <div className="mt-2 mb-4 bg-white dark:bg-slate-800 p-2 rounded border border-purple-100 dark:border-purple-800 text-xs font-mono break-all">
+                        {resetPasswordUrl}
+                    </div>
+                    
+                    <p className="text-sm text-purple-800 dark:text-purple-200 mt-4">
+                        Agora, vá em <strong>Authentication &gt; Email Templates &gt; Reset Password</strong> e cole o código abaixo:
+                    </p>
+                </div>
+
+                <CodeBlock 
+                    title="Template HTML para Email de Reset" 
+                    explanation="Copie este código e cole no template 'Reset Password' do Supabase para ter um email profissional com as cores da Relp Cell."
+                    code={emailTemplateHTML}
+                />
+            </section>
+
             <MercadoPagoIntegration />
 
              <section>

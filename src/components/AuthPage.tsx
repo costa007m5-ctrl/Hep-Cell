@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { supabase } from '../services/clients';
 import { updateProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
@@ -21,7 +21,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Register State
+  // Register State - Dados para Boleto
   const [fullName, setFullName] = useState('');
   const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
@@ -120,7 +120,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}`,
+          // Redireciona de volta para a origem da aplicação após o login
+          redirectTo: window.location.origin,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',

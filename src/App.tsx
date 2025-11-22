@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import Navbar from './components/Navbar';
@@ -6,10 +5,11 @@ import PageInicio from './components/PageInicio';
 import PageFaturas from './components/PageFaturas';
 import PageLoja from './components/PageLoja';
 import PagePerfil from './components/PagePerfil';
-import PageNotifications from './components/PageNotifications'; // Novo
+import PageNotifications from './components/PageNotifications';
 import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
+import ResetPasswordPage from './components/ResetPasswordPage'; // Novo Import
 import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
@@ -102,6 +102,12 @@ const AppContent: React.FC = () => {
     window.location.reload();
   };
 
+  // Roteamento Simples para Reset Password
+  const path = window.location.pathname;
+  if (path === '/reset-password') {
+      return <ResetPasswordPage />;
+  }
+
   if (view === 'adminLogin') return <AdminLoginPage onLoginSuccess={() => setView('adminDashboard')} onBackToCustomer={() => setView('customer')} />;
   if (view === 'adminDashboard') return <AdminDashboard onLogout={handleAdminLogout} />;
 
@@ -126,7 +132,6 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // Se estiver na tela de notificações, escondemos o cabeçalho padrão para usar o cabeçalho da própria página
   const showHeader = activeTab !== Tab.LOJA && activeTab !== Tab.NOTIFICATIONS;
 
   return (
