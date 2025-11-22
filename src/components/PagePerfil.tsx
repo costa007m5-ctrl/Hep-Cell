@@ -95,35 +95,46 @@ const ServiceStatus: React.FC = () => {
         const start = Date.now();
         
         // 1. App (Internet)
-        const isOnline = navigator.onLine;
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
         
+        // 2. Loja (Banco de Dados)
         let storeStatus: 'online' | 'offline' = 'offline';
+        try {
+            // Tenta uma query leve no Supabase
+            const { error } = await supabase.from('products').select('id').limit(1);
+            storeStatus = error ? 'offline' : 'online';
+        } catch (e) {
+            storeStatus = 'offline';
+        }
+
+        // 3. API (Gateway Pagamento e Backend)
         let apiStatus: 'online' | 'degraded' | 'offline' = 'offline';
+        let latency = 0;
 
         if (isOnline) {
             try {
-                // 2. Loja (Supabase DB)
-                const { error } = await supabase.from('products').select('id').limit(1);
-                storeStatus = error ? 'offline' : 'online';
-
-                // 3. API (Pix/Cartão - Simulação via Endpoint de Produtos)
-                // Se a API de produtos responde rápido, o backend está saudável
-                const apiRes = await fetch('/api/products');
-                if (apiRes.ok) {
-                    const latency = Date.now() - start;
-                    apiStatus = latency < 800 ? 'online' : 'degraded';
+                // Faz um fetch real para a API para medir latência
+                const res = await fetch('/api/products?limit=1');
+                const end = Date.now();
+                latency = end - start;
+                
+                if (res.ok) {
+                    if (latency < 800) apiStatus = 'online';
+                    else apiStatus = 'degraded';
+                } else {
+                    apiStatus = 'offline';
                 }
             } catch (e) {
-                console.error("Falha na verificação de sistema", e);
+                apiStatus = 'offline';
             }
         }
 
         setHealth({
             app: isOnline ? 'online' : 'offline',
             store: storeStatus,
-            pix: apiStatus, // Pix depende da API
-            card: apiStatus, // Cartão depende da API
-            latency: Date.now() - start
+            pix: apiStatus, // Pix depende da API/Backend
+            card: apiStatus, // Cartão depende da API/Backend
+            latency: latency
         });
         setLastCheck(new Date());
         setIsChecking(false);
@@ -131,7 +142,7 @@ const ServiceStatus: React.FC = () => {
 
     useEffect(() => {
         checkSystem();
-        // Auto-check every 60s
+        // Auto-check a cada 60s
         const interval = setInterval(checkSystem, 60000);
         return () => clearInterval(interval);
     }, []);
@@ -176,7 +187,7 @@ const ServiceStatus: React.FC = () => {
 
                     <div className="space-y-3">
                         <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Aplicativo</span>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Aplicativo (Você)</span>
                             <span className={`text-xs font-bold px-2 py-1 rounded ${health.app === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.app)}</span>
                         </div>
                         <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
@@ -190,7 +201,7 @@ const ServiceStatus: React.FC = () => {
                     </div>
 
                     <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
-                        <p className="text-xs text-slate-400">Latência da Rede: <span className="font-mono text-slate-600 dark:text-slate-300">{health.latency || 0}ms</span></p>
+                        <p className="text-xs text-slate-400">Latência da Rede: <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">{health.latency || 0}ms</span></p>
                     </div>
 
                     <button onClick={checkSystem} className="mt-4 w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">
@@ -838,7 +849,7 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
     );
 };
 
-// --- NOVA HELP VIEW ROBUSTA ---
+// --- NOVA HELP VIEW ROBUSTA E EXPANDIDA ---
 
 const FAQItem: React.FC<{ question: string; answer: string; isExpanded: boolean; onClick: () => void }> = ({ question, answer, isExpanded, onClick }) => (
     <div className="border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -883,17 +894,22 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
 
     const faqs = [
         // Financeiro
-        { q: "Como aumento meu limite?", a: "O limite aumenta automaticamente conforme você paga suas faturas em dia. Você também pode solicitar uma análise no menu 'Meus Limites'." },
+        { q: "Como pago minha fatura?", a: "Você pode pagar via Pix (Copia e Cola ou QR Code), Boleto Bancário ou Cartão de Crédito diretamente no app na aba 'Faturas'." },
+        { q: "Onde vejo o código de barras?", a: "Na aba 'Faturas', clique em 'Ver Boleto'. O código de barras estará disponível para cópia." },
         { q: "O pagamento via Pix é instantâneo?", a: "Sim! O pagamento via Pix é processado na hora e seu limite é liberado em poucos minutos." },
-        { q: "Como funcionam os juros por atraso?", a: "Em caso de atraso, é cobrada uma multa de 2% mais juros de 1% ao mês pro rata die." },
-        { q: "Onde vejo o comprovante?", a: "Acesse 'Meus Documentos' > 'Comprovantes' no seu perfil para ver e baixar todos os recibos." },
-        { q: "Posso antecipar parcelas?", a: "Sim, ao antecipar parcelas você ganha desconto nos juros. Entre em contato pelo chat para solicitar o boleto de quitação." },
-        { q: "Meu boleto venceu, e agora?", a: "Você pode atualizar o boleto vencido diretamente no app ou pagar via Pix com o valor atualizado." },
-        { q: "Aceitam cartão de crédito de terceiros?", a: "Por segurança, recomendamos usar cartão próprio. Cartões de terceiros podem passar por análise antifraude mais rigorosa." },
+        { q: "Posso parcelar a fatura?", a: "O parcelamento de faturas já vencidas pode ser negociado. Entre em contato pelo chat." },
+        { q: "Quais os juros por atraso?", a: "Em caso de atraso, é cobrada uma multa de 2% mais juros de 1% ao mês pro rata die." },
+        { q: "Meu pagamento não baixou, e agora?", a: "Pagamentos via boleto podem levar até 2 dias úteis. Se foi Pix, envie o comprovante no chat." },
+        { q: "Onde consigo o comprovante?", a: "Acesse 'Meus Documentos' > 'Comprovantes' no seu perfil para ver e baixar todos os recibos." },
+        { q: "Meu boleto venceu, como atualizar?", a: "Você pode gerar um novo boleto atualizado diretamente no app ou pagar via Pix com o valor corrigido." },
+        { q: "Posso antecipar parcelas?", a: "Sim, ao antecipar parcelas você ganha desconto nos juros. Solicite o boleto de quitação no chat." },
+        { q: "Aceitam cartão de terceiros?", a: "Por segurança, recomendamos usar cartão próprio. Cartões de terceiros passam por análise rigorosa." },
         { q: "O que é o CVV do cartão?", a: "É o código de segurança de 3 ou 4 dígitos localizado no verso do seu cartão de crédito." },
         { q: "Fiz um Pix errado, como estornar?", a: "Entre em contato imediatamente com o suporte com o comprovante em mãos para analisarmos o caso." },
         { q: "Posso parcelar no boleto?", a: "O parcelamento no boleto está disponível mediante análise de crédito (Crediário Próprio)." },
-        
+        { q: "Como funciona o cashback?", a: "Parte do valor das suas compras volta como crédito para abater nas próximas faturas." },
+        { q: "Tem desconto à vista?", a: "Sim, pagamentos à vista (Pix ou dinheiro) geralmente têm desconto especial." },
+
         // Loja & Produtos
         { q: "Qual o prazo de entrega?", a: "Para Macapá e Santana, a entrega costuma ser no mesmo dia ou em até 24h úteis." },
         { q: "Posso retirar na loja?", a: "Sim, basta selecionar a opção 'Retirada na Loja' no momento da compra." },
@@ -905,6 +921,11 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
         { q: "Vocês compram celular usado?", a: "Temos um programa de Trade-in em períodos específicos. Fique atento às notificações." },
         { q: "O preço do site é o mesmo da loja?", a: "Geralmente sim, mas podem haver promoções exclusivas para o App." },
         { q: "Como usar cupom de desconto?", a: "Na tela de pagamento, insira o código no campo 'Cupom' antes de finalizar." },
+        { q: "A loja emite Nota Fiscal?", a: "Sim, todas as vendas acompanham Nota Fiscal Eletrônica (NFe)." },
+        { q: "Tem seguro contra roubo?", a: "Oferecemos seguro opcional em parceria com seguradoras. Consulte no momento da compra." },
+        { q: "O que vem na caixa?", a: "A descrição detalhada dos itens inclusos está na página de cada produto." },
+        { q: "Quando chega o iPhone novo?", a: "Fique ligado nas notificações! Avisamos assim que houver pré-venda." },
+        { q: "Vendem Xiaomi?", a: "Sim, temos uma grande variedade de modelos Xiaomi, Samsung, Apple e Motorola." },
 
         // Cadastro & Conta
         { q: "Esqueci minha senha.", a: "Clique em 'Esqueceu?' na tela de login para receber um link de redefinição por e-mail." },
@@ -917,6 +938,9 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
         { q: "Como mudar o endereço de entrega?", a: "Você pode gerenciar seus endereços em Perfil > Meus Endereços." },
         { q: "Recebo muitos e-mails, como parar?", a: "Em Configurações > Geral, você pode desativar as notificações por e-mail." },
         { q: "O app pede minha localização, por quê?", a: "Usamos para calcular o frete e sugerir a loja mais próxima, além de segurança antifraude." },
+        { q: "Posso alterar meu telefone?", a: "Sim, vá em 'Meus Dados' no perfil e atualize seu número." },
+        { q: "Preciso enviar selfie?", a: "Para validação de crédito, podemos solicitar uma selfie com documento." },
+        { q: "Como ver meus contratos?", a: "Seus contratos digitais ficam salvos em 'Meus Documentos' > 'Contratos'." },
 
         // Crédito & Score
         { q: "O que é o Score Relp?", a: "É uma pontuação interna baseada no seu histórico de pagamentos e compras conosco." },
@@ -929,6 +953,8 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
         { q: "A consulta de crédito baixa meu score no Serasa?", a: "Nossa consulta interna não afeta seu score de mercado." },
         { q: "Quanto tempo demora a análise de aumento?", a: "Solicitações de aumento levam até 3 dias úteis." },
         { q: "Existe anuidade no crediário?", a: "Não cobramos anuidade ou taxas de manutenção de conta." },
+        { q: "Como saber meu dia de vencimento?", a: "O vencimento é escolhido na primeira compra, mas geralmente é dia 05 ou 10." },
+        { q: "Posso mudar a data de vencimento?", a: "Entre em contato com o suporte antes de fechar a próxima fatura." },
 
         // Suporte & App
         { q: "O app está travando.", a: "Tente limpar o cache em Perfil > Configurações > Manutenção ou reinstale o aplicativo." },
