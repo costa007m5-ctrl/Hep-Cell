@@ -125,6 +125,7 @@ const ServiceStatus: React.FC = () => {
                     apiStatus = 'offline';
                 }
             } catch (e) {
+                // Capture fetch errors (e.g. network failure) gracefully
                 apiStatus = 'offline';
             }
         }
@@ -1126,7 +1127,7 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
             <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                     <button onClick={() => setView('home')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">Meus Tickets</h3>
+                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">Meus Chamados</h3>
                 </div>
                 <button onClick={() => setView('create')} className="bg-indigo-600 text-white p-2 rounded-full shadow-lg hover:bg-indigo-700 transition-transform active:scale-95">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>

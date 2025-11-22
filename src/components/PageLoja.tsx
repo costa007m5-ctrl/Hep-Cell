@@ -204,6 +204,7 @@ const PageLoja: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState('Todos');
     const [activeBrand, setActiveBrand] = useState<string | undefined>(undefined);
+    const [loadError, setLoadError] = useState<string | null>(null);
     
     // View states
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -222,6 +223,7 @@ const PageLoja: React.FC = () => {
         const fetchProducts = async () => {
             try {
                 setIsLoading(true);
+                setLoadError(null);
                 // ROTA CORRIGIDA: Usa /api/products em vez de /api/admin/products
                 const response = await fetch('/api/products'); 
                 if (!response.ok) throw new Error('Erro ao carregar produtos.');
@@ -236,9 +238,14 @@ const PageLoja: React.FC = () => {
                 }));
                 
                 setProducts(enhanced);
-            } catch (e) {
+            } catch (e: any) {
                 console.error(e);
-                addToast('Erro de conexão.', 'error');
+                // Se for erro de fetch (offline), mostra mensagem amigável na UI
+                if (e.message && e.message.includes('Failed to fetch')) {
+                    setLoadError('Sem conexão com o servidor. Verifique sua internet.');
+                } else {
+                    addToast('Erro ao carregar produtos.', 'error');
+                }
             } finally {
                 setIsLoading(false);
             }
@@ -448,6 +455,10 @@ const PageLoja: React.FC = () => {
                 {/* Product Grid */}
                 {isLoading ? (
                     <div className="flex justify-center py-20"><LoadingSpinner /></div>
+                ) : loadError ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+                        <p className="text-slate-500 dark:text-slate-400">{loadError}</p>
+                    </div>
                 ) : filteredProducts.length > 0 ? (
                     <div className="grid grid-cols-2 gap-3 px-3 pb-6">
                         {filteredProducts.map(product => (

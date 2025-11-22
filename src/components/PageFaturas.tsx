@@ -431,7 +431,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             const [invoicesRes, profileRes, settingsRes] = await Promise.all([
                 supabase.from('invoices').select('*').eq('user_id', user.id).order('due_date', { ascending: true }),
                 getProfile(user.id),
-                fetch('/api/admin/settings')
+                fetch('/api/admin/settings').catch(err => ({ ok: false, json: async () => ({}) })) as Promise<Response> // Soft fail for settings
             ]);
 
             if (invoicesRes.error) throw invoicesRes.error;
@@ -447,8 +447,13 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
         } catch (err: any) {
             const errorMessage = err.message || 'Ocorreu um erro desconhecido.';
-            setErrorInfo({ message: `Falha ao carregar: ${errorMessage}`, isDiagnosing: true });
-            diagnoseDatabaseError(errorMessage).then(diagnosis => setErrorInfo(prev => prev ? { ...prev, diagnosis, isDiagnosing: false } : null));
+            // Se for erro de fetch (rede), mostra mensagem amigável
+            if (errorMessage.includes('Failed to fetch')) {
+                setErrorInfo({ message: 'Sem conexão com o servidor. Verifique sua internet.', isDiagnosing: false });
+            } else {
+                setErrorInfo({ message: `Falha ao carregar: ${errorMessage}`, isDiagnosing: true });
+                diagnoseDatabaseError(errorMessage).then(diagnosis => setErrorInfo(prev => prev ? { ...prev, diagnosis, isDiagnosing: false } : null));
+            }
         } finally { setIsLoading(false); }
     }, []);
 
