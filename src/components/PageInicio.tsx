@@ -9,6 +9,7 @@ import Modal from './Modal';
 import { Profile, Invoice, Tab, Contract } from '../types';
 import SignaturePad from './SignaturePad';
 import LoadingSpinner from './LoadingSpinner';
+import { useToast } from './Toast';
 
 interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
@@ -97,6 +98,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
+  const { addToast } = useToast();
 
   // Mock Data for Stories
   const stories = [
@@ -130,30 +132,33 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     return 'Boa noite';
   };
 
-  useEffect(() => {
-    const fetchHomeData = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const [profile, invoicesData, contractsData] = await Promise.all([
-            getProfile(user.id),
-            supabase.from('invoices').select('*').eq('user_id', user.id),
-            supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1)
-          ]);
+  const fetchHomeData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const [profile, invoicesData, contractsData] = await Promise.all([
+          getProfile(user.id),
+          supabase.from('invoices').select('*').eq('user_id', user.id),
+          supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1)
+        ]);
 
-          setProfileData({ id: user.id, email: user.email, ...profile });
-          setInvoices(invoicesData.data || []);
-          
-          if (contractsData.data && contractsData.data.length > 0) {
-              setPendingContract(contractsData.data[0]);
-          }
+        setProfileData({ id: user.id, email: user.email, ...profile });
+        setInvoices(invoicesData.data || []);
+        
+        if (contractsData.data && contractsData.data.length > 0) {
+            setPendingContract(contractsData.data[0]);
+        } else {
+            setPendingContract(null);
         }
-      } catch (error) {
-        console.error("Erro ao buscar dados:", error);
-      } finally {
-        setIsLoading(false);
       }
-    };
+    } catch (error) {
+      console.error("Erro ao buscar dados:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchHomeData();
   }, []);
   
@@ -161,26 +166,37 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       if (!signature || !pendingContract) return;
       setIsSigning(true);
       try {
-          // 1. Atualiza Contrato
-          await supabase.from('contracts').update({ 
-              status: 'Ativo', 
-              signature_data: signature,
-              terms_accepted: true 
-          }).eq('id', pendingContract.id);
+          // Chama a API Admin para assinar e atualizar status com privilégios elevados
+          // Isso resolve o problema de RLS impedindo o usuário de atualizar o status
+          const response = await fetch('/api/admin/sign-contract', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  contractId: pendingContract.id,
+                  signature: signature,
+                  userId: pendingContract.user_id
+              })
+          });
 
-          // 2. Ativa as Faturas (usando lógica de tempo/user pois não temos FK direta)
-          // Simplificação: Ativa todas 'Aguardando Assinatura' deste usuário
-          await supabase.from('invoices').update({ status: 'Em aberto' }).eq('user_id', pendingContract.user_id).eq('status', 'Aguardando Assinatura');
+          if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || 'Erro ao processar assinatura.');
+          }
 
+          addToast('Contrato assinado com sucesso!', 'success');
+          
+          // Limpa estado local e fecha modal
           setPendingContract(null);
+          setSignature(null);
           setIsModalOpen(false);
-          // Recarrega faturas
-          const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
-          setInvoices(data || []);
+          
+          // Recarrega dados para refletir mudanças (faturas ativadas, contrato sumir)
+          setIsLoading(true);
+          await fetchHomeData();
 
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          alert("Erro ao assinar contrato.");
+          addToast(e.message || "Erro ao assinar contrato.", 'error');
       } finally {
           setIsSigning(false);
       }
@@ -439,7 +455,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                   <button 
                     onClick={handleSignContract} 
                     disabled={!signature || isSigning}
-                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50"
+                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center"
                   >
                       {isSigning ? <LoadingSpinner /> : 'Confirmar e Liberar Compra'}
                   </button>
