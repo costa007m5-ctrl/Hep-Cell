@@ -26,6 +26,8 @@ export interface Invoice {
   payment_method?: string | null;
   payment_date?: string | null;
   payment_id?: string | null;
+  payment_code?: string | null; // Novo: Para Pix Copia e Cola ou código geral
+  payment_expiration?: string | null; // Novo: Data de expiração do código
   boleto_url?: string | null;
   boleto_barcode?: string | null;
   notes?: string | null;

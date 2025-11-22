@@ -108,10 +108,12 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        // O SQL completo está disponível também no DeveloperTab para cópia manual
+        // SQL CORRIGIDO: Removemos blocos DO/BEGIN para CREATE POLICY para evitar erros de parsing
+        // quando colunas ainda estão sendo criadas na mesma transação.
         const FULL_SETUP_SQL = `
             CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
             
+            -- 1. TABELAS BÁSICAS
             CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") );
             ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "phone" "text";
             ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_number" "text";
@@ -147,7 +149,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
             CREATE TABLE IF NOT EXISTS "public"."store_banners" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "image_url" "text" NOT NULL, "prompt" "text", "link" "text", "active" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "store_banners_pkey" PRIMARY KEY ("id") );
             ALTER TABLE "public"."store_banners" ENABLE ROW LEVEL SECURITY;
 
-            -- TABELAS DE SUPORTE (ENTERPRISE FEATURE)
+            -- 2. TABELAS DE SUPORTE (ENTERPRISE)
             CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( 
                 "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), 
                 "user_id" "uuid" NOT NULL, 
@@ -177,24 +179,36 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
             ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false;
             ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
 
-            DO $$ BEGIN
-                CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
-                CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-                CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
-                CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
-                CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id);
-                
-                -- Support Policies
-                CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
-                CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
-                CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
-                    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
-                    AND is_internal = false -- Hide internal notes from user
-                );
-                CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
-
-            EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            -- 3. POLÍTICAS (Drop and Recreate to be safe)
+            DROP POLICY IF EXISTS "Public read access products" ON "public"."products";
+            DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
+            DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
+            DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts";
+            DROP POLICY IF EXISTS "Users can view own fiscal notes" ON "public"."fiscal_notes";
             
+            DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets";
+            DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
+            DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
+            DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
+
+            CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
+            CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
+            CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
+            CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
+            CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id);
+            
+            CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
+            CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
+            
+            -- Esta política agora é segura pois a coluna is_internal foi garantida acima
+            CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
+                EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
+                AND is_internal = false 
+            );
+            CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
+
+            
+            -- 4. FUNÇÕES AUXILIARES
             CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
         `;
 
@@ -202,7 +216,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         if (error) throw error;
         
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Tabela messages com notas internas." });
+        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Correção is_internal aplicada." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });

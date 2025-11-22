@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients';
@@ -25,6 +26,11 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
     identificationNumber: '',
   });
   const timerIntervalRef = useRef<number | null>(null);
+
+  // Função para gerar QR Code a partir do copy/paste se necessário (fallback simples)
+  const generateQrCodeImage = (code: string) => {
+      return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(code)}`;
+  };
 
   const generatePix = async (extraData = {}) => {
     setError(null);
@@ -72,6 +78,21 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
   };
 
   useEffect(() => {
+    // Verifica se já existe um PIX válido salvo na fatura
+    if (invoice.payment_code && invoice.payment_expiration) {
+        const expires = new Date(invoice.payment_expiration);
+        if (expires > new Date()) {
+            setPixData({
+                qrCode: invoice.payment_code,
+                // Se não temos o base64 salvo, usamos uma API pública para gerar visualmente ou mostramos só o código
+                qrCodeBase64: '', 
+                expires: invoice.payment_expiration
+            });
+            setStep('display_pix');
+            return;
+        }
+    }
+
     setStep('loading');
     generatePix();
 
@@ -80,7 +101,6 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
         clearInterval(timerIntervalRef.current);
       }
     };
-    // A dependência foi ajustada para invoice.id para evitar re-execuções desnecessárias.
   }, [invoice.id]);
 
   useEffect(() => {
@@ -134,7 +154,10 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
   );
 
   const renderError = () => (
-    <div className="p-4 w-full"><Alert message={error!} type="error" /></div>
+    <div className="p-4 w-full text-center">
+        <Alert message={error!} type="error" />
+        <button onClick={() => generatePix()} className="mt-4 text-sm font-bold text-indigo-600 hover:underline">Tentar Novamente</button>
+    </div>
   );
 
   const renderProfileForm = () => (
@@ -160,7 +183,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
           Abra o app do seu banco e escaneie o código abaixo.
         </p>
         <img
-          src={`data:image/png;base64,${pixData.qrCodeBase64}`}
+          src={pixData.qrCodeBase64 ? `data:image/png;base64,${pixData.qrCodeBase64}` : generateQrCodeImage(pixData.qrCode)}
           alt="PIX QR Code"
           className="max-w-[200px] w-full rounded-lg ring-4 ring-slate-200 dark:ring-slate-700"
         />

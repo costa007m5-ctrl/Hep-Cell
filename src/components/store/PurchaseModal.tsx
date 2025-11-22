@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, Profile } from '../../types';
+import { Product, Profile, Invoice } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
 import Alert from '../Alert';
 import SignaturePad from '../SignaturePad';
 import jsPDF from 'jspdf';
+import { supabase } from '../../services/clients';
 
 interface PurchaseModalProps {
     product: Product;
@@ -31,26 +32,46 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [interestRate, setInterestRate] = useState(0);
     const [signature, setSignature] = useState<string | null>(null);
     const [termsAccepted, setTermsAccepted] = useState(false);
+    const [totalUsedLimit, setTotalUsedLimit] = useState(0);
+    const [isLoadingLimit, setIsLoadingLimit] = useState(true);
 
-    // Carregar taxa de juros
+    // Carregar taxa de juros e faturas em aberto
     useEffect(() => {
-        const fetchInterest = async () => {
+        const fetchInitialData = async () => {
+            setIsLoadingLimit(true);
             try {
-                const res = await fetch('/api/admin/settings');
-                if(res.ok) {
-                    const data = await res.json();
+                // 1. Juros
+                const resSettings = await fetch('/api/admin/settings');
+                if(resSettings.ok) {
+                    const data = await resSettings.json();
                     setInterestRate(parseFloat(data.interest_rate) || 0);
                 }
+
+                // 2. Faturas em Aberto (para calcular limite usado)
+                const { data: invoices, error } = await supabase
+                    .from('invoices')
+                    .select('amount')
+                    .eq('user_id', profile.id)
+                    .or('status.eq.Em aberto,status.eq.Boleto Gerado');
+                
+                if (error) throw error;
+                
+                const used = invoices?.reduce((acc, inv) => acc + inv.amount, 0) || 0;
+                setTotalUsedLimit(used);
+
             } catch (e) {
-                console.error("Erro ao carregar juros", e);
+                console.error("Erro ao carregar dados iniciais", e);
+            } finally {
+                setIsLoadingLimit(false);
             }
         };
-        fetchInterest();
-    }, []);
+        fetchInitialData();
+    }, [profile.id]);
 
     // Constantes
     const MAX_INSTALLMENTS = 12;
     const creditLimit = profile.credit_limit ?? 0;
+    const availableLimit = Math.max(0, creditLimit - totalUsedLimit);
     
     // Cálculos reativos
     const downPaymentValue = parseFloat(downPayment) || 0;
@@ -63,25 +84,35 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     }, [principalAmount, installments, interestRate]);
 
     const installmentValue = totalFinancedWithInterest / installments;
-    const isLimitExceeded = installmentValue > creditLimit;
+    
+    // BLOQUEIO: Verifica se o valor TOTAL da nova compra cabe no limite disponível
+    // Lógica antiga verificava apenas o valor da parcela individual, permitindo compras infinitas.
+    const isLimitExceeded = totalFinancedWithInterest > availableLimit;
     
     const suggestion = useMemo(() => {
         if (!isLimitExceeded) return null;
+        
+        // Quanto falta para caber no limite?
+        // Novo Total Financiado deve ser <= Limite Disponível
+        // (Preço - Entrada) * Juros <= Disponível
+        // Entrada >= Preço - (Disponível / Juros)
+        
         let minEntry = 0;
         if (installments > 1 && interestRate > 0) {
              const factor = Math.pow(1 + (interestRate/100), installments);
-             minEntry = product.price - ((creditLimit * installments) / factor);
+             minEntry = product.price - (availableLimit / factor);
         } else {
-             minEntry = product.price - (creditLimit * installments);
+             minEntry = product.price - availableLimit;
         }
+        
         if (minEntry > 0) {
             return {
                 type: 'entry',
-                text: `Para ${installments}x, você precisa dar uma entrada de pelo menos ${minEntry.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`
+                text: `Seu limite disponível é R$ ${availableLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}. Dê uma entrada de R$ ${minEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})} para liberar.`
             };
         }
-        return { type: 'none', text: 'Limite insuficiente para esta compra.' };
-    }, [isLimitExceeded, installments, interestRate, creditLimit, product.price]);
+        return { type: 'none', text: 'Limite insuficiente. Pague faturas antigas para liberar crédito.' };
+    }, [isLimitExceeded, availableLimit, installments, interestRate, product.price]);
 
     const handleNextStep = () => {
         if (isLimitExceeded || principalAmount <= 0) return;
@@ -122,10 +153,17 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const renderConfigStep = () => (
         <div className="space-y-6">
             <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl flex justify-between items-center">
-                <span className="text-sm font-medium text-indigo-900 dark:text-indigo-200">Seu Limite por Parcela</span>
-                <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
-                    {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </span>
+                <div>
+                    <span className="block text-xs font-medium text-indigo-900 dark:text-indigo-200 uppercase">Limite Disponível</span>
+                    {isLoadingLimit ? <div className="h-4 w-20 bg-indigo-200 dark:bg-indigo-800 rounded animate-pulse mt-1"></div> : (
+                        <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
+                            {availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                    )}
+                </div>
+                <div className="text-right">
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">Total: {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                </div>
             </div>
             <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500 dark:text-slate-400">Valor do Produto</span>
@@ -159,8 +197,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 {interestRate > 0 && installments > 1 && <p className="text-xs text-slate-500 mt-2">Total financiado com juros: {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>}
                 {isLimitExceeded && (
                     <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-800/30">
-                        <p className="text-sm text-red-700 dark:text-red-300"><span className="font-bold">Atenção:</span> Essa parcela é maior que seu limite de {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.</p>
-                        {suggestion && <p className="text-sm text-red-700 dark:text-red-300 mt-1 font-medium">💡 Dica: {suggestion.text}</p>}
+                        <p className="text-sm text-red-700 dark:text-red-300"><span className="font-bold">Bloqueado:</span> O valor total desta compra excede seu limite disponível.</p>
+                        {suggestion && <p className="text-sm text-red-700 dark:text-red-300 mt-1 font-medium">💡 {suggestion.text}</p>}
                     </div>
                 )}
             </div>
@@ -245,8 +283,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     )}
                     
                     {step === 'config' ? (
-                        <button onClick={handleNextStep} disabled={isLimitExceeded || principalAmount <= 0} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]">
-                            Continuar
+                        <button onClick={handleNextStep} disabled={isLimitExceeded || principalAmount <= 0 || isLoadingLimit} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]">
+                            {isLoadingLimit ? <LoadingSpinner /> : 'Continuar'}
                         </button>
                     ) : (
                         <button onClick={handleConfirmPurchase} disabled={isProcessing || !signature || !termsAccepted} className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-green-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] flex justify-center items-center gap-2">

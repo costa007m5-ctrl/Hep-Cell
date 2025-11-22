@@ -229,22 +229,8 @@ const MercadoPagoIntegration: React.FC = () => {
 const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-    const [showSql, setShowSql] = useState(true); 
     
-    const resetPasswordUrl = `${window.location.origin}/reset-password`;
-
-    const rpcFunctionSQL = `
-CREATE OR REPLACE FUNCTION execute_admin_sql(sql_query text)
-RETURNS void AS $$
-BEGIN
-  EXECUTE sql_query;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-    `.trim();
-
-    // SQL Completo com Políticas RLS, Trigger de Cadastro e Função de Busca Aprimorada
-    // Agora inclui tabelas para contratos, notas fiscais e SUPORTE
-    // E a nova tabela de MISSÕES com pontos ajustados
+    // SQL Completo com Políticas RLS e Correção de Parsing
     const SETUP_SQL = `
 -- 1. Habilitar Extensões
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
@@ -274,6 +260,11 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, 
     CONSTRAINT "profiles_email_key" UNIQUE ("email") 
 );
+
+-- Atualização de Tabela de Faturas para Persistência de Pagamento
+CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
+ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_code" "text";
+ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_expiration" timestamp with time zone;
 
 -- 3. Tabela de Missões (Gamificação)
 CREATE TABLE IF NOT EXISTS "public"."user_missions" (
@@ -313,43 +304,44 @@ CREATE TABLE IF NOT EXISTS "public"."support_messages" (
     CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
 );
 
+-- Força a criação da coluna caso a tabela já exista sem ela
+ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false;
+
 -- 5. Políticas de Segurança (RLS)
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
 
-DO $$ BEGIN
-    -- Profiles
-    DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
-    CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-    
-    DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
-    CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
+-- Dropar políticas antigas para evitar conflitos
+DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
+DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
+DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
+DROP POLICY IF EXISTS "Users can view own missions" ON "public"."user_missions";
+DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets";
+DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
+DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
+DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
 
-    -- Missions
-    DROP POLICY IF EXISTS "Users can view own missions" ON "public"."user_missions";
-    CREATE POLICY "Users can view own missions" ON "public"."user_missions" FOR SELECT USING (auth.uid() = user_id);
-    
-    -- Support
-    DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets";
-    CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
-    
-    DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
-    CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
+-- Criar novas políticas
+CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own missions" ON "public"."user_missions" FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-    DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
-    CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
-        EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
-        AND is_internal = false
-    );
-    
-    DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
-    CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (
-        EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid())
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- Política da mensagem (Agora segura porque a coluna is_internal existe)
+CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
+    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
+    AND is_internal = false
+);
 
--- 6. Função Segura para Resgate de Missão (RPC) - GARANTE 1X POR MISSÃO
+CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (
+    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid())
+);
+
+-- 6. Função Segura para Resgate de Missão (RPC)
 CREATE OR REPLACE FUNCTION claim_mission_reward(mission_id_input text, xp_reward int, reason_input text)
 RETURNS void AS $$
 DECLARE
@@ -404,9 +396,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização de Segurança e Gamificação</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização Importante (Persistência e Limites)</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Para ativar o sistema de missões com validação profissional (evitar fraude de pontos), copie o código SQL abaixo e execute no Supabase. Isso cria a tabela `user_missions` e a função `claim_mission_reward`.
+                        Clique no botão abaixo para atualizar a estrutura do banco de dados. Isso adicionará suporte para salvar Pix Copia e Cola e corrigir verificações de limite.
                     </p>
                 </div>
 
@@ -414,21 +406,22 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                     <button 
                         onClick={handleSetupDatabase}
                         disabled={isLoading}
-                        className="hidden w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
+                        className="w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
                     >
-                        {isLoading ? <LoadingSpinner /> : 'Tentar Setup Automático'}
+                        {isLoading ? <LoadingSpinner /> : 'Atualizar Banco de Dados'}
                     </button>
+                    {message && <div className="mt-4"><Alert message={message.text} type={message.type} /></div>}
                 </div>
 
                 <div>
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Setup</h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este script configura o sistema de missões, suporte e garante a segurança dos dados.
+                        Este script configura o sistema de missões, suporte, tabelas de pagamento e garante a segurança dos dados.
                     </p>
                     
                     <CodeBlock
                         title="SQL Completo de Setup"
-                        explanation="Copie e cole no SQL Editor do Supabase."
+                        explanation="Copie e cole no SQL Editor do Supabase se o botão automático falhar."
                         code={SETUP_SQL}
                     />
                 </div>

@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { URL } from 'url';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
@@ -242,14 +243,25 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             throw new Error('Resposta inválida da API do Mercado Pago ao criar PIX.');
         }
 
-        await supabase.from('invoices').update({ payment_id: String(result.id), status: 'Em aberto' }).eq('id', invoiceId);
+        const qrCode = result.point_of_interaction.transaction_data.qr_code;
+        const expirationDate = result.date_of_expiration;
+
+        // Salva o código PIX no banco para persistência
+        await supabase.from('invoices').update({ 
+            payment_id: String(result.id), 
+            status: 'Em aberto',
+            payment_method: 'pix',
+            payment_code: qrCode, // Novo campo
+            payment_expiration: expirationDate // Novo campo
+        }).eq('id', invoiceId);
+
         await logAction(supabase, 'PIX_CREATED', 'SUCCESS', `PIX gerado para fatura ${invoiceId}.`);
 
         res.status(200).json({
             paymentId: result.id,
-            qrCode: result.point_of_interaction.transaction_data.qr_code,
+            qrCode: qrCode,
             qrCodeBase64: result.point_of_interaction.transaction_data.qr_code_base64,
-            expires: result.date_of_expiration,
+            expires: expirationDate,
         });
 
     } catch (error: any) {
@@ -321,6 +333,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             status: 'Boleto Gerado',
             boleto_url: boletoUrl,
             boleto_barcode: boletoBarcode || null,
+            payment_method: 'boleto'
         }).eq('id', invoiceId);
 
         await logAction(supabase, 'BOLETO_CREATED', 'SUCCESS', `Boleto gerado para fatura ${invoiceId}.`);

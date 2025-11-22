@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import { supabase } from '../services/clients';
@@ -251,6 +252,8 @@ const InvoiceItemRow: React.FC<{
     
     const isPaid = invoice.status === 'Paga';
     const isLate = !isPaid && dueDateObj < new Date();
+    const hasPendingPix = invoice.payment_method === 'pix' && invoice.payment_code && invoice.status === 'Em aberto';
+    const hasPendingBoleto = invoice.status === 'Boleto Gerado';
     
     const installmentMatch = invoice.month.match(/\((\d+)\/\d+\)/);
     const installmentNum = installmentMatch ? `${installmentMatch[1]}ª` : '';
@@ -285,10 +288,16 @@ const InvoiceItemRow: React.FC<{
                 
                 {!selectable && !isPaid && (
                     <button 
-                        onClick={() => invoice.status === 'Boleto Gerado' ? onDetails?.(invoice) : onPay?.(invoice)}
-                        className="mt-1 text-[10px] bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded font-bold hover:bg-indigo-50 dark:hover:bg-slate-600 transition-colors"
+                        onClick={() => (hasPendingBoleto || hasPendingPix) ? onDetails?.(invoice) : onPay?.(invoice)}
+                        className={`mt-1 text-[10px] px-2 py-0.5 rounded font-bold border transition-colors ${
+                            hasPendingPix 
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200' 
+                            : hasPendingBoleto 
+                                ? 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200'
+                                : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:bg-indigo-50 dark:hover:bg-slate-600'
+                        }`}
                     >
-                        {invoice.status === 'Boleto Gerado' ? 'Ver Boleto' : 'Pagar'}
+                        {hasPendingPix ? 'Ver Pix' : hasPendingBoleto ? 'Ver Boleto' : 'Pagar'}
                     </button>
                 )}
                  {isPaid && onReceipt && (
@@ -588,12 +597,21 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         setPaymentStep('pay_boleto'); // Vai direto para a geração do boleto com os dados do acordo
     };
 
+    const handleViewDetails = (invoice: Invoice) => {
+        setSelectedInvoice(invoice);
+        if (invoice.status === 'Boleto Gerado') {
+            setPaymentStep('boleto_details');
+        } else if (invoice.payment_method === 'pix' && invoice.payment_code) {
+            setPaymentStep('pay_pix');
+        }
+    };
+
     // Render Payment Flow
     if (paymentStep !== 'list' && selectedInvoice) {
         switch (paymentStep) {
             case 'select_method': return <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={(m) => { if(m==='brick') setPaymentStep('pay_card'); else if(m==='pix') setPaymentStep('pay_pix'); else if(m==='boleto') setPaymentStep('pay_boleto'); }} onBack={() => {setPaymentStep('list'); setBulkSelection([]);}} />;
             case 'pay_card': return <PaymentForm invoice={selectedInvoice} mpPublicKey={mpPublicKey} onBack={() => setPaymentStep('select_method')} onPaymentSuccess={handlePaymentSuccess} />;
-            case 'pay_pix': return <PixPayment invoice={selectedInvoice} onBack={() => setPaymentStep('select_method')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
+            case 'pay_pix': return <PixPayment invoice={selectedInvoice} onBack={() => setPaymentStep('list')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
             case 'pay_boleto': return <BoletoPayment invoice={selectedInvoice} onBack={() => {setPaymentStep('list'); setSelectedInvoice(null);}} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
             case 'boleto_details': return <BoletoDetails invoice={selectedInvoice} onBack={() => setPaymentStep('list')} />;
             default: return null;
@@ -653,7 +671,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                                     group={group} 
                                     isOpenDefault={group.status === 'late'}
                                     onPay={(i) => { setSelectedInvoice(i); setPaymentStep('select_method'); }}
-                                    onDetails={(i) => { setSelectedInvoice(i); setPaymentStep('boleto_details'); }}
+                                    onDetails={handleViewDetails}
                                     onReceipt={generateReceipt}
                                     onSelectMultiple={(ids) => { 
                                         ids.forEach(id => {
