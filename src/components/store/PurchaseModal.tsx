@@ -97,7 +97,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         setIsProcessing(true);
         setError(null);
         try {
-            // Aqui poderíamos enviar a assinatura (signature base64) para o backend salvar
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -106,13 +105,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     productName: product.name,
                     totalAmount: totalFinancedWithInterest, 
                     installments: installments,
-                    // signature: signature // Se o backend suportar
+                    signature: signature // Envia a assinatura
                 }),
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Erro ao processar compra.');
-            
-            // Opcional: Gerar PDF do contrato assinado automaticamente aqui
             
             onSuccess();
         } catch (err: any) {

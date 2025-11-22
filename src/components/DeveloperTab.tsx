@@ -243,11 +243,12 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
     // SQL Completo com Políticas RLS, Trigger de Cadastro e Função de Busca Aprimorada
+    // Agora inclui tabelas para contratos e notas fiscais
     const SETUP_SQL = `
 -- Habilitar extensões
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
 
--- 1. Tabela de Perfis (Essencial para login e dados do usuário)
+-- 1. Tabela de Perfis
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( 
     "id" "uuid" NOT NULL, 
     "email" "text", 
@@ -273,11 +274,9 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "profiles_email_key" UNIQUE ("email") 
 );
 
--- GARANTIR COLUNAS (Correção para erro 42703 se a tabela já existir sem a coluna)
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "phone" "text";
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_number" "text";
 
--- Constraints para garantir unicidade de CPF e Telefone (importante para login)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
     ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_identification_number_key" UNIQUE ("identification_number");
@@ -289,104 +288,56 @@ END $$;
 
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Segurança (RLS) para Perfis
 DO $$ BEGIN
     DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
     CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-    
     DROP POLICY IF EXISTS "Users can insert own profile" ON "public"."profiles";
     CREATE POLICY "Users can insert own profile" ON "public"."profiles" FOR INSERT WITH CHECK (auth.uid() = id);
-    
     DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
     CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
 END $$;
 
--- 2. TRIGGER DE CADASTRO (A Mágica acontece aqui)
--- Esta função copia os dados enviados no registro (Auth) para a tabela pública (Profiles)
+-- 2. TRIGGER DE CADASTRO
 CREATE OR REPLACE FUNCTION public.handle_new_user() 
 RETURNS trigger AS $$
 BEGIN
   INSERT INTO public.profiles (
-    id, 
-    email, 
-    first_name, 
-    last_name, 
-    identification_number, 
-    phone,
-    zip_code,
-    street_name,
-    street_number,
-    neighborhood,
-    city,
-    federal_unit
+    id, email, first_name, last_name, identification_number, phone,
+    zip_code, street_name, street_number, neighborhood, city, federal_unit
   )
   VALUES (
-    new.id, 
-    new.email, 
-    new.raw_user_meta_data->>'first_name', 
-    new.raw_user_meta_data->>'last_name', 
-    new.raw_user_meta_data->>'cpf', 
-    new.raw_user_meta_data->>'phone',
-    new.raw_user_meta_data->>'zip_code',
-    new.raw_user_meta_data->>'street_name',
-    new.raw_user_meta_data->>'street_number',
-    new.raw_user_meta_data->>'neighborhood',
-    new.raw_user_meta_data->>'city',
-    new.raw_user_meta_data->>'federal_unit'
+    new.id, new.email, 
+    new.raw_user_meta_data->>'first_name', new.raw_user_meta_data->>'last_name', 
+    new.raw_user_meta_data->>'cpf', new.raw_user_meta_data->>'phone',
+    new.raw_user_meta_data->>'zip_code', new.raw_user_meta_data->>'street_name',
+    new.raw_user_meta_data->>'street_number', new.raw_user_meta_data->>'neighborhood',
+    new.raw_user_meta_data->>'city', new.raw_user_meta_data->>'federal_unit'
   );
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Recria o trigger para garantir que ele esteja ativo e atualizado
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 3. FUNÇÃO DE LOGIN INTELIGENTE (Busca email por CPF/Telefone)
+-- 3. FUNÇÃO DE LOGIN INTELIGENTE
 CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
 RETURNS text AS $$
 DECLARE
   found_email text;
   clean_input text;
 BEGIN
-  -- Remove tudo que não é número (pontos, traços, parênteses, espaços)
   clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
-  
-  IF length(clean_input) < 5 THEN
-     RETURN NULL;
-  END IF;
-
-  -- Tenta encontrar por CPF (comparando apenas os números)
-  SELECT email INTO found_email 
-  FROM profiles 
-  WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input 
-  LIMIT 1;
-  
-  IF found_email IS NOT NULL THEN 
-    RETURN found_email; 
-  END IF;
-
-  -- Tenta encontrar por Telefone (comparando apenas os números)
-  SELECT email INTO found_email 
-  FROM profiles 
-  WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input 
-  LIMIT 1;
-  
-  -- Se não achou, tenta match exato no email
-  IF found_email IS NULL THEN
-    SELECT email INTO found_email 
-    FROM profiles 
-    WHERE email = identifier_input
-    LIMIT 1;
-  END IF;
-  
+  IF length(clean_input) < 5 THEN RETURN NULL; END IF;
+  SELECT email INTO found_email FROM profiles WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input LIMIT 1;
+  IF found_email IS NOT NULL THEN RETURN found_email; END IF;
+  SELECT email INTO found_email FROM profiles WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input LIMIT 1;
+  IF found_email IS NULL THEN SELECT email INTO found_email FROM profiles WHERE email = identifier_input LIMIT 1; END IF;
   RETURN found_email;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Permissões para a função de login funcionar antes do usuário estar logado
 GRANT EXECUTE ON FUNCTION get_email_by_identifier(text) TO anon, authenticated, service_role;
 
 -- 4. Outras Tabelas do Sistema
@@ -416,7 +367,49 @@ DO $$ BEGIN
     CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
 END $$;
 
--- Admin Mock Function (Substitua pelo ID real do admin se necessário)
+-- 5. TABELA DE CONTRATOS
+CREATE TABLE IF NOT EXISTS "public"."contracts" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "user_id" "uuid" NOT NULL,
+    "title" "text" NOT NULL,
+    "items" "text",
+    "total_value" numeric(10, 2),
+    "installments" integer,
+    "status" "text" DEFAULT 'Ativo',
+    "signature_data" "text",
+    "terms_accepted" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts";
+    CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
+END $$;
+
+-- 6. TABELA DE NOTAS FISCAIS
+CREATE TABLE IF NOT EXISTS "public"."fiscal_notes" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "user_id" "uuid" NOT NULL,
+    "number" "text",
+    "series" "text",
+    "access_key" "text",
+    "total_value" numeric(10, 2),
+    "items" "text",
+    "issue_date" timestamp with time zone DEFAULT "now"(),
+    "xml_url" "text",
+    "pdf_url" "text",
+    CONSTRAINT "fiscal_notes_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "fiscal_notes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."fiscal_notes" ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    DROP POLICY IF EXISTS "Users can view own fiscal notes" ON "public"."fiscal_notes";
+    CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id);
+END $$;
+
+-- Admin Mock Function
 CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
@@ -495,8 +488,8 @@ CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.ui
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        O processo automatiza a criação das tabelas e, o mais importante, instala o <strong>Gatilho Automático</strong>. 
-                        Isso garante que quando um usuário cria conta, os dados (CPF, Telefone, Endereço) sejam salvos corretamente, permitindo o login e o boleto.
+                        O processo automatiza a criação das tabelas (incluindo <strong>Contratos</strong> e <strong>Notas Fiscais</strong>) e instala o <strong>Gatilho Automático</strong>.
+                        Isso garante que quando um usuário cria conta, os dados sejam salvos corretamente.
                     </p>
                 </div>
 
@@ -530,7 +523,7 @@ CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.ui
                     {showSql && (
                         <CodeBlock
                             title="SQL Completo de Setup"
-                            explanation="Inclui criação de tabelas, triggers de cadastro e função de busca por CPF/Telefone."
+                            explanation="Inclui criação de tabelas, triggers de cadastro e tabelas de contratos/notas fiscais."
                             code={SETUP_SQL}
                         />
                     )}
