@@ -222,7 +222,8 @@ const PageLoja: React.FC = () => {
         const fetchProducts = async () => {
             try {
                 setIsLoading(true);
-                const response = await fetch('/api/admin/products');
+                // ROTA CORRIGIDA: Usa /api/products em vez de /api/admin/products
+                const response = await fetch('/api/products'); 
                 if (!response.ok) throw new Error('Erro ao carregar produtos.');
                 const data = await response.json();
                 
