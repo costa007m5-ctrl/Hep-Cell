@@ -106,9 +106,7 @@ const AppContent: React.FC = () => {
        if (event === 'SIGNED_OUT') {
          setSession(null);
          setAuthLoading(false);
-       } else if (event === 'TOKEN_REFRESH_ROUTED' || event === 'PASSWORD_RECOVERY') {
-         // Eventos específicos que não necessariamente mudam a sessão imediatamente
-       } else {
+       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
          if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
             setSession(session);
          }
