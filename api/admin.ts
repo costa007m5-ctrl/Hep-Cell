@@ -4,7 +4,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
-import { Buffer } from 'buffer';
 
 // --- Helper Functions ---
 
@@ -334,8 +333,32 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) { const
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSendNotification(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, title, message, type } = req.body; if (!userId || !title || !message) return res.status(400).json({ error: 'Missing required fields' }); await supabase.from('notifications').insert({ user_id: userId, title, message, type: type || 'info' }); res.status(200).json({ message: 'Notificação enviada.' }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateProductDetails(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' }); const { prompt } = req.body; const instruction = `Extract product details from: "${prompt}". Return JSON: {name, description, price, stock, brand, category}.`; try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: instruction, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
-async function handleEditImage(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:'API Key missing'}); const {prompt, imageBase64} = req.body; const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/); if(!match) return res.status(400).json({error:'Invalid image'}); try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash-image', contents: { parts: [{inlineData:{mimeType:match[1], data:match[2]}}, {text:prompt}] } }); const part = response.candidates?.[0]?.content?.parts?.find((p:any)=>p.inlineData); if(part) res.status(200).json({image:`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`}); else throw new Error("No image"); } catch(e:any) { res.status(500).json({error:e.message}); } }
-async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:'API Key missing'}); const {prompt, imageBase64} = req.body; const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/); if(!match) return res.status(400).json({error:'Invalid image'}); try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash-image', contents: { parts: [{text:`Banner e-commerce 16:9 based on this product description: ${prompt}`}] } }); const part = response.candidates?.[0]?.content?.parts?.find((p:any)=>p.inlineData); if(part) res.status(200).json({image:`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`}); else throw new Error("No image"); } catch(e:any) { res.status(500).json({error:e.message}); } }
+async function handleEditImage(req: VercelRequest, res: VercelResponse) { 
+    const genAI = getGeminiClient(); 
+    if(!genAI) return res.status(500).json({error:'API Key missing'}); 
+    const {prompt, imageBase64} = req.body; 
+    const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/); 
+    if(!match) return res.status(400).json({error:'Invalid image'}); 
+    try { 
+        const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash-image', contents: { parts: [{inlineData:{mimeType:match[1], data:match[2]}}, {text:prompt}] } }); 
+        const part = response.candidates?.[0]?.content?.parts?.find((p:any)=>p.inlineData); 
+        if(part && part.inlineData) res.status(200).json({image:`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`}); 
+        else throw new Error("No image"); 
+    } catch(e:any) { res.status(500).json({error:e.message}); } 
+}
+async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) { 
+    const genAI = getGeminiClient(); 
+    if(!genAI) return res.status(500).json({error:'API Key missing'}); 
+    const {prompt, imageBase64} = req.body; 
+    const match = imageBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/); 
+    if(!match) return res.status(400).json({error:'Invalid image'}); 
+    try { 
+        const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash-image', contents: { parts: [{text:`Banner e-commerce 16:9 based on this product description: ${prompt}`}] } }); 
+        const part = response.candidates?.[0]?.content?.parts?.find((p:any)=>p.inlineData); 
+        if(part && part.inlineData) res.status(200).json({image:`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`}); 
+        else throw new Error("No image"); 
+    } catch(e:any) { res.status(500).json({error:e.message}); } 
+}
 async function handleBanners(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data}=await supabase.from('store_banners').select('*'); return res.status(200).json(data); } if(req.method==='POST'){ const {image_base64, prompt, link} = req.body; const {data}=await supabase.from('store_banners').insert({image_url:image_base64, prompt, link}).select(); return res.status(201).json({banner:data}); } if(req.method==='DELETE'){ const {id}=req.body; await supabase.from('store_banners').delete().eq('id',id); return res.status(200).json({message:'Deleted'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleSettings(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data}=await supabase.from('system_settings').select('*'); const s=data?.reduce((acc:any,i:any)=>{acc[i.key]=i.value; return acc;},{}); return res.status(200).json(s); } if(req.method==='POST'){ const {key,value}=req.body; await supabase.from('system_settings').upsert({key,value}); return res.status(200).json({message:'Saved'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); await supabase.rpc('execute_admin_sql',{sql_query:'SELECT 1'}); res.status(200).json({message:'OK'}); }
@@ -345,7 +368,7 @@ async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) 
 async function handleGetLogs(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const {data}=await supabase.from('action_logs').select('*').order('created_at',{ascending:false}); res.status(200).json(data); }
 async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const genAI=getGeminiClient(); const {userId}=req.body; const p=await runCreditAnalysis(supabase,genAI,userId); res.status(200).json({profile:p}); }
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const {data}=await supabase.from('profiles').select('*'); res.status(200).json(data); }
-async function handleDiagnoseError(req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
+async function handleDiagnoseError(_req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) { 
     const { code_challenge } = req.body;
     const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${process.env.ML_CLIENT_ID}&response_type=code&platform_id=mp&state=random_state&redirect_uri=${req.headers.origin}/admin&code_challenge=${code_challenge}&code_challenge_method=S256`;
