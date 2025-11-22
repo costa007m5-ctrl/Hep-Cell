@@ -83,21 +83,29 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
           onReady: () => {
             // Brick carregado
           },
-          onSubmit: (formData: any) => {
+          onSubmit: (cardFormData: any) => {
             // RETORNAR UMA PROMISE É OBRIGATÓRIO PARA O BRICK NÃO TRAVAR
             return new Promise<void>(async (resolve, reject) => {
                 setStatus(PaymentStatus.PENDING);
                 setMessage('');
                 
-                // Garante que a referência externa está presente
-                formData.external_reference = invoice.id;
-                formData.description = `Fatura ${invoice.month}`;
+                // Mapeia os dados do Brick (camelCase) para o formato esperado pela API (snake_case)
+                const payload = {
+                    token: cardFormData.token,
+                    issuer_id: cardFormData.issuerId,
+                    payment_method_id: cardFormData.paymentMethodId,
+                    transaction_amount: invoice.amount, // Usa valor da fatura por segurança
+                    installments: cardFormData.installments,
+                    description: `Fatura ${invoice.month}`,
+                    payer: cardFormData.payer,
+                    external_reference: invoice.id
+                };
 
                 try {
                   const response = await fetch('/api/mercadopago/process-payment', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData),
+                    body: JSON.stringify(payload),
                   });
                   
                   const paymentResult = await response.json();

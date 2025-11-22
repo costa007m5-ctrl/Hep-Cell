@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile, Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -196,11 +197,14 @@ const NewSaleTab: React.FC = () => {
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                // Correção aqui: Adicionando saleType e paymentMethod que faltavam
                 body: JSON.stringify({ 
                     userId: selectedProfile.id, 
-                    totalAmount: totalWithInterest, // Valor COM juros
+                    totalAmount: totalWithInterest, 
                     installments, 
-                    productName: selectedProduct.name 
+                    productName: selectedProduct.name,
+                    saleType: 'direct', // Assumindo venda direta se não for especificado crediário na UI antiga
+                    paymentMethod: 'boleto' // Default para boleto se for admin criando fatura
                 }),
             });
             const result = await response.json();

@@ -161,8 +161,17 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         const client = getMercadoPagoClient();
         const paymentData = req.body;
 
-        // Validação Básica dos Dados Recebidos do Brick
-        if (!paymentData.token || !paymentData.transaction_amount || !paymentData.payer?.email) {
+        // Suporte para ambos camelCase (frontend SDK v2) e snake_case (manual)
+        const token = paymentData.token;
+        const issuerId = paymentData.issuer_id || paymentData.issuerId;
+        const paymentMethodId = paymentData.payment_method_id || paymentData.paymentMethodId;
+        const transactionAmount = Number(paymentData.transaction_amount || paymentData.transactionAmount);
+        const installments = Number(paymentData.installments);
+        const payerEmail = paymentData.payer?.email;
+        const externalReference = String(paymentData.external_reference || paymentData.externalReference || '');
+
+        // Validação Básica
+        if (!token || !transactionAmount || !payerEmail) {
             console.error("Dados incompletos recebidos do frontend:", paymentData);
             return res.status(400).json({ message: 'Dados de pagamento incompletos. Verifique o cartão e tente novamente.' });
         }
@@ -170,22 +179,21 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         const payment = new Payment(client);
         
         // Construção Segura do Payload (Sanitização)
-        // O Brick envia muitos dados, mas precisamos extrair e formatar apenas o necessário para evitar erros de validação da API
         const payload = {
-            token: paymentData.token,
-            issuer_id: paymentData.issuer_id,
-            payment_method_id: paymentData.payment_method_id,
-            transaction_amount: Number(paymentData.transaction_amount),
-            installments: Number(paymentData.installments),
+            token,
+            issuer_id: issuerId,
+            payment_method_id: paymentMethodId,
+            transaction_amount: transactionAmount,
+            installments: installments,
             description: paymentData.description || 'Pagamento Relp Cell',
             payer: {
-                email: paymentData.payer.email,
+                email: payerEmail,
                 identification: paymentData.payer.identification ? {
                     type: paymentData.payer.identification.type,
                     number: paymentData.payer.identification.number
                 } : undefined
             },
-            external_reference: String(paymentData.external_reference || '')
+            external_reference: externalReference
         };
 
         console.log("Processando pagamento Card:", JSON.stringify({ ...payload, token: '***' }));
