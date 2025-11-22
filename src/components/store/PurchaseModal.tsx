@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Profile, Invoice } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
@@ -14,7 +13,9 @@ interface PurchaseModalProps {
     onSuccess: () => void;
 }
 
-type Step = 'config' | 'contract';
+type Step = 'config' | 'contract' | 'summary';
+type SaleType = 'crediario' | 'direct';
+type PaymentMethod = 'pix' | 'boleto' | 'credit_card';
 
 const COMPANY_DATA = {
     razaoSocial: "RELP CELL ELETRONICOS",
@@ -25,6 +26,9 @@ const COMPANY_DATA = {
 
 const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose, onSuccess }) => {
     const [step, setStep] = useState<Step>('config');
+    const [saleType, setSaleType] = useState<SaleType>('crediario');
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
+    
     const [downPayment, setDownPayment] = useState<string>('');
     const [installments, setInstallments] = useState<number>(1);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -34,6 +38,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [totalUsedLimit, setTotalUsedLimit] = useState(0);
     const [isLoadingLimit, setIsLoadingLimit] = useState(true);
+
+    // Verifica se é Cliente Diamante (Score >= 850)
+    const isDiamond = (profile.credit_score || 0) >= 850;
+
+    // Regra de Negócio: Entrada mínima obrigatória para crediário (ex: 15%)
+    const MIN_ENTRY_PERCENTAGE = 0.15;
 
     // Carregar taxa de juros e faturas em aberto
     useEffect(() => {
@@ -69,7 +79,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     }, [profile.id]);
 
     // Constantes
-    const MAX_INSTALLMENTS = 12;
+    const MAX_INSTALLMENTS_CREDIARIO = 12;
+    const MAX_INSTALLMENTS_CARD = 12;
     const creditLimit = profile.credit_limit ?? 0;
     const availableLimit = Math.max(0, creditLimit - totalUsedLimit);
     
@@ -77,50 +88,81 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const downPaymentValue = parseFloat(downPayment) || 0;
     const principalAmount = Math.max(0, product.price - downPaymentValue);
     
+    // Lógica de Juros Dinâmica
+    const currentInterestRate = useMemo(() => {
+        if (saleType === 'crediario') return interestRate;
+        
+        if (saleType === 'direct') {
+            if (paymentMethod === 'credit_card') {
+                // Regra Diamante: Até 4x sem juros. Normal: 1x sem juros (ou taxa padrão a partir de 2x)
+                const interestFreeLimit = isDiamond ? 4 : 1;
+                if (installments <= interestFreeLimit) return 0;
+                return interestRate; // Aplica taxa padrão após o limite sem juros
+            }
+            return 0; // Pix e Boleto à vista (ou com desconto se implementado) sem juros
+        }
+        return 0;
+    }, [saleType, paymentMethod, installments, interestRate, isDiamond]);
+
     const totalFinancedWithInterest = useMemo(() => {
-        if (installments <= 1 || interestRate <= 0) return principalAmount;
-        const rateDecimal = interestRate / 100;
+        if (installments <= 1 || currentInterestRate <= 0) return principalAmount;
+        const rateDecimal = currentInterestRate / 100;
         return principalAmount * Math.pow(1 + rateDecimal, installments);
-    }, [principalAmount, installments, interestRate]);
+    }, [principalAmount, installments, currentInterestRate]);
 
     const installmentValue = totalFinancedWithInterest / installments;
     
-    // BLOQUEIO: Verifica se o valor TOTAL da nova compra cabe no limite disponível
-    // Lógica antiga verificava apenas o valor da parcela individual, permitindo compras infinitas.
-    const isLimitExceeded = totalFinancedWithInterest > availableLimit;
+    // Validações de Crediário
+    const isLimitExceeded = saleType === 'crediario' && totalFinancedWithInterest > availableLimit;
     
-    const suggestion = useMemo(() => {
-        if (!isLimitExceeded) return null;
-        
-        // Quanto falta para caber no limite?
-        // Novo Total Financiado deve ser <= Limite Disponível
-        // (Preço - Entrada) * Juros <= Disponível
-        // Entrada >= Preço - (Disponível / Juros)
-        
-        let minEntry = 0;
+    // Cálculo da Sugestão de Entrada (Mínimo Obrigatório + Ajuste de Limite)
+    const validationStatus = useMemo(() => {
+        if (saleType !== 'crediario') return { isValid: true, message: null, type: 'success' };
+
+        // 1. Regra Obrigatória: Mínimo 15%
+        const mandatoryEntry = product.price * MIN_ENTRY_PERCENTAGE;
+
+        // 2. Regra de Limite: Quanto precisa dar de entrada para o saldo financiado caber no limite
+        let limitGapEntry = 0;
         if (installments > 1 && interestRate > 0) {
              const factor = Math.pow(1 + (interestRate/100), installments);
-             minEntry = product.price - (availableLimit / factor);
+             // Fórmula reversa do juros composto para achar o principal máximo
+             const maxPrincipal = availableLimit / factor;
+             limitGapEntry = product.price - maxPrincipal;
         } else {
-             minEntry = product.price - availableLimit;
+             limitGapEntry = product.price - availableLimit;
         }
-        
-        if (minEntry > 0) {
+
+        // A entrada necessária é o MAIOR valor entre a regra de % e a regra de limite
+        const requiredEntry = Math.max(mandatoryEntry, limitGapEntry);
+
+        if (downPaymentValue < requiredEntry) {
+            const reason = limitGapEntry > mandatoryEntry ? "Limite insuficiente" : "Regra da loja";
             return {
-                type: 'entry',
-                text: `Seu limite disponível é R$ ${availableLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}. Dê uma entrada de R$ ${minEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})} para liberar.`
+                isValid: false,
+                type: 'error',
+                minEntry: requiredEntry,
+                message: `Entrada mínima obrigatória: R$ ${requiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})} (${reason}).`
             };
         }
-        return { type: 'none', text: 'Limite insuficiente. Pague faturas antigas para liberar crédito.' };
-    }, [isLimitExceeded, availableLimit, installments, interestRate, product.price]);
+
+        return { isValid: true, message: 'Entrada aprovada.', type: 'success' };
+
+    }, [saleType, product.price, availableLimit, installments, interestRate, downPaymentValue]);
 
     const handleNextStep = () => {
-        if (isLimitExceeded || principalAmount <= 0) return;
-        setStep('contract');
+        if (saleType === 'crediario' && !validationStatus.isValid) return;
+        if (principalAmount < 0) return;
+        
+        if (saleType === 'crediario') {
+            setStep('contract');
+        } else {
+            setStep('summary');
+        }
     };
 
     const handleConfirmPurchase = async () => {
-        if (!signature || !termsAccepted) {
+        if (saleType === 'crediario' && (!signature || !termsAccepted)) {
             setError('É necessário assinar e aceitar os termos.');
             return;
         }
@@ -136,7 +178,10 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     productName: product.name,
                     totalAmount: totalFinancedWithInterest, 
                     installments: installments,
-                    signature: signature // Envia a assinatura
+                    signature: signature,
+                    saleType: saleType,
+                    paymentMethod: paymentMethod,
+                    downPayment: downPaymentValue // Envia o valor da entrada para registro
                 }),
             });
             const result = await response.json();
@@ -152,53 +197,132 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const renderConfigStep = () => (
         <div className="space-y-6">
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl flex justify-between items-center">
-                <div>
-                    <span className="block text-xs font-medium text-indigo-900 dark:text-indigo-200 uppercase">Limite Disponível</span>
-                    {isLoadingLimit ? <div className="h-4 w-20 bg-indigo-200 dark:bg-indigo-800 rounded animate-pulse mt-1"></div> : (
-                        <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
-                            {availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                    )}
-                </div>
-                <div className="text-right">
-                    <span className="block text-xs text-slate-500 dark:text-slate-400">Total: {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                </div>
+            {/* Abas de Tipo de Venda */}
+            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button 
+                    onClick={() => { setSaleType('crediario'); setInstallments(1); }}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'crediario' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Crediário Próprio
+                </button>
+                <button 
+                    onClick={() => { setSaleType('direct'); setInstallments(1); setDownPayment(''); }}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'direct' ? 'bg-white dark:bg-slate-700 text-green-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    Pagamento Direto
+                </button>
             </div>
+
+            {/* Informações Condicionais */}
+            {saleType === 'crediario' ? (
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl flex justify-between items-center">
+                    <div>
+                        <span className="block text-xs font-medium text-indigo-900 dark:text-indigo-200 uppercase">Limite Disponível</span>
+                        {isLoadingLimit ? <div className="h-4 w-20 bg-indigo-200 dark:bg-indigo-800 rounded animate-pulse mt-1"></div> : (
+                            <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">
+                                {availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                        )}
+                    </div>
+                    <div className="text-right">
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">Total: {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                    </div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-3 gap-2">
+                    <button 
+                        onClick={() => { setPaymentMethod('pix'); setInstallments(1); }}
+                        className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'pix' ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        <span className="text-xs font-bold">Pix</span>
+                    </button>
+                    <button 
+                        onClick={() => { setPaymentMethod('boleto'); setInstallments(1); }}
+                        className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'boleto' ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span className="text-xs font-bold">Boleto</span>
+                    </button>
+                    <button 
+                        onClick={() => setPaymentMethod('credit_card')}
+                        className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === 'credit_card' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                        <span className="text-xs font-bold">Cartão</span>
+                    </button>
+                </div>
+            )}
+
+            {/* Inputs de Valor */}
             <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500 dark:text-slate-400">Valor do Produto</span>
                 <span className="font-medium text-slate-900 dark:text-white">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
             </div>
-            <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Valor da Entrada (R$)</label>
-                <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
-                    <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" />
+            
+            {saleType === 'crediario' && (
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Valor da Entrada (R$)</label>
+                    <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
+                        <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" />
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                 </div>
-                <p className="text-xs text-slate-500 mt-1 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Número de Parcelas (Máx. {MAX_INSTALLMENTS}x)</label>
-                <div className="grid grid-cols-4 gap-2">
-                    {Array.from({ length: MAX_INSTALLMENTS }, (_, i) => i + 1).map((num) => (
-                        <button key={num} onClick={() => setInstallments(num)} className={`py-2 rounded-lg text-sm font-medium transition-all ${installments === num ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-300 dark:ring-indigo-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>{num}x</button>
-                    ))}
+            )}
+
+            {/* Seletor de Parcelas */}
+            {(saleType === 'crediario' || (saleType === 'direct' && paymentMethod === 'credit_card')) && (
+                <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Parcelamento {saleType === 'direct' ? '(Cartão)' : '(Crediário)'}
+                        </label>
+                        {isDiamond && saleType === 'direct' && (
+                            <span className="text-[10px] font-bold bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-2 py-0.5 rounded-full animate-pulse">
+                                💎 Diamante: 4x Sem Juros
+                            </span>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                        {Array.from({ length: saleType === 'direct' ? MAX_INSTALLMENTS_CARD : MAX_INSTALLMENTS_CREDIARIO }, (_, i) => i + 1).map((num) => {
+                            const isInterestFree = saleType === 'direct' && num <= (isDiamond ? 4 : 1);
+                            return (
+                                <button 
+                                    key={num} 
+                                    onClick={() => setInstallments(num)} 
+                                    className={`py-2 rounded-lg text-sm font-medium transition-all relative overflow-hidden ${installments === num ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-300 dark:ring-indigo-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                >
+                                    {num}x
+                                    {isInterestFree && <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500"></div>}
+                                </button>
+                            )
+                        })}
+                    </div>
+                    {currentInterestRate > 0 && installments > 1 && <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">*Inclui juros de {currentInterestRate}% a.m.</p>}
                 </div>
-                {interestRate > 0 && installments > 1 && <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">*Inclui juros de {interestRate}% a.m.</p>}
-            </div>
-            <div className={`p-4 rounded-xl border-2 transition-all ${isLimitExceeded ? 'border-red-100 bg-red-50 dark:bg-red-900/20 dark:border-red-800/50' : 'border-green-100 bg-green-50 dark:bg-green-900/20 dark:border-green-800/50'}`}>
+            )}
+
+            {/* Resumo do Cálculo e Validação */}
+            <div className={`p-4 rounded-xl border-2 transition-all ${!validationStatus.isValid && saleType === 'crediario' ? 'border-red-100 bg-red-50 dark:bg-red-900/20 dark:border-red-800/50' : 'border-green-100 bg-green-50 dark:bg-green-900/20 dark:border-green-800/50'}`}>
                 <div className="flex justify-between items-end">
                     <div>
-                        <p className={`text-sm font-medium ${isLimitExceeded ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>Valor da Parcela</p>
-                        <p className={`text-2xl font-bold ${isLimitExceeded ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                        <p className={`text-sm font-medium ${!validationStatus.isValid && saleType === 'crediario' ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>Valor da Parcela</p>
+                        <p className={`text-2xl font-bold ${!validationStatus.isValid && saleType === 'crediario' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                     </div>
-                    {isLimitExceeded ? <span className="px-2 py-1 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 text-xs rounded-md font-bold">Excede Limite</span> : <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded-md font-bold">Aprovado</span>}
+                    {!validationStatus.isValid && saleType === 'crediario' ? 
+                        <span className="px-2 py-1 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 text-xs rounded-md font-bold">Entrada Insuficiente</span> : 
+                        <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded-md font-bold">Aprovado</span>
+                    }
                 </div>
-                {interestRate > 0 && installments > 1 && <p className="text-xs text-slate-500 mt-2">Total financiado com juros: {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>}
-                {isLimitExceeded && (
+                <div className="flex justify-between items-center mt-2">
+                    <p className="text-xs text-slate-500">Total Final:</p>
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                </div>
+                {!validationStatus.isValid && saleType === 'crediario' && (
                     <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-800/30">
-                        <p className="text-sm text-red-700 dark:text-red-300"><span className="font-bold">Bloqueado:</span> O valor total desta compra excede seu limite disponível.</p>
-                        {suggestion && <p className="text-sm text-red-700 dark:text-red-300 mt-1 font-medium">💡 {suggestion.text}</p>}
+                        <p className="text-sm text-red-700 dark:text-red-300 font-bold">Atenção:</p>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1">{validationStatus.message}</p>
                     </div>
                 )}
             </div>
@@ -208,27 +332,21 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const renderContractStep = () => (
         <div className="space-y-6 flex-1 overflow-y-auto">
             <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 h-64 overflow-y-auto text-xs text-slate-600 dark:text-slate-300 text-justify leading-relaxed font-serif">
-                <h4 className="text-center font-bold text-sm mb-2 uppercase text-slate-900 dark:text-white">Contrato de Confissão de Dívida com Reserva de Domínio</h4>
+                <h4 className="text-center font-bold text-sm mb-2 uppercase text-slate-900 dark:text-white">Contrato de Confissão de Dívida</h4>
                 <p className="mb-2">
-                    <strong>CREDORA:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}, localizada no {COMPANY_DATA.endereco}.
+                    <strong>CREDORA:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}.
                 </p>
                 <p className="mb-2">
                     <strong>DEVEDOR(A):</strong> {profile.first_name} {profile.last_name}, CPF {profile.identification_number}.
                 </p>
                 <p className="mb-2">
-                    <strong>CLÁUSULA 1 - DO OBJETO:</strong> O presente contrato tem como objeto o financiamento para aquisição do produto <strong>{product.name}</strong>, pelo valor total de {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
+                    <strong>CLÁUSULA 1:</strong> Aquisição do produto <strong>{product.name}</strong>, valor total {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
                 </p>
                 <p className="mb-2">
-                    <strong>CLÁUSULA 2 - DA RESERVA DE DOMÍNIO:</strong> Em garantia do cumprimento das obrigações assumidas neste instrumento, fica instituída a RESERVA DE DOMÍNIO em favor da CREDORA sobre o bem objeto deste contrato. A propriedade do bem só será transferida ao DEVEDOR após a quitação integral de todas as parcelas.
-                </p>
-                <p className="mb-2">
-                    <strong>CLÁUSULA 3 - DO PAGAMENTO:</strong> O pagamento será realizado em {installments} parcelas de {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
-                </p>
-                <p className="mb-2">
-                    <strong>CLÁUSULA 4 - DA INADIMPLÊNCIA:</strong> O atraso no pagamento acarretará multa de 2% e juros de mora de 1% ao mês. A falta de pagamento de qualquer parcela autoriza a CREDORA a solicitar a busca e apreensão do bem e o vencimento antecipado de toda a dívida.
+                    <strong>CLÁUSULA 2:</strong> Pagamento em {installments} parcelas de {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
                 </p>
                 <p>
-                    <strong>CLÁUSULA 5 - DO FORO:</strong> As partes elegem o foro da Comarca de Macapá-AP para dirimir quaisquer dúvidas.
+                    <strong>CLÁUSULA 3:</strong> O atraso acarretará multa de 2% e juros de 1% a.m.
                 </p>
             </div>
 
@@ -246,9 +364,39 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
                 />
                 <label htmlFor="terms" className="text-xs text-slate-600 dark:text-slate-400">
-                    Li e concordo com os termos do contrato de Crediário, incluindo a cláusula de Reserva de Domínio e as penalidades por atraso.
+                    Li e concordo com os termos do contrato de Crediário.
                 </label>
             </div>
+        </div>
+    );
+
+    const renderSummaryStep = () => (
+        <div className="space-y-6 flex-1">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 text-center">
+                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Resumo do Pedido</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{product.name}</p>
+                
+                <div className="mt-6 space-y-3 text-sm">
+                    <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+                        <span className="text-slate-500">Método</span>
+                        <span className="font-bold text-slate-800 dark:text-white capitalize">{paymentMethod.replace('_', ' ')}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+                        <span className="text-slate-500">Parcelas</span>
+                        <span className="font-bold text-slate-800 dark:text-white">{installments}x</span>
+                    </div>
+                    <div className="flex justify-between pt-2">
+                        <span className="text-slate-500">Total</span>
+                        <span className="font-black text-lg text-indigo-600 dark:text-indigo-400">{totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                    </div>
+                </div>
+            </div>
+            <p className="text-xs text-center text-slate-500">
+                Ao confirmar, você será redirecionado para a finalização do pagamento seguro.
+            </p>
         </div>
     );
 
@@ -259,7 +407,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                            {step === 'config' ? 'Simular Compra' : 'Contrato Digital'}
+                            {step === 'config' ? 'Configurar Compra' : step === 'contract' ? 'Contrato Digital' : 'Confirmar Pedido'}
                         </h2>
                         <p className="text-sm text-slate-500 dark:text-slate-400">{product.name}</p>
                     </div>
@@ -270,34 +418,39 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
                 {/* Content */}
                 <div className="p-6 overflow-y-auto flex-1">
-                    {step === 'config' ? renderConfigStep() : renderContractStep()}
+                    {step === 'config' && renderConfigStep()}
+                    {step === 'contract' && renderContractStep()}
+                    {step === 'summary' && renderSummaryStep()}
                     {error && <div className="mt-4"><Alert message={error} type="error" /></div>}
                 </div>
 
                 {/* Footer Actions */}
                 <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 rounded-b-2xl flex gap-3">
-                    {step === 'contract' && (
-                        <button onClick={() => setStep('config')} disabled={isProcessing} className="flex-1 py-3 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl font-bold">
+                    {step !== 'config' && (
+                        <button onClick={() => setStep('config')} disabled={isProcessing} className="flex-1 py-3 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-100 dark:hover:bg-slate-800">
                             Voltar
                         </button>
                     )}
                     
                     {step === 'config' ? (
-                        <button onClick={handleNextStep} disabled={isLimitExceeded || principalAmount <= 0 || isLoadingLimit} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]">
+                        <button 
+                            onClick={handleNextStep} 
+                            disabled={(saleType === 'crediario' && !validationStatus.isValid) || principalAmount <= 0 || isLoadingLimit} 
+                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                        >
                             {isLoadingLimit ? <LoadingSpinner /> : 'Continuar'}
                         </button>
                     ) : (
-                        <button onClick={handleConfirmPurchase} disabled={isProcessing || !signature || !termsAccepted} className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-green-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] flex justify-center items-center gap-2">
+                        <button onClick={handleConfirmPurchase} disabled={isProcessing || (step === 'contract' && (!signature || !termsAccepted))} className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-green-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] flex justify-center items-center gap-2">
                             {isProcessing ? <LoadingSpinner /> : (
                                 <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                    Assinar e Finalizar
+                                    {step === 'contract' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                                    {step === 'contract' ? 'Assinar e Finalizar' : 'Confirmar e Pagar'}
                                 </>
                             )}
                         </button>
                     )}
                 </div>
-                {step === 'config' && principalAmount <= 0 && <p className="pb-4 text-xs text-center text-red-500">O valor financiado deve ser maior que zero.</p>}
             </div>
         </div>
     );
