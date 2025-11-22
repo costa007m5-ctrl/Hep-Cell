@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Profile, Invoice } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
@@ -181,7 +182,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     signature: signature,
                     saleType: saleType,
                     paymentMethod: paymentMethod,
-                    downPayment: downPaymentValue // Envia o valor da entrada para registro
+                    downPayment: downPaymentValue 
                 }),
             });
             const result = await response.json();
@@ -394,9 +395,16 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     </div>
                 </div>
             </div>
-            <p className="text-xs text-center text-slate-500">
-                Ao confirmar, você será redirecionado para a finalização do pagamento seguro.
-            </p>
+            
+            {/* Mensagem informativa para pagamento direto */}
+            {saleType === 'direct' && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 flex gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                    <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
+                        Ao confirmar, sua fatura será criada imediatamente. Você poderá visualizar o código Pix ou Boleto na aba <strong>Faturas</strong>.
+                    </p>
+                </div>
+            )}
         </div>
     );
 
@@ -445,7 +453,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                             {isProcessing ? <LoadingSpinner /> : (
                                 <>
                                     {step === 'contract' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                                    {step === 'contract' ? 'Assinar e Finalizar' : 'Confirmar e Pagar'}
+                                    {step === 'contract' ? 'Assinar e Finalizar' : 'Finalizar Pedido'}
                                 </>
                             )}
                         </button>

@@ -40,6 +40,7 @@ interface ProductGroup {
     nextDueDate: string | null;
     status: 'active' | 'completed' | 'late';
     invoices: Invoice[];
+    isDirectSale?: boolean;
 }
 
 // --- Icons ---
@@ -348,7 +349,7 @@ const PurchaseGroupCard: React.FC<{
                         <div>
                             <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base line-clamp-1">{group.name}</h3>
                             <p className={`text-xs ${hasLate ? 'text-red-500 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-                                {isCompleted ? 'Finalizado' : hasLate ? 'Pagamento Atrasado' : `${group.paidInstallments}/${group.totalInstallments} parcelas pagas`}
+                                {isCompleted ? 'Finalizado' : hasLate ? 'Pagamento Atrasado' : group.isDirectSale ? 'Compra Direta' : `${group.paidInstallments}/${group.totalInstallments} parcelas pagas`}
                             </p>
                         </div>
                     </div>
@@ -357,27 +358,29 @@ const PurchaseGroupCard: React.FC<{
                     </div>
                 </div>
 
-                {/* Progress Bar */}
-                <div className="w-full space-y-1">
-                    <div className="flex justify-between text-xs font-medium">
-                         <span className={`${hasLate ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{Math.round(progressPercent)}% pago</span>
-                         {!isCompleted && <span className="text-slate-500">Resta {group.remainingAmount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>}
+                {/* Progress Bar - Hide for direct sale if it only has 1 item */}
+                {!(group.isDirectSale && group.totalInstallments === 1) && (
+                    <div className="w-full space-y-1">
+                        <div className="flex justify-between text-xs font-medium">
+                             <span className={`${hasLate ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{Math.round(progressPercent)}% pago</span>
+                             {!isCompleted && <span className="text-slate-500">Resta {group.remainingAmount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>}
+                        </div>
+                        <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div 
+                                className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : hasLate ? 'bg-red-500' : 'bg-indigo-600'}`} 
+                                style={{ width: `${progressPercent}%` }}
+                            />
+                        </div>
                     </div>
-                    <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div 
-                            className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : hasLate ? 'bg-red-500' : 'bg-indigo-600'}`} 
-                            style={{ width: `${progressPercent}%` }}
-                        />
-                    </div>
-                </div>
+                )}
             </button>
 
             {isOpen && (
                 <div className="px-4 pb-4 pt-0 animate-fade-in">
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
                         <div className="flex justify-between items-center mb-2">
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Parcelas</p>
-                            {!isCompleted && (
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Faturas</p>
+                            {!isCompleted && !group.isDirectSale && (
                                 <span className="text-[10px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded">
                                     Selecione para antecipar
                                 </span>
@@ -390,7 +393,7 @@ const PurchaseGroupCard: React.FC<{
                                 onPay={onPay} 
                                 onDetails={onDetails}
                                 onReceipt={onReceipt}
-                                selectable={!isCompleted}
+                                selectable={!isCompleted && !group.isDirectSale}
                                 isSelected={selectedIds.has(invoice.id)}
                                 onSelect={handleToggleSelect}
                             />
@@ -451,22 +454,33 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 
     const groupedInvoices = useMemo(() => {
+        // Agrupamento usando Nome + Data de Criação (precisão de minutos para agrupar lote)
+        // Isso separa compras do mesmo produto feitas em dias diferentes
         const groups: Record<string, ProductGroup> = {};
         
         invoices.forEach(inv => {
-            let groupName = inv.month;
+            // Extrai nome base removendo sufixo de parcela (1/10)
+            let baseName = inv.month;
             const match = inv.month.match(/^(.*?)\s*\(\d+\/\d+\)$/);
             if (match) {
-                groupName = match[1].trim();
+                baseName = match[1].trim();
             } else if (inv.notes && inv.notes.includes('Referente a compra de')) {
                  const noteMatch = inv.notes.match(/Referente a compra de (.*?) parcelada/);
-                 if (noteMatch) groupName = noteMatch[1].trim();
+                 if (noteMatch) baseName = noteMatch[1].trim();
             }
 
-            if (!groups[groupName]) {
-                groups[groupName] = {
-                    id: groupName,
-                    name: groupName,
+            // Cria chave única usando Nome + Timestamp de criação
+            // Se created_at não existir (dados antigos), usa apenas o nome
+            const creationTime = inv.created_at ? new Date(inv.created_at).getTime() : 0;
+            // Agrupa se criado dentro de um intervalo de 5 segundos (para garantir que o lote da mesma compra fique junto)
+            // ou usa o ID exato se disponível. Como não temos SaleID, usamos o tempo aproximado.
+            const timeKey = Math.floor(creationTime / 5000); 
+            const groupKey = `${baseName}_${timeKey}`;
+
+            if (!groups[groupKey]) {
+                groups[groupKey] = {
+                    id: groupKey,
+                    name: baseName,
                     totalAmount: 0,
                     remainingAmount: 0,
                     paidAmount: 0,
@@ -474,11 +488,12 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     paidInstallments: 0,
                     nextDueDate: null,
                     status: 'completed',
-                    invoices: []
+                    invoices: [],
+                    isDirectSale: !inv.month.includes('(') // Se não tem (1/10), assume venda direta ou parcela única
                 };
             }
             
-            const g = groups[groupName];
+            const g = groups[groupKey];
             g.invoices.push(inv);
             g.totalAmount += inv.amount;
             g.totalInstallments++;
@@ -669,7 +684,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                                 <PurchaseGroupCard 
                                     key={group.id} 
                                     group={group} 
-                                    isOpenDefault={group.status === 'late'}
+                                    isOpenDefault={group.status === 'late' || group.isDirectSale} // Auto open direct sales
                                     onPay={(i) => { setSelectedInvoice(i); setPaymentStep('select_method'); }}
                                     onDetails={handleViewDetails}
                                     onReceipt={generateReceipt}

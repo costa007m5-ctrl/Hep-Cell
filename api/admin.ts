@@ -326,10 +326,89 @@ async function handleSupportChat(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment } = req.body;
+        
+        if (!userId || !totalAmount || !installments || !productName) {
+            return res.status(400).json({ error: 'Missing required sale data.' });
+        }
+
+        const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
+        const newInvoices = [];
+        const today = new Date();
+        // Importante: Fixar o timestamp de criação para agrupar corretamente as parcelas da MESMA venda
+        const purchaseTimestamp = new Date().toISOString();
+
+        for (let i = 1; i <= installments; i++) {
+            const dueDate = new Date(today);
+            dueDate.setMonth(today.getMonth() + i);
+            
+            // Se for venda direta (1x), não precisa de "(1/1)" no nome
+            const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`;
+            const notes = saleType === 'direct' 
+                ? `Compra direta via ${paymentMethod}.` 
+                : `Referente a compra de ${productName} parcelada em ${installments}x.`;
+
+            newInvoices.push({
+                user_id: userId,
+                month: monthLabel,
+                due_date: dueDate.toISOString().split('T')[0],
+                amount: installmentAmount,
+                status: 'Em aberto',
+                notes: notes,
+                created_at: purchaseTimestamp // Agrupador crítico
+            });
+        }
+
+        const { error } = await supabase.from('invoices').insert(newInvoices);
+        if (error) throw error;
+
+        // Apenas cria contrato se for crediário
+        if (saleType === 'crediario') {
+            const { error: contractError } = await supabase.from('contracts').insert({
+                user_id: userId,
+                title: 'Contrato de Crediário (CDCI) - Relp Cell',
+                items: productName,
+                total_value: totalAmount,
+                installments: installments,
+                status: 'Ativo',
+                signature_data: signature || null,
+                terms_accepted: true,
+                created_at: purchaseTimestamp
+            });
+            if (contractError) console.error("Erro ao salvar contrato:", contractError);
+        }
+
+        // Nota Fiscal (Opcional simulação)
+        const nfeNumber = Math.floor(Math.random() * 1000000).toString().padStart(9, '0');
+        const accessKey = Array.from({length: 44}, () => Math.floor(Math.random() * 10)).join('');
+        
+        await supabase.from('fiscal_notes').insert({
+            user_id: userId,
+            number: nfeNumber,
+            series: '1',
+            access_key: accessKey,
+            total_value: totalAmount,
+            items: productName,
+            issue_date: purchaseTimestamp,
+            pdf_url: `https://relpcell.com/nfe/${accessKey}.pdf`
+        });
+
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId}. Tipo: ${saleType || 'Crediário'}. Total: ${totalAmount}`);
+        
+        res.status(201).json({ message: 'Venda registrada com sucesso.' });
+
+    } catch (error: any) {
+        await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body });
+        res.status(500).json({ error: error.message });
+    }
+}
+
 // Simplified handlers from before...
 async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
-async function handleCreateSale(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, totalAmount, installments, productName, signature } = req.body; if (!userId || !totalAmount || !installments || !productName) return res.status(400).json({ error: 'Missing required sale data.' }); const installmentAmount = Math.round((totalAmount / installments) * 100) / 100; const newInvoices = []; const today = new Date(); for (let i = 1; i <= installments; i++) { const dueDate = new Date(today); dueDate.setMonth(today.getMonth() + i); newInvoices.push({ user_id: userId, month: `${productName} (${i}/${installments})`, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: 'Em aberto', notes: `Referente a compra de ${productName} parcelada em ${installments}x.` }); } const { error } = await supabase.from('invoices').insert(newInvoices); if (error) throw error; const { error: contractError } = await supabase.from('contracts').insert({ user_id: userId, title: 'Contrato de Crediário (CDCI) - Relp Cell', items: productName, total_value: totalAmount, installments: installments, status: 'Ativo', signature_data: signature || null, terms_accepted: true }); if (contractError) console.error("Erro ao salvar contrato:", contractError); const nfeNumber = Math.floor(Math.random() * 1000000).toString().padStart(9, '0'); const accessKey = Array.from({length: 44}, () => Math.floor(Math.random() * 10)).join(''); const { error: nfError } = await supabase.from('fiscal_notes').insert({ user_id: userId, number: nfeNumber, series: '1', access_key: accessKey, total_value: totalAmount, items: productName, issue_date: new Date().toISOString(), pdf_url: `https://relpcell.com/nfe/${accessKey}.pdf` }); if (nfError) console.error("Erro ao salvar Nota Fiscal:", nfError); await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId} em ${installments} parcelas. Valor total: ${totalAmount}`); res.status(201).json({ message: 'Venda criada, faturas geradas, contrato e nota fiscal emitidos.' }); } catch (error: any) { await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body }); res.status(500).json({ error: error.message }); } }
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSendNotification(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, title, message, type } = req.body; if (!userId || !title || !message) return res.status(400).json({ error: 'Missing required fields' }); await supabase.from('notifications').insert({ user_id: userId, title, message, type: type || 'info' }); res.status(200).json({ message: 'Notificação enviada.' }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateProductDetails(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' }); const { prompt } = req.body; const instruction = `Extract product details from: "${prompt}". Return JSON: {name, description, price, stock, brand, category}.`; try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: instruction, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
