@@ -358,7 +358,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 amount: installmentAmount,
                 status: 'Em aberto',
                 notes: notes,
-                created_at: purchaseTimestamp // Agrupador crítico
+                created_at: purchaseTimestamp, // Agrupador crítico
+                payment_method: saleType === 'direct' ? paymentMethod : null // Salva o método escolhido se for venda direta
             });
         }
 

@@ -225,6 +225,67 @@ const MercadoPagoIntegration: React.FC = () => {
     )
 }
 
+const InvoiceCheckTester: React.FC = () => {
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<{message: string} | null>(null);
+
+    const handleCheck = async () => {
+        setLoading(true);
+        setResult(null);
+        try {
+            const res = await fetch('/api/cron', { method: 'POST' });
+            const data = await res.json();
+            
+            let msg = "";
+            if (data.success) {
+                msg = `Sucesso! ${data.notifications} notificações enviadas e ${data.emails} emails simulados.`;
+            } else {
+                msg = data.message || data.error || "Erro desconhecido";
+            }
+            setResult({ message: msg });
+        } catch (e: any) {
+            setResult({ message: "Erro de conexão: " + e.message });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <section>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Automação de Cobrança</h2>
+            <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 space-y-4">
+                <div className="flex items-start gap-3">
+                    <div className="p-2 bg-indigo-100 dark:bg-indigo-800 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600 dark:text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-slate-900 dark:text-white">Verificador de Vencimentos (Cron Job)</h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                            Esta rotina roda automaticamente todos os dias às 09:00 para enviar avisos de faturas que vencem hoje ou em 3 dias.
+                        </p>
+                    </div>
+                </div>
+                
+                <div className="pt-2">
+                    <button 
+                        onClick={handleCheck} 
+                        disabled={loading}
+                        className="w-full sm:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-bold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        {loading ? <LoadingSpinner /> : 'Executar Verificação Agora'}
+                    </button>
+                </div>
+
+                {result && (
+                    <div className="mt-2 p-3 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 animate-fade-in">
+                        <p className="text-sm font-mono">{result.message}</p>
+                    </div>
+                )}
+            </div>
+        </section>
+    );
+};
+
 
 const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
@@ -426,6 +487,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                     />
                 </div>
             </section>
+
+            <InvoiceCheckTester />
 
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração de Recuperação de Senha</h2>

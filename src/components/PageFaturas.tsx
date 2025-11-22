@@ -254,7 +254,7 @@ const InvoiceItemRow: React.FC<{
     const isPaid = invoice.status === 'Paga';
     const isLate = !isPaid && dueDateObj < new Date();
     const hasPendingPix = invoice.payment_method === 'pix' && invoice.payment_code && invoice.status === 'Em aberto';
-    const hasPendingBoleto = invoice.status === 'Boleto Gerado';
+    const hasPendingBoleto = invoice.status === 'Boleto Gerado' || (invoice.payment_method === 'boleto' && invoice.status === 'Em aberto');
     
     const installmentMatch = invoice.month.match(/\((\d+)\/\d+\)/);
     const installmentNum = installmentMatch ? `${installmentMatch[1]}ª` : '';
@@ -614,10 +614,37 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const handleViewDetails = (invoice: Invoice) => {
         setSelectedInvoice(invoice);
-        if (invoice.status === 'Boleto Gerado') {
-            setPaymentStep('boleto_details');
-        } else if (invoice.payment_method === 'pix' && invoice.payment_code) {
+        if (invoice.status === 'Boleto Gerado' || (invoice.payment_method === 'boleto' && invoice.status === 'Em aberto')) {
+            // Se já foi gerado mas está em aberto ou se é "boleto" e está em aberto (compra direta), vamos para gerar/ver boleto
+            // Se o status for "Boleto Gerado", vai para detalhes. Se for só "Em aberto" mas com método boleto, vai para gerar.
+            // Para simplificar a UX, se tiver url salva, vai para detalhes.
+            if (invoice.boleto_url) {
+                setPaymentStep('boleto_details');
+            } else {
+                setPaymentStep('pay_boleto');
+            }
+        } else if (invoice.payment_method === 'pix' && invoice.status === 'Em aberto') {
             setPaymentStep('pay_pix');
+        } else {
+            // Fallback
+            setPaymentStep('select_method');
+        }
+    };
+
+    // Logica de pagamento (Click no botão Pagar)
+    const handlePayClick = (invoice: Invoice) => {
+        setSelectedInvoice(invoice);
+        // Se a fatura já tem um método de pagamento definido na criação (venda direta), forçar esse fluxo.
+        if (invoice.payment_method === 'boleto') {
+            if (invoice.boleto_url) setPaymentStep('boleto_details');
+            else setPaymentStep('pay_boleto');
+        } else if (invoice.payment_method === 'pix') {
+            setPaymentStep('pay_pix');
+        } else if (invoice.payment_method === 'credit_card') {
+            setPaymentStep('pay_card');
+        } else {
+            // Se não tiver método definido (crediário antigo ou genérico), permite escolher
+            setPaymentStep('select_method');
         }
     };
 
@@ -685,7 +712,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                                     key={group.id} 
                                     group={group} 
                                     isOpenDefault={group.status === 'late' || group.isDirectSale} // Auto open direct sales
-                                    onPay={(i) => { setSelectedInvoice(i); setPaymentStep('select_method'); }}
+                                    onPay={handlePayClick}
                                     onDetails={handleViewDetails}
                                     onReceipt={generateReceipt}
                                     onSelectMultiple={(ids) => { 

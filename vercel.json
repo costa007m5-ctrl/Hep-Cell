@@ -1,4 +1,3 @@
-
 {
   "functions": {
     "api/admin.ts": {
@@ -15,14 +14,25 @@
     },
     "api/shopee.ts": {
       "memory": 1024
+    },
+    "api/cron.ts": {
+      "memory": 1024,
+      "maxDuration": 10
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "0 9 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/api/admin/:path*", "destination": "/api/admin" },
     { "source": "/api/mercadopago/:path*", "destination": "/api/mercadopago" },
     { "source": "/api/products", "destination": "/api/products" },
     { "source": "/api/ml-item", "destination": "/api/ml-item" },
     { "source": "/api/shopee", "destination": "/api/shopee" },
+    { "source": "/api/cron", "destination": "/api/cron" },
     { "source": "/((?!api/|_next/|assets/|static/|icons/|sw.js|manifest.json).*)", "destination": "/index.html" }
   ]
 }
