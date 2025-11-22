@@ -347,9 +347,15 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             
             // Se for venda direta (1x), não precisa de "(1/1)" no nome
             const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`;
-            const notes = saleType === 'direct' 
+            
+            let notes = saleType === 'direct' 
                 ? `Compra direta via ${paymentMethod}.` 
                 : `Referente a compra de ${productName} parcelada em ${installments}x.`;
+
+            // CORREÇÃO TS6133: Usando a variável downPayment
+            if (downPayment && Number(downPayment) > 0) {
+                notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+            }
 
             newInvoices.push({
                 user_id: userId,

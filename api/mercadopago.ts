@@ -154,14 +154,14 @@ async function handleGenerateMessage(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- Handler para /api/mercadopago/process-payment (Brick) ---
+// --- Handler para /api/mercadopago/process-payment (Card Form) ---
 async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = getMercadoPagoClient();
         const paymentData = req.body;
 
-        // Suporte para ambos camelCase (frontend SDK v2) e snake_case (manual)
+        // Suporte robusto para camelCase (SDK JS v2) e snake_case
         const token = paymentData.token;
         const issuerId = paymentData.issuer_id || paymentData.issuerId;
         const paymentMethodId = paymentData.payment_method_id || paymentData.paymentMethodId;
@@ -171,7 +171,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         const externalReference = String(paymentData.external_reference || paymentData.externalReference || '');
 
         // Validação Básica
-        if (!token || !transactionAmount || !payerEmail) {
+        if (!token || !transactionAmount || !payerEmail || !paymentMethodId) {
             console.error("Dados incompletos recebidos do frontend:", paymentData);
             return res.status(400).json({ message: 'Dados de pagamento incompletos. Verifique o cartão e tente novamente.' });
         }

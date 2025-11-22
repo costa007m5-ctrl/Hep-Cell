@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
 import { supabase } from '../services/clients';
@@ -22,12 +22,8 @@ interface PaymentFormProps {
 const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack, onPaymentSuccess }) => {
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
   const [payerEmail, setPayerEmail] = useState<string>('');
   
-  const paymentBrickRef = useRef<HTMLDivElement>(null);
-  const brickInstance = useRef<any>(null);
-
   // Busca email do usuário logado
   useEffect(() => {
     const fetchUser = async () => {
@@ -35,141 +31,103 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         if (user && user.email) {
             setPayerEmail(user.email);
         } else {
-            // Fallback para evitar erro se o email demorar a carregar
             setPayerEmail('cliente@relpcell.com');
         }
-        setIsLoading(false); // Libera o carregamento inicial após obter o email
     };
     fetchUser();
   }, []);
 
-  // Inicializa o Payment Brick DIRETAMENTE (Sem Create Preference)
   useEffect(() => {
-    if (!isLoading && payerEmail && mpPublicKey && paymentBrickRef.current) {
-      // Limpa instância anterior se houver
-      if (brickInstance.current) {
-          brickInstance.current.unmount();
-      }
+    if (!payerEmail || !mpPublicKey) return;
 
-      const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
-      const bricks = mp.bricks();
-
-      const settings = {
-        initialization: {
-          amount: invoice.amount, // Valor direto
-          payer: {
-            email: payerEmail,
-          },
-          externalReference: invoice.id,
+    const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
+    
+    // Inicializa o CardForm
+    const cardForm = mp.cardForm({
+      amount: String(invoice.amount),
+      iframe: true,
+      form: {
+        id: "form-checkout",
+        cardNumber: { id: "form-checkout__cardNumber", placeholder: "Número do cartão" },
+        expirationDate: { id: "form-checkout__expirationDate", placeholder: "MM/YY" },
+        securityCode: { id: "form-checkout__securityCode", placeholder: "CVC" },
+        cardholderName: { id: "form-checkout__cardholderName", placeholder: "Titular do cartão" },
+        issuer: { id: "form-checkout__issuer", placeholder: "Banco emissor" },
+        installments: { id: "form-checkout__installments", placeholder: "Parcelas" },
+        identificationType: { id: "form-checkout__identificationType", placeholder: "Tipo de documento" },
+        identificationNumber: { id: "form-checkout__identificationNumber", placeholder: "Número do documento" },
+        cardholderEmail: { id: "form-checkout__cardholderEmail", placeholder: "E-mail" },
+      },
+      callbacks: {
+        onFormMounted: (error: any) => {
+          if (error) return console.warn("Erro ao montar formulário:", error);
         },
-        customization: {
-          visual: {
-            style: {
-              theme: 'default',
-            },
-            hidePaymentButton: false, 
-          },
-          paymentMethods: {
-            ticket: [],         // Oculta Boleto (usamos componente separado)
-            bankTransfer: [],   // Oculta Pix (usamos componente separado)
-            atm: [],           
-            creditCard: 'all',
-            debitCard: 'all',
-            mercadoPago: 'all',
-            maxInstallments: 12,
-          },
+        onSubmit: (event: any) => {
+          event.preventDefault();
+          setStatus(PaymentStatus.PENDING);
+          setMessage('');
+
+          const {
+            paymentMethodId,
+            issuerId,
+            cardholderEmail,
+            amount,
+            token,
+            installments,
+            identificationNumber,
+            identificationType,
+          } = cardForm.getCardFormData();
+
+          // Envia para o backend
+          fetch('/api/mercadopago/process-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                token,
+                issuerId,
+                paymentMethodId,
+                transactionAmount: Number(amount),
+                installments: Number(installments),
+                description: `Fatura ${invoice.month}`,
+                payer: {
+                  email: cardholderEmail || payerEmail,
+                  identification: { type: identificationType, number: identificationNumber }
+                },
+                externalReference: invoice.id
+            }),
+          })
+          .then(async (response) => {
+              const result = await response.json();
+              if (!response.ok) throw new Error(result.message || 'Erro ao processar pagamento.');
+              
+              if (result.status === 'approved') {
+                  const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
+                  setMessage(successMsg);
+                  setStatus(PaymentStatus.SUCCESS);
+                  setTimeout(() => onPaymentSuccess(result.id), 4000);
+              } else if (result.status === 'in_process') {
+                  setMessage("Seu pagamento está em análise.");
+                  setStatus(PaymentStatus.SUCCESS);
+                  setTimeout(() => onPaymentSuccess(result.id), 4000);
+              } else {
+                  throw new Error(result.message || 'Pagamento recusado.');
+              }
+          })
+          .catch((error: any) => {
+              console.error('Erro:', error);
+              setStatus(PaymentStatus.ERROR);
+              setMessage(error.message || 'Erro ao processar. Verifique os dados.');
+          });
         },
-        callbacks: {
-          onReady: () => {
-            // Brick carregado
-          },
-          onSubmit: (cardFormData: any) => {
-            // RETORNAR UMA PROMISE É OBRIGATÓRIO PARA O BRICK NÃO TRAVAR
-            return new Promise<void>(async (resolve, reject) => {
-                setStatus(PaymentStatus.PENDING);
-                setMessage('');
-                
-                // Mapeia os dados do Brick (camelCase) para o formato esperado pela API (snake_case)
-                const payload = {
-                    token: cardFormData.token,
-                    issuer_id: cardFormData.issuerId,
-                    payment_method_id: cardFormData.paymentMethodId,
-                    transaction_amount: invoice.amount, // Usa valor da fatura por segurança
-                    installments: cardFormData.installments,
-                    description: `Fatura ${invoice.month}`,
-                    payer: cardFormData.payer,
-                    external_reference: invoice.id
-                };
-
-                try {
-                  const response = await fetch('/api/mercadopago/process-payment', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                  });
-                  
-                  const paymentResult = await response.json();
-
-                  if (!response.ok) {
-                     // Se der erro 400/500, lançamos erro para cair no catch
-                     throw new Error(paymentResult.message || 'O pagamento foi recusado.');
-                  }
-
-                  if (paymentResult.status === 'approved') {
-                    // Pagamento Aprovado
-                    const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
-                    setMessage(successMsg);
-                    setStatus(PaymentStatus.SUCCESS);
-                    setTimeout(() => {
-                      onPaymentSuccess(paymentResult.id);
-                    }, 4000);
-                    resolve();
-                  } else if (paymentResult.status === 'in_process') {
-                     // Pagamento em Análise
-                     setMessage("Seu pagamento está em análise. Você será notificado em breve.");
-                     setStatus(PaymentStatus.SUCCESS);
-                     setTimeout(() => {
-                        onPaymentSuccess(paymentResult.id);
-                     }, 4000);
-                     resolve();
-                  } else {
-                     // Recusado pelo banco (mas API retornou 200)
-                     throw new Error(paymentResult.message || 'Pagamento não aprovado.');
-                  }
-                } catch (error: any) {
-                  console.error('Erro no processamento:', error);
-                  setStatus(PaymentStatus.ERROR);
-                  setMessage(error.message || 'Erro ao processar pagamento. Verifique os dados do cartão.');
-                  // IMPORTANTE: Rejeitar a promise avisa o Brick que houve erro
-                  reject();
-                }
-            });
-          },
-          onError: (error: any) => {
-            console.error('Payment Brick Error:', error);
-            setStatus(PaymentStatus.ERROR);
-            setMessage('Ocorreu um erro técnico na conexão com o Mercado Pago.');
-          },
-        },
-      };
-
-      bricks.create('payment', paymentBrickRef.current.id, settings)
-        .then((brick: any) => {
-          brickInstance.current = brick;
-        })
-        .catch((err: any) => {
-            console.error("Erro ao criar Brick:", err);
-            setStatus(PaymentStatus.ERROR);
-            setMessage("Erro ao carregar o formulário de pagamento. Verifique sua conexão.");
-        });
-    }
-
-    return () => {
-        if (brickInstance.current) {
-          brickInstance.current.unmount();
+        onFetching: (resource: string) => {
+           // Pode usar para mostrar loading em campos específicos se necessário
         }
-    };
-  }, [isLoading, payerEmail, mpPublicKey, invoice.amount, invoice.id, onPaymentSuccess]);
+      }
+    });
+  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess]);
+
+  const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
+  const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
 
   const renderContent = () => {
     if (status === PaymentStatus.PENDING) {
@@ -177,9 +135,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             <div className="flex flex-col items-center justify-center p-8 space-y-4 min-h-[300px]">
                 <LoadingSpinner />
                 <p className="text-slate-600 dark:text-slate-300 font-medium">Processando pagamento...</p>
-                <p className="text-xs text-slate-400">Aguarde a confirmação do banco.</p>
+                <p className="text-xs text-slate-400">Não feche esta janela.</p>
             </div>
-        )
+        );
     }
 
     if (status === PaymentStatus.SUCCESS) {
@@ -191,41 +149,73 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     }
 
     return (
-        <div className="relative w-full">
-            {isLoading && (
-                <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center p-8 z-20 rounded-lg">
-                    <LoadingSpinner />
-                    <p className="text-slate-500 dark:text-slate-400 mt-4">Carregando...</p>
-                </div>
-            )}
+        <form id="form-checkout" className="space-y-4">
+            {status === PaymentStatus.ERROR && <Alert message={message} type="error" />}
             
-            {status === PaymentStatus.ERROR && (
-                <div className="mb-4 animate-fade-in">
-                    <Alert message={message} type="error" />
-                </div>
-            )}
+            <div>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão</label>
+                <div id="form-checkout__cardNumber" className={containerStyle}></div>
+            </div>
 
-            <div id="paymentBrick_container" ref={paymentBrickRef} className="w-full min-h-[450px]"></div>
-        </div>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Validade</label>
+                    <div id="form-checkout__expirationDate" className={containerStyle}></div>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">CVV</label>
+                    <div id="form-checkout__securityCode" className={containerStyle}></div>
+                </div>
+            </div>
+
+            <div>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Titular do Cartão</label>
+                <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Como no cartão" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 hidden">
+                 {/* Ocultos pois o SDK controla, mas precisam existir no DOM */}
+                <select id="form-checkout__issuer" className={inputStyle}></select>
+                <select id="form-checkout__identificationType" className={inputStyle}></select>
+            </div>
+
+            <div>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">CPF do Titular</label>
+                <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="000.000.000-00" />
+            </div>
+
+            <div>
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parcelas</label>
+                <select id="form-checkout__installments" className={inputStyle}></select>
+            </div>
+
+            <input type="email" id="form-checkout__cardholderEmail" value={payerEmail} readOnly className="hidden" />
+
+            <div className="pt-4">
+                <button type="submit" id="form-checkout__submit" className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg transition-colors">
+                    Pagar R$ {invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </button>
+            </div>
+        </form>
     );
   };
 
   return (
     <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-lg transform transition-all animate-fade-in overflow-hidden">
        <div className="text-center p-6 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Pagamento via Cartão</h2>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cartão de Crédito</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Fatura de {invoice.month} - <span className="font-bold text-indigo-600 dark:text-indigo-400">R$ {invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            Ambiente seguro Mercado Pago
         </p>
       </div>
 
-      <div className="p-2 sm:p-4">
+      <div className="p-6">
         {renderContent()}
       </div>
       
       {status !== PaymentStatus.PENDING && status !== PaymentStatus.SUCCESS && (
         <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
-             <button type="button" onClick={onBack} className="w-full flex justify-center py-3 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors duration-200">
+             <button type="button" onClick={onBack} className="w-full flex justify-center py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm text-sm font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                 Cancelar
             </button>
         </div>
