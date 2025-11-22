@@ -40,6 +40,10 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   useEffect(() => {
     if (!payerEmail || !mpPublicKey) return;
 
+    // Limpa container anterior se existir (embora React lide com isso, o SDK injeta iframes)
+    const container = document.getElementById('form-checkout__cardNumber');
+    if (container && container.innerHTML !== '') return;
+
     const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
     
     // Inicializa o CardForm
@@ -78,23 +82,26 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             identificationType,
           } = cardForm.getCardFormData();
 
+          // Mapeamento Explícito para garantir snake_case no backend
+          const payload = {
+            token,
+            issuer_id: issuerId,
+            payment_method_id: paymentMethodId,
+            transaction_amount: Number(amount),
+            installments: Number(installments),
+            description: `Fatura ${invoice.month}`,
+            payer: {
+              email: cardholderEmail || payerEmail,
+              identification: { type: identificationType, number: identificationNumber }
+            },
+            external_reference: invoice.id
+          };
+
           // Envia para o backend
           fetch('/api/mercadopago/process-payment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                token,
-                issuerId,
-                paymentMethodId,
-                transactionAmount: Number(amount),
-                installments: Number(installments),
-                description: `Fatura ${invoice.month}`,
-                payer: {
-                  email: cardholderEmail || payerEmail,
-                  identification: { type: identificationType, number: identificationNumber }
-                },
-                externalReference: invoice.id
-            }),
+            body: JSON.stringify(payload),
           })
           .then(async (response) => {
               const result = await response.json();

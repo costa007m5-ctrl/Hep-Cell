@@ -352,7 +352,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 ? `Compra direta via ${paymentMethod}.` 
                 : `Referente a compra de ${productName} parcelada em ${installments}x.`;
 
-            // CORREÇÃO TS6133: Usando a variável downPayment
+            // CORREÇÃO TS6133: Usando a variável downPayment para adicionar à nota
             if (downPayment && Number(downPayment) > 0) {
                 notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
             }
@@ -365,7 +365,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 status: 'Em aberto',
                 notes: notes,
                 created_at: purchaseTimestamp, // Agrupador crítico
-                payment_method: saleType === 'direct' ? paymentMethod : null // Salva o método escolhido se for venda direta
+                payment_method: paymentMethod || null // Garante que o método seja salvo
             });
         }
 
