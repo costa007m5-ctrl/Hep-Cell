@@ -8,7 +8,6 @@ import Modal from './Modal';
 import InputField from './InputField';
 
 interface ClientsTabProps {
-    allInvoices?: Invoice[]; // Prop opcional
     isLoading?: boolean;
     errorInfo?: { message: string } | null;
 }
@@ -54,90 +53,6 @@ const RiskBadge: React.FC<{ level: 'Baixo' | 'Médio' | 'Alto' }> = ({ level }) 
 };
 
 // --- Modais Internos ---
-
-// Modal de Cadastro de Cliente (Novo)
-const ClientRegisterModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
-    const [form, setForm] = useState({
-        firstName: '',
-        lastName: '',
-        email: '',
-        cpf: '',
-        phone: '',
-        limit: '500'
-    });
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        setForm(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const payload = {
-                email: form.email,
-                password: 'Relp' + Math.random().toString(36).slice(-4), // Senha temporária
-                first_name: form.firstName,
-                last_name: form.lastName,
-                identification_number: form.cpf,
-                phone: form.phone,
-                credit_limit: parseFloat(form.limit)
-            };
-
-            const response = await fetch('/api/admin/create-and-analyze-customer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || data.message || "Erro ao criar cliente");
-
-            onSuccess();
-        } catch (err: any) {
-            setError(err.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-4 mb-4">
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Novo Cliente</h3>
-                <p className="text-sm text-slate-500">Cadastre um novo cliente no sistema.</p>
-            </div>
-
-            {error && <Alert message={error} type="error" />}
-
-            <div className="grid grid-cols-2 gap-4">
-                <InputField label="Nome" name="firstName" value={form.firstName} onChange={handleChange} required placeholder="Ex: João" />
-                <InputField label="Sobrenome" name="lastName" value={form.lastName} onChange={handleChange} required placeholder="Ex: Silva" />
-            </div>
-            
-            <InputField label="Email" name="email" type="email" value={form.email} onChange={handleChange} required placeholder="cliente@email.com" />
-            
-            <div className="grid grid-cols-2 gap-4">
-                <InputField label="CPF" name="cpf" value={form.cpf} onChange={handleChange} required placeholder="000.000.000-00" />
-                <InputField label="Telefone" name="phone" value={form.phone} onChange={handleChange} required placeholder="(96) 99999-9999" />
-            </div>
-
-            <InputField label="Limite Inicial (R$)" name="limit" type="number" value={form.limit} onChange={handleChange} required />
-
-            <div className="flex gap-3 pt-4">
-                <button type="button" onClick={onClose} className="flex-1 py-3 border border-slate-300 rounded-xl font-bold text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button type="submit" disabled={isLoading} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex justify-center items-center">
-                    {isLoading ? <LoadingSpinner /> : 'Cadastrar'}
-                </button>
-            </div>
-        </form>
-    );
-};
 
 const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void }> = ({ invoice, onClose }) => {
     return (
@@ -211,7 +126,7 @@ const NegotiationModal: React.FC<{
     const [notes, setNotes] = useState(`Acordo referente a ${selectedInvoices.length} faturas antigas.`);
 
     const discount = totalOriginal - newTotal;
-    const discountPercent = totalOriginal > 0 ? ((discount / totalOriginal) * 100).toFixed(1) : '0';
+    const discountPercent = ((discount / totalOriginal) * 100).toFixed(1);
 
     return (
         <div className="space-y-6">
@@ -261,7 +176,7 @@ const NegotiationModal: React.FC<{
                     ))}
                 </div>
                 <p className="text-center mt-2 text-sm font-bold text-slate-800 dark:text-white">
-                    {installments}x de {(newTotal / Math.max(1, installments)).toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}
+                    {installments}x de {(newTotal / installments).toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}
                 </p>
             </div>
 
@@ -306,7 +221,6 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
     const [isEditingLimit, setIsEditingLimit] = useState(false);
-    const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false); // State para o modal de cadastro
     
     // Negotiation States
     const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -328,7 +242,7 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
         try {
             // Busca Perfis e Faturas em paralelo para garantir consistência
             const [profilesRes, invoicesRes] = await Promise.all([
-                supabase.from('profiles').select('*').order('created_at', {ascending: false}),
+                supabase.from('profiles').select('*'),
                 supabase.from('invoices').select('*').order('due_date', { ascending: false })
             ]);
 
@@ -464,8 +378,8 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
             
             if(error) throw error;
 
-            // Atualiza lista local via fetch para garantir sync
-            await fetchData();
+            // Atualiza lista local
+            setProfiles(prev => prev.map(p => p.id === selectedClientId ? { ...p, credit_limit: limitVal } : p));
             setIsEditingLimit(false);
             setMsg({type: 'success', text: "Limite atualizado com sucesso!"});
         } catch (e) {
@@ -484,7 +398,7 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
             if (error) throw error;
 
             // Atualiza estado local removendo a fatura
-            await fetchData();
+            setInvoices(prev => prev.filter(inv => inv.id !== invoiceId));
             setMsg({type: 'success', text: "Fatura excluída com sucesso."});
         } catch (e) {
             console.error(e);
@@ -504,7 +418,7 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
             const { error } = await supabase.from('profiles').update({ credit_status: newStatus }).eq('id', selectedClientId);
             if (error) throw error;
 
-            await fetchData();
+            setProfiles(prev => prev.map(p => p.id === selectedClientId ? { ...p, credit_status: newStatus } : p));
             setMsg({type: 'success', text: `Cliente ${newStatus} com sucesso.`});
         } catch(e) {
             setMsg({type: 'error', text: "Erro ao alterar status do cliente."});
@@ -540,13 +454,6 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
             setIsSending(false);
             setTimeout(() => setMsg(null), 3000);
         }
-    };
-
-    const handleRegisterSuccess = async () => {
-        setIsRegisterModalOpen(false);
-        setMsg({ type: 'success', text: 'Cliente cadastrado com sucesso!' });
-        await fetchData(); // Recarrega a lista
-        setTimeout(() => setMsg(null), 3000);
     };
 
     // --- Handlers de Negociação ---
@@ -590,7 +497,7 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
             if(error) throw error;
 
             // Refresh Local
-            await fetchData(); 
+            await fetchData(); // Recarrega tudo para garantir sincronia limpa
             
             setMsg({type: 'success', text: "Acordo realizado com sucesso!"});
             setIsNegotiationModalOpen(false);
@@ -665,10 +572,6 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
                 </div>
                 
                 <div className="flex gap-2">
-                    <button onClick={() => setIsRegisterModalOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
-                        Novo Cliente
-                    </button>
                     <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>
@@ -1042,11 +945,6 @@ const ClientsTab: React.FC<ClientsTabProps> = ({ isLoading: parentLoading }) => 
                         {isSending ? <LoadingSpinner /> : 'Enviar'}
                     </button>
                 </form>
-            </Modal>
-
-            {/* Modal de Cadastro de Cliente */}
-            <Modal isOpen={isRegisterModalOpen} onClose={() => setIsRegisterModalOpen(false)}>
-                <ClientRegisterModal onClose={() => setIsRegisterModalOpen(false)} onSuccess={handleRegisterSuccess} />
             </Modal>
 
         </div>
