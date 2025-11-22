@@ -58,11 +58,16 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
-// --- Help View Atualizada (Enterprise Support) ---
+// --- Help View 2.0 (Enterprise Support) ---
 const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
     const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets'>('dashboard');
     const [tickets, setTickets] = useState<any[]>([]);
     const [loadingTickets, setLoadingTickets] = useState(false);
+    const [openTicketModal, setOpenTicketModal] = useState(false);
+    const [newTicket, setNewTicket] = useState({ subject: '', category: 'financeiro', message: '', priority: 'normal' });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+    const { addToast } = useToast();
 
     useEffect(() => {
         if (activeTab === 'tickets') {
@@ -76,33 +81,83 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
         }
     }, [activeTab, userId]);
 
+    const handleCreateTicket = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        try {
+            const response = await fetch('/api/admin/support-tickets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, ...newTicket })
+            });
+            
+            if (!response.ok) throw new Error('Erro ao criar chamado');
+            
+            addToast('Chamado criado com sucesso!', 'success');
+            setOpenTicketModal(false);
+            setActiveTab('tickets'); // Vai para a lista
+            setNewTicket({ subject: '', category: 'financeiro', message: '', priority: 'normal' });
+        } catch (error) {
+            addToast('Erro ao enviar chamado.', 'error');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const faqs = [
-        { q: "Como aumento meu limite?", a: "O limite é analisado automaticamente todo mês com base nos seus pagamentos em dia." },
-        { q: "Quais as formas de pagamento?", a: "Aceitamos Cartão de Crédito, Pix e Boleto Bancário parcelado." },
+        { q: "Como aumento meu limite?", a: "O limite é analisado automaticamente todo mês com base nos seus pagamentos em dia. Você também pode solicitar um aumento na tela inicial." },
+        { q: "Quais as formas de pagamento?", a: "Aceitamos Cartão de Crédito em até 12x, Pix com aprovação imediata e Boleto Bancário." },
+        { q: "Como funciona o cashback?", a: "Você ganha 1% de cashback em todas as compras de indicados que usarem seu código. O saldo pode ser usado para abater faturas." },
+        { q: "O que acontece se eu atrasar?", a: "Após 5 dias de atraso, seu crédito pode ser bloqueado temporariamente e juros serão aplicados conforme contrato." },
     ];
 
     if (activeTab === 'tickets') {
         return (
             <div className="space-y-4 animate-fade-in">
                 <div className="flex items-center justify-between">
-                    <button onClick={() => setActiveTab('dashboard')} className="text-sm text-indigo-600 font-bold">&larr; Voltar</button>
+                    <button onClick={() => setActiveTab('dashboard')} className="flex items-center text-sm text-slate-500 hover:text-indigo-600 font-bold transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                        Voltar
+                    </button>
                     <h3 className="font-bold text-slate-900 dark:text-white">Meus Chamados</h3>
                 </div>
+                
                 {loadingTickets ? <div className="flex justify-center py-8"><LoadingSpinner /></div> : tickets.length === 0 ? (
-                    <div className="text-center py-10 text-slate-500">Nenhum chamado aberto.</div>
+                    <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                        <p>Nenhum chamado encontrado.</p>
+                        <button onClick={() => setOpenTicketModal(true)} className="mt-4 text-indigo-600 font-bold text-sm hover:underline">Abrir Novo Chamado</button>
+                    </div>
                 ) : (
-                    tickets.map(ticket => (
-                        <div key={ticket.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                            <div className="flex justify-between items-start mb-2">
-                                <h4 className="font-bold text-slate-800 dark:text-white text-sm">{ticket.subject}</h4>
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${ticket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
-                                    {ticket.status === 'open' ? 'Aberto' : 'Fechado'}
-                                </span>
+                    <div className="space-y-3">
+                        {tickets.map(ticket => (
+                            <div key={ticket.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm relative overflow-hidden">
+                                <div className={`absolute left-0 top-0 bottom-0 w-1 ${ticket.status === 'open' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                                <div className="flex justify-between items-start mb-1 pl-2">
+                                    <h4 className="font-bold text-slate-800 dark:text-white text-sm truncate pr-2">{ticket.subject}</h4>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${ticket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                                        {ticket.status === 'open' ? 'Aberto' : 'Fechado'}
+                                    </span>
+                                </div>
+                                <div className="pl-2 flex justify-between items-end mt-2">
+                                    <div>
+                                        <p className="text-xs text-slate-500 mb-0.5">Categoria: <span className="capitalize">{ticket.category || 'Geral'}</span></p>
+                                        <p className="text-[10px] text-slate-400">
+                                            {new Date(ticket.created_at).toLocaleDateString('pt-BR')} às {new Date(ticket.created_at).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
+                                        </p>
+                                    </div>
+                                    {ticket.status === 'open' && (
+                                        <button 
+                                            onClick={() => window.dispatchEvent(new Event('open-support-chat'))} 
+                                            className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold hover:bg-indigo-100 transition-colors"
+                                        >
+                                            Ver no Chat
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <p className="text-xs text-slate-500">Criado em {new Date(ticket.created_at).toLocaleDateString()}</p>
-                            {ticket.status === 'open' && <p className="text-xs text-indigo-600 mt-2 font-medium">Em atendimento no Chat</p>}
-                        </div>
-                    ))
+                        ))}
+                    </div>
                 )}
             </div>
         );
@@ -111,39 +166,137 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
     return (
         <div className="animate-fade-in space-y-6">
             {/* Hero Section da Central */}
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-6 text-white text-center relative overflow-hidden shadow-lg">
-                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/20 rounded-full blur-2xl"></div>
-                 <h3 className="text-xl font-bold relative z-10">Central de Atendimento</h3>
-                 <p className="text-indigo-100 text-sm mt-1 relative z-10 mb-4">Como podemos te ajudar hoje?</p>
+            <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white text-center relative overflow-hidden shadow-lg">
+                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+                 <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500/30 rounded-full blur-2xl"></div>
                  
-                 <div className="grid grid-cols-2 gap-3 relative z-10">
-                    <button 
-                        onClick={() => window.dispatchEvent(new Event('open-support-chat'))}
-                        className="bg-white/20 backdrop-blur-md p-3 rounded-xl border border-white/30 hover:bg-white/30 transition-colors flex flex-col items-center gap-2"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                        <span className="text-xs font-bold">Chat Online</span>
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('tickets')}
-                        className="bg-white/20 backdrop-blur-md p-3 rounded-xl border border-white/30 hover:bg-white/30 transition-colors flex flex-col items-center gap-2"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-                        <span className="text-xs font-bold">Meus Chamados</span>
-                    </button>
+                 <div className="relative z-10">
+                     <h3 className="text-xl font-bold mb-1">Central de Atendimento</h3>
+                     <p className="text-indigo-100 text-sm mb-6 opacity-90">Estamos aqui para ajudar você.</p>
+                     
+                     <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={() => window.dispatchEvent(new Event('open-support-chat'))}
+                            className="bg-white/20 backdrop-blur-md p-3 rounded-xl border border-white/30 hover:bg-white/30 transition-all active:scale-95 flex flex-col items-center gap-2 group"
+                        >
+                            <div className="p-2 bg-white/20 rounded-full group-hover:scale-110 transition-transform">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                            </div>
+                            <span className="text-xs font-bold">Chat Online</span>
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('tickets')}
+                            className="bg-white/20 backdrop-blur-md p-3 rounded-xl border border-white/30 hover:bg-white/30 transition-all active:scale-95 flex flex-col items-center gap-2 group"
+                        >
+                            <div className="p-2 bg-white/20 rounded-full group-hover:scale-110 transition-transform">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                            </div>
+                            <span className="text-xs font-bold">Meus Chamados</span>
+                        </button>
+                     </div>
                  </div>
             </div>
 
-            {/* FAQ Rápido */}
-            <div className="space-y-3">
-                <h4 className="font-bold text-slate-900 dark:text-white px-2">Perguntas Frequentes</h4>
-                {faqs.map((faq, i) => (
-                    <div key={i} className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-100 dark:border-slate-700">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-sm mb-2">{faq.q}</p>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{faq.a}</p>
-                    </div>
-                ))}
+            {/* Quick Actions */}
+            <div className="flex gap-3 overflow-x-auto pb-2">
+                <button onClick={() => setOpenTicketModal(true)} className="flex-1 min-w-[120px] bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    <span className="text-xl">+</span> Novo Ticket
+                </button>
+                <a href="tel:96991718167" className="flex-1 min-w-[120px] bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-center gap-2 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                    Ligar
+                </a>
             </div>
+
+            {/* FAQ Accordion */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
+                <h4 className="p-4 font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">Perguntas Frequentes</h4>
+                <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {faqs.map((faq, i) => (
+                        <div key={i} className="group">
+                            <button 
+                                onClick={() => setOpenFaqIndex(openFaqIndex === i ? null : i)}
+                                className="w-full flex justify-between items-center p-4 text-left focus:outline-none hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                            >
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-200 pr-4">{faq.q}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${openFaqIndex === i ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                            </button>
+                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${openFaqIndex === i ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                                <p className="p-4 pt-0 text-sm text-slate-500 dark:text-slate-400 leading-relaxed border-t border-dashed border-slate-100 dark:border-slate-700 mx-4 mt-2 mb-2">
+                                    {faq.a}
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Modal de Novo Ticket */}
+            <Modal isOpen={openTicketModal} onClose={() => setOpenTicketModal(false)}>
+                <form onSubmit={handleCreateTicket} className="space-y-4">
+                    <div className="text-center mb-4">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white">Abrir Novo Chamado</h3>
+                        <p className="text-xs text-slate-500">Descreva seu problema para nossa equipe.</p>
+                    </div>
+                    
+                    <InputField 
+                        label="Assunto" 
+                        name="subject" 
+                        value={newTicket.subject} 
+                        onChange={e => setNewTicket({...newTicket, subject: e.target.value})} 
+                        required 
+                        placeholder="Resumo do problema"
+                    />
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoria</label>
+                            <select 
+                                value={newTicket.category}
+                                onChange={e => setNewTicket({...newTicket, category: e.target.value})}
+                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                                <option value="financeiro">Financeiro</option>
+                                <option value="tecnico">Técnico</option>
+                                <option value="vendas">Vendas</option>
+                                <option value="outro">Outro</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Prioridade</label>
+                            <select 
+                                value={newTicket.priority}
+                                onChange={e => setNewTicket({...newTicket, priority: e.target.value})}
+                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                                <option value="baixa">Baixa</option>
+                                <option value="normal">Normal</option>
+                                <option value="alta">Alta</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem</label>
+                        <textarea 
+                            value={newTicket.message}
+                            onChange={e => setNewTicket({...newTicket, message: e.target.value})}
+                            required
+                            rows={4}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                            placeholder="Descreva detalhadamente o que aconteceu..."
+                        ></textarea>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-lg shadow-indigo-500/30"
+                    >
+                        {isSubmitting ? <LoadingSpinner /> : 'Enviar Solicitação'}
+                    </button>
+                </form>
+            </Modal>
         </div>
     );
 };

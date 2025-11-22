@@ -152,11 +152,15 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
                 "user_id" "uuid" NOT NULL, 
                 "status" "text" DEFAULT 'open', 
                 "subject" "text",
+                "category" "text",
+                "priority" "text" DEFAULT 'normal',
                 "created_at" timestamp with time zone DEFAULT "now"(), 
                 "updated_at" timestamp with time zone DEFAULT "now"(),
                 CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id"),
                 CONSTRAINT "support_tickets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
             );
+            ALTER TABLE "public"."support_tickets" ADD COLUMN IF NOT EXISTS "category" "text";
+            ALTER TABLE "public"."support_tickets" ADD COLUMN IF NOT EXISTS "priority" "text";
             ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY;
 
             CREATE TABLE IF NOT EXISTS "public"."support_messages" (
@@ -339,16 +343,31 @@ async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         if (req.method === 'POST') {
-            const { userId, subject, message } = req.body;
-            // 1. Create Ticket
-            const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ user_id: userId, subject, status: 'open' }).select().single();
+            const { userId, subject, message, category, priority } = req.body;
+            // 1. Create Ticket with Category and Priority
+            const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ 
+                user_id: userId, 
+                subject: subject || 'Atendimento', 
+                category: category || 'Geral',
+                priority: priority || 'normal',
+                status: 'open' 
+            }).select().single();
+            
             if (ticketError) throw ticketError;
             
             // 2. Create Initial Message
-            const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message });
-            if (msgError) throw msgError;
+            if (message) {
+                const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message });
+                if (msgError) throw msgError;
+            }
 
             res.status(201).json(ticket);
+        } else if (req.method === 'PUT') {
+            // Update Ticket Status (Close/Reopen)
+            const { id, status } = req.body;
+            const { data, error } = await supabase.from('support_tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select();
+            if (error) throw error;
+            res.status(200).json(data[0]);
         } else if (req.method === 'GET') {
             // List all tickets (Admin view) or filter by user (Client view - needs filter param)
             const { userId } = req.query;
@@ -460,10 +479,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }
+        if (req.method === 'PUT') {
+            switch (path) {
+                case '/api/admin/products': return await handleProducts(req, res);
+                case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
+                default: return res.status(404).json({ error: 'Admin PUT route not found' });
+            }
+        }
         if (req.method === 'DELETE') {
             if (path === '/api/admin/banners') return await handleBanners(req, res);
         }
-        res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
+        res.setHeader('Allow', ['GET', 'POST', 'PUT', 'DELETE']);
         return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
     } catch (e: any) {
         console.error(`Error in admin API handler for path ${path}:`, e);
