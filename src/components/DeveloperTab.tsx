@@ -327,7 +327,7 @@ CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "g
 ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_code" "text";
 ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_expiration" timestamp with time zone;
 
--- 3. Tabela de Contratos
+-- 3. Tabela de Contratos (CORREÇÃO DE SCHEMA)
 CREATE TABLE IF NOT EXISTS "public"."contracts" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "user_id" "uuid" NOT NULL,
@@ -344,6 +344,14 @@ CREATE TABLE IF NOT EXISTS "public"."contracts" (
     CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
 );
 
+-- Garantir Coluna updated_at na Tabela de Contratos (Migration de Correção)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='contracts' AND column_name='updated_at') THEN
+        ALTER TABLE "public"."contracts" ADD COLUMN "updated_at" timestamp with time zone DEFAULT "now"();
+    END IF;
+END $$;
+
 -- 4. Tabela de Missões (Gamificação)
 CREATE TABLE IF NOT EXISTS "public"."user_missions" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
@@ -356,7 +364,7 @@ CREATE TABLE IF NOT EXISTS "public"."user_missions" (
     CONSTRAINT "user_missions_unique" UNIQUE ("user_id", "mission_id")
 );
 
--- 5. Tabelas de Suporte e Solicitações
+-- 5. Tabelas de Suporte (Enterprise)
 CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( 
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), 
     "user_id" "uuid" NOT NULL, 
@@ -381,19 +389,8 @@ CREATE TABLE IF NOT EXISTS "public"."support_messages" (
     CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
 );
 
--- Tabela para Solicitação de Troca de Vencimento
-CREATE TABLE IF NOT EXISTS "public"."due_date_requests" (
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
-    "user_id" "uuid" NOT NULL,
-    "requested_day" integer NOT NULL,
-    "reason" "text",
-    "status" "text" DEFAULT 'pending',
-    "admin_notes" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "due_date_requests_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "due_date_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
-);
+-- Força a criação da coluna is_internal caso a tabela já exista sem ela
+ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false;
 
 -- 6. Políticas de Segurança (RLS)
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
@@ -402,9 +399,8 @@ ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."user_missions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."due_date_requests" ENABLE ROW LEVEL SECURITY;
 
--- Dropar políticas antigas
+-- Dropar políticas antigas para evitar conflitos
 DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
 DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
 DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
@@ -414,7 +410,6 @@ DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
 DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
 DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
 DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
-DROP POLICY IF EXISTS "Users manage own due date requests" ON "public"."due_date_requests";
 
 -- Criar novas políticas
 CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
@@ -424,7 +419,6 @@ CREATE POLICY "Users can view own missions" ON "public"."user_missions" FOR SELE
 CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users manage own due date requests" ON "public"."due_date_requests" USING (auth.uid() = user_id);
 
 -- Política da mensagem
 CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
@@ -444,17 +438,21 @@ DECLARE
 BEGIN
   v_user_id := auth.uid();
   
+  -- Verifica se já foi resgatada
   IF EXISTS (SELECT 1 FROM public.user_missions WHERE user_id = v_user_id AND mission_id = mission_id_input) THEN
     RAISE EXCEPTION 'Missão já resgatada.';
   END IF;
 
+  -- Registra a missão
   INSERT INTO public.user_missions (user_id, mission_id, claimed_at, completed_at)
   VALUES (v_user_id, mission_id_input, now(), now());
 
+  -- Atualiza o score (máximo 1000)
   UPDATE public.profiles
   SET credit_score = LEAST(1000, credit_score + xp_reward)
   WHERE id = v_user_id;
 
+  -- Registra histórico
   INSERT INTO public.score_history (user_id, change, new_score, reason)
   SELECT v_user_id, xp_reward, credit_score, reason_input
   FROM public.profiles WHERE id = v_user_id;
@@ -487,9 +485,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização de Banco</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização de Correção (Contratos)</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Clique no botão abaixo para criar a tabela de <strong>Solicitações de Data de Vencimento</strong> e garantir que o contrato funcione corretamente.
+                        Se você está vendo erro ao assinar contrato ("Could not find the 'updated_at' column"), clique no botão abaixo para corrigir a estrutura da tabela.
                     </p>
                 </div>
 
@@ -506,9 +504,13 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
                 <div>
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Setup</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                        Este script configura as tabelas de Contratos, Missões, Suporte e corrige colunas faltantes.
+                    </p>
+                    
                     <CodeBlock
                         title="SQL Completo de Setup"
-                        explanation="Este script inclui a tabela 'due_date_requests' e correções anteriores."
+                        explanation="Copie e cole no SQL Editor do Supabase se o botão automático falhar."
                         code={SETUP_SQL}
                     />
                 </div>

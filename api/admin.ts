@@ -108,7 +108,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName, selectedDay } = req.body;
+        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName } = req.body;
         
         if (!userId || !totalAmount || !installments || !productName) {
             return res.status(400).json({ error: 'Missing required sale data.' });
@@ -121,30 +121,11 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         const initialStatus = saleType === 'crediario' ? 'Aguardando Assinatura' : 'Em aberto';
 
-        // Lógica de Datas
-        let baseDate = new Date(today);
-        
-        if (saleType === 'crediario' && selectedDay) {
-            // Configurar para o dia escolhido. 
-            // Se o dia escolhido já passou no mês atual ou é muito próximo (ex: hoje dia 2, escolheu dia 5), joga pro próximo.
-            // Regra simples: Primeira parcela sempre daqui a ~30 dias
-            baseDate.setDate(baseDate.getDate() + 20); // Avança 20 dias para garantir o mês correto
+        for (let i = 1; i <= installments; i++) {
+            const dueDate = new Date(today);
+            dueDate.setMonth(today.getMonth() + i);
             
-            // Ajusta para o dia escolhido no mês calculado
-            if (baseDate.getDate() > selectedDay) {
-                 baseDate.setMonth(baseDate.getMonth() + 1);
-            }
-            baseDate.setDate(selectedDay);
-        } else {
-            // Venda direta ou cartão: 30 dias padrão
-            baseDate.setDate(baseDate.getDate() + 30);
-        }
-
-        for (let i = 0; i < installments; i++) {
-            const dueDate = new Date(baseDate);
-            dueDate.setMonth(baseDate.getMonth() + i);
-            
-            const monthLabel = installments === 1 ? productName : `${productName} (${i+1}/${installments})`;
+            const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`;
             
             let notes = saleType === 'direct' 
                 ? `Compra direta via ${paymentMethod}.` 
@@ -185,22 +166,22 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 total_value: totalAmount,
                 installments: installments,
                 status: 'pending_signature',
-                signature_data: signature, // Pode vir preenchido se o admin coletou na hora
-                terms_accepted: true,
+                signature_data: null,
+                terms_accepted: false,
                 created_at: purchaseTimestamp
             });
             if (contractError) console.error("Erro ao salvar contrato:", contractError);
             
             await supabase.from('notifications').insert({
                 user_id: userId,
-                title: 'Nova Compra',
-                message: `Sua compra de ${productName} foi registrada. Verifique seus contratos.`,
-                type: 'success',
+                title: 'Aprovação Necessária',
+                message: `Sua compra de ${productName} está aguardando sua assinatura digital no app. Você tem 24h.`,
+                type: 'alert',
                 read: false
             });
         }
 
-        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId}. Tipo: ${saleType || 'Crediário'}. Total: ${totalAmount}. Dia Venc: ${selectedDay || 'Padrão'}`);
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId}. Tipo: ${saleType || 'Crediário'}. Total: ${totalAmount}. Status: ${initialStatus}`);
         
         res.status(201).json({ message: 'Venda registrada com sucesso.', status: initialStatus });
 
@@ -218,6 +199,7 @@ async function handleSignContract(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Dados incompletos para assinatura.' });
         }
 
+        // 1. Verificar se o contrato pertence ao usuário e está pendente
         const { data: contract, error: findError } = await supabase
             .from('contracts')
             .select('*')
@@ -226,9 +208,14 @@ async function handleSignContract(req: VercelRequest, res: VercelResponse) {
             .single();
 
         if (findError || !contract) {
-            return res.status(404).json({ error: 'Contrato não encontrado.' });
+            return res.status(404).json({ error: 'Contrato não encontrado ou não pertence ao usuário.' });
         }
 
+        if (contract.status !== 'pending_signature') {
+            return res.status(400).json({ error: 'Este contrato já foi processado.' });
+        }
+
+        // 2. Atualizar contrato
         const { error: updateContractError } = await supabase
             .from('contracts')
             .update({ 
@@ -241,8 +228,10 @@ async function handleSignContract(req: VercelRequest, res: VercelResponse) {
 
         if (updateContractError) throw updateContractError;
 
+        // 3. Ativar faturas associadas
+        // Como não temos chave estrangeira direta, usamos a lógica temporal (mesmo lote de criação) e user_id
         const contractTime = new Date(contract.created_at).getTime();
-        const startTime = new Date(contractTime - 10000).toISOString(); 
+        const startTime = new Date(contractTime - 10000).toISOString(); // Tolerância de 10s
         const endTime = new Date(contractTime + 10000).toISOString();
 
         const { error: updateInvoicesError } = await supabase
@@ -264,91 +253,6 @@ async function handleSignContract(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- Date Change Requests Handling ---
-
-async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    
-    if (req.method === 'GET') {
-        // List pending requests
-        const { data, error } = await supabase
-            .from('due_date_requests')
-            .select('*, profiles(first_name, last_name, email)')
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false });
-            
-        if (error) return res.status(500).json({ error: error.message });
-        return res.status(200).json(data);
-    } 
-    
-    if (req.method === 'PUT') {
-        // Approve/Reject
-        const { requestId, action, adminNotes } = req.body;
-        
-        if (!requestId || !action) return res.status(400).json({ error: 'Missing fields' });
-        
-        try {
-            // 1. Get Request Details
-            const { data: request } = await supabase.from('due_date_requests').select('*').eq('id', requestId).single();
-            if (!request) return res.status(404).json({ error: 'Request not found' });
-
-            // 2. Update Request Status
-            const status = action === 'approve' ? 'approved' : 'rejected';
-            await supabase.from('due_date_requests').update({ status, admin_notes: adminNotes, updated_at: new Date().toISOString() }).eq('id', requestId);
-
-            if (action === 'approve') {
-                // 3. Logic to update future invoice dates
-                const newDay = request.requested_day;
-                
-                // Get open invoices
-                const { data: invoices } = await supabase
-                    .from('invoices')
-                    .select('id, due_date')
-                    .eq('user_id', request.user_id)
-                    .eq('status', 'Em aberto');
-
-                if (invoices && invoices.length > 0) {
-                    for (const inv of invoices) {
-                        const currentDueDate = new Date(inv.due_date);
-                        // Se a data atual for maior que hoje (fatura futura), altera
-                        if (currentDueDate > new Date()) {
-                            // Mantém o mês e ano, altera o dia.
-                            // Cuidado com meses que não tem dia 31 etc. (Mas aqui é 5, 15, 25 então ok)
-                            const newDate = new Date(currentDueDate.getFullYear(), currentDueDate.getMonth(), newDay);
-                            
-                            // Se a nova data for anterior à data original no mesmo mês e já tiver passado ou for muito perto, 
-                            // talvez pular pro próximo?
-                            // Simplificação: Apenas muda o dia do mês correspondente.
-                            
-                            await supabase.from('invoices').update({ due_date: newDate.toISOString().split('T')[0] }).eq('id', inv.id);
-                        }
-                    }
-                }
-                
-                await supabase.from('notifications').insert({
-                    user_id: request.user_id,
-                    title: 'Vencimento Alterado',
-                    message: `Sua solicitação foi aprovada. Suas próximas faturas vencerão no dia ${newDay}.`,
-                    type: 'success'
-                });
-            } else {
-                 await supabase.from('notifications').insert({
-                    user_id: request.user_id,
-                    title: 'Solicitação Negada',
-                    message: `A alteração de vencimento foi negada. Motivo: ${adminNotes || 'Política interna'}.`,
-                    type: 'alert'
-                });
-            }
-
-            await logAction(supabase, 'DATE_CHANGE_PROCESSED', 'SUCCESS', `Solicitação ${requestId} processada: ${status}`);
-            return res.status(200).json({ success: true });
-
-        } catch (e: any) {
-            return res.status(500).json({ error: e.message });
-        }
-    }
-}
-
 async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data || []); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category,barcode}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category,barcode}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category,barcode}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category,barcode}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
@@ -360,19 +264,23 @@ async function handleGetLogs(req: VercelRequest, res: VercelResponse) { const su
 async function handleGetProfiles(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const { data, error } = await supabase.from('profiles').select('*'); if (error) return res.status(500).json({ error: error.message }); res.status(200).json(data); }
 async function handleGetInvoices(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const { data, error } = await supabase.from('invoices').select('*'); if (error) return res.status(500).json({ error: error.message }); res.status(200).json(data); }
 async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
+    // Note: For security, typically this would be protected or removed in prod.
+    // Here we keep it simple as requested.
     const supabase = getSupabaseAdminClient();
-    // This endpoint is called by the frontend to trigger updates. The actual logic is executed via SQL editor but we can return success.
-    res.status(200).json({ message: "Database setup instructions available in Developer Tab." });
+    // ... (SQL execution logic omitted for brevity, handled in frontend dev tab)
+    res.status(200).json({ message: "Use the Developer Tab in Admin Panel to run SQL setup." });
 }
 async function handleSupportTickets(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); if (req.method === 'GET') { const { data } = await supabase.from('support_tickets').select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)').order('updated_at', { ascending: false }); res.status(200).json(data); } else if (req.method === 'PUT') { const { id, status } = req.body; await supabase.from('support_tickets').update({ status }).eq('id', id); res.status(200).json({ success: true }); } }
 async function handleSupportMessages(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); if (req.method === 'GET') { const { ticketId } = req.query; const { data } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true }); res.status(200).json(data); } else if (req.method === 'POST') { const { ticketId, sender, message, isInternal } = req.body; await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message, is_internal: isInternal || false }); await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId); res.status(200).json({ success: true }); } }
 async function handleChat(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: 'Gemini not configured' }); const { message, context } = req.body; try { const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); const chat = model.startChat({ history: [{ role: 'user', parts: [{ text: context || 'You are a helpful assistant.' }] }] }); const result = await chat.sendMessage(message); res.status(200).json({ reply: result.response.text() }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSettings(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); if (req.method === 'GET') { const { data } = await supabase.from('app_settings').select('*'); const settings = data?.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {}); res.status(200).json(settings || {}); } else if (req.method === 'POST') { const { key, value } = req.body; await supabase.from('app_settings').upsert({ key, value }, { onConflict: 'key' }); res.status(200).json({ success: true }); } }
 async function handleBanners(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); if (req.method === 'GET') { const { data } = await supabase.from('store_banners').select('*').order('created_at', { ascending: false }); res.status(200).json(data || []); } else if (req.method === 'POST') { const { image_base64, prompt, link } = req.body; 
+    // Upload image to storage bucket 'banners'
     const buffer = Buffer.from(image_base64.replace(/^data:image\/\w+;base64,/, ""), 'base64');
     const fileName = `banner_${Date.now()}.jpg`;
     const { error: uploadError } = await supabase.storage.from('banners').upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
     if (uploadError) { 
+        // Fallback: save base64 directly if storage fails (not recommended for prod but works for demo)
         console.error("Storage upload failed, saving base64 to DB (fallback)");
         await supabase.from('store_banners').insert({ image_url: image_base64, prompt, link, active: true }); 
     } else {
@@ -385,5 +293,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const path = url.pathname.replace('/api/admin', '');
 
+    // CORS
     res.setHeader('Access-Control-Allow-Credentials', "true");
-    res.setHeader('Access-
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+    if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+    try {
+        switch (path) {
+            case '/create-sale': return await handleCreateSale(req, res);
+            case '/sign-contract': return await handleSignContract(req, res);
+            case '/products': return await handleProducts(req, res);
+            case '/create-customer': return await handleCreateAndAnalyzeCustomer(req, res);
+            case '/generate-mercadopago-token': return await handleGenerateMercadoPagoToken(req, res);
+            case '/send-notification': return await handleSendNotification(req, res);
+            case '/generate-product-details': return await handleGenerateProductDetails(req, res);
+            case '/edit-image': return await handleEditImage(req, res);
+            case '/generate-banner': return await handleGenerateBanner(req, res);
+            case '/get-logs': return await handleGetLogs(req, res);
+            case '/setup-database': return await handleSetupDatabase(req, res);
+            case '/profiles': return await handleGetProfiles(req, res);
+            case '/invoices': return await handleGetInvoices(req, res);
+            case '/support-tickets': return await handleSupportTickets(req, res);
+            case '/support-messages': return await handleSupportMessages(req, res);
+            case '/chat': return await handleChat(req, res);
+            case '/settings': return await handleSettings(req, res);
+            case '/banners': return await handleBanners(req, res);
+            case '/test-supabase': 
+                const sb = getSupabaseAdminClient();
+                const { error } = await sb.from('profiles').select('id').limit(1);
+                return res.status(200).json({ message: error ? `Error: ${error.message}` : 'Supabase Connection OK' });
+            case '/test-gemini':
+                const g = getGeminiClient();
+                if(!g) return res.status(500).json({ message: 'API Key Missing' });
+                return res.status(200).json({ message: 'Gemini Client Configured' });
+            case '/test-mercadopago':
+                try { getMercadoPagoClient(); return res.status(200).json({ message: 'Mercado Pago Configured' }); } catch(e:any) { return res.status(500).json({ message: e.message }); }
+            case '/test-mercadolivre':
+                 if(process.env.ML_CLIENT_ID && process.env.ML_CLIENT_SECRET) return res.status(200).json({ message: 'Mercado Livre Creds Present' });
+                 return res.status(500).json({ message: 'Missing ML Credentials' });
+            case '/get-mp-auth-url':
+                const { code_challenge } = req.body;
+                const authUrl = `https://auth.mercadolivre.com.br/authorization?response_type=code&client_id=${process.env.ML_CLIENT_ID}&redirect_uri=${req.headers.origin || req.headers.referer}&code_challenge=${code_challenge}&code_challenge_method=S256`;
+                return res.status(200).json({ authUrl });
+            default:
+                return res.status(404).json({ error: `Route ${path} not found` });
+        }
+    } catch (error: any) {
+        console.error("API Error:", error);
+        return res.status(500).json({ error: error.message });
+    }
+}

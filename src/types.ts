@@ -149,15 +149,3 @@ export interface Contract {
     signature_data?: string | null;
     terms_accepted?: boolean;
 }
-
-export interface DueDateRequest {
-    id: string;
-    user_id: string;
-    profiles?: Profile; // Join
-    requested_day: number;
-    reason: string;
-    status: 'pending' | 'approved' | 'rejected';
-    admin_notes?: string;
-    created_at: string;
-    updated_at?: string;
-}

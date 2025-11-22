@@ -217,89 +217,6 @@ const ServiceStatus: React.FC = () => {
 
 // --- Views Implementadas ---
 
-const DateChangeRequestView: React.FC<{ profile: Profile; onClose: () => void }> = ({ profile, onClose }) => {
-    const [selectedDay, setSelectedDay] = useState<number>(10);
-    const [reason, setReason] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const { addToast } = useToast();
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsLoading(true);
-        try {
-            const { error } = await supabase.from('due_date_requests').insert({
-                user_id: profile.id,
-                requested_day: selectedDay,
-                reason: reason,
-                status: 'pending'
-            });
-
-            if (error) throw error;
-
-            addToast('Solicitação enviada! Aguarde análise.', 'success');
-            onClose();
-        } catch (err: any) {
-            addToast('Erro ao enviar solicitação.', 'error');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
-                <h4 className="font-bold text-blue-800 dark:text-blue-200 mb-2 text-sm">Alteração de Vencimento</h4>
-                <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-                    Ao alterar a data, suas <strong>faturas futuras</strong> serão recalculadas. Faturas já fechadas não sofrem alteração. 
-                    Esta ação pode envolver recálculo de juros proporcionais aos dias adicionais.
-                </p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Novo Dia de Vencimento</label>
-                    <div className="grid grid-cols-3 gap-3">
-                        {[5, 15, 25].map(day => (
-                            <button
-                                key={day}
-                                type="button"
-                                onClick={() => setSelectedDay(day)}
-                                className={`py-3 rounded-xl font-bold border transition-all ${
-                                    selectedDay === day 
-                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md transform scale-105' 
-                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50'
-                                }`}
-                            >
-                                Dia {day.toString().padStart(2, '0')}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Motivo da Troca</label>
-                    <textarea 
-                        value={reason}
-                        onChange={e => setReason(e.target.value)}
-                        required
-                        placeholder="Ex: Recebo meu salário dia 20..."
-                        className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                        rows={3}
-                    />
-                </div>
-
-                <button 
-                    type="submit"
-                    disabled={isLoading}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-colors flex justify-center items-center gap-2"
-                >
-                    {isLoading ? <LoadingSpinner /> : 'Solicitar Alteração'}
-                </button>
-            </form>
-        </div>
-    );
-};
-
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -340,7 +257,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         doc.text(`Contrato Nº: ${contract.id.slice(0, 8).toUpperCase()}`, 20, 40);
         doc.text(`Data: ${new Date(contract.created_at).toLocaleDateString()}`, 20, 48);
         
-        doc.text('CREDOR: RELP CELL ELETRONICOS LTDA - CNPJ: 43.735.304/0001-00', 20, 60);
+        doc.text('CREDOR: RELP CELL ELETRONICOS - CNPJ: 43.735.304/0001-00', 20, 60);
         doc.text(`DEVEDOR: ${profile.first_name} ${profile.last_name} - CPF: ${profile.identification_number}`, 20, 68);
         
         doc.text('OBJETO:', 20, 85);
@@ -1487,7 +1404,7 @@ const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
 };
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts' | 'date_change'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1504,9 +1421,11 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
         load();
     }, [session]);
 
+    // Verifica se deve abrir uma seção específica (vinda das missões)
     useEffect(() => {
         const section = sessionStorage.getItem('relp_profile_section');
         if (section) {
+            // Pequeno delay para garantir que o componente montou
             setTimeout(() => {
                 setActiveView(section as any);
                 sessionStorage.removeItem('relp_profile_section');
@@ -1625,11 +1544,10 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                         />
 
                         <MenuItem 
-                            label="Alterar Vencimento" 
-                            description="Mude a data de pagamento"
-                            icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
-                            onClick={() => setActiveView('date_change')}
-                            colorClass="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
+                            label="Notas Fiscais" 
+                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
+                            onClick={() => setActiveView('fiscal_notes')}
+                            colorClass="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
                         />
 
                         <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Preferências & Suporte</h3>
@@ -1689,7 +1607,6 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                             {activeView === 'settings' && 'Configurações'}
                             {activeView === 'referral' && 'Indique e Ganhe'}
                             {activeView === 'help' && 'Central de Atendimento'}
-                            {activeView === 'date_change' && 'Alterar Vencimento'}
                         </h2>
                     </div>
 
@@ -1703,7 +1620,6 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
                     {activeView === 'help' && <HelpView userId={session.user.id} />}
-                    {activeView === 'date_change' && profile && <DateChangeRequestView profile={profile} onClose={() => setActiveView('main')} />}
                 </div>
             )}
         </div>
