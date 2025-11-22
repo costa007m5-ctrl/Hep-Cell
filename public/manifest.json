@@ -2,10 +2,11 @@
   "name": "Relp Cell",
   "short_name": "Relp Cell",
   "description": "Gerencie suas faturas, compras e pagamentos na Relp Cell com facilidade.",
+  "id": "relp-cell-app-v1",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
-  "theme_color": "#ffffff",
+  "theme_color": "#4f46e5",
   "orientation": "portrait",
   "scope": "/",
   "categories": [
