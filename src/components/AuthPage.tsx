@@ -1,7 +1,6 @@
 
 import React, { useState, useRef } from 'react';
 import { supabase } from '../services/clients';
-import { updateProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -171,32 +170,22 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
         // Se NÃO for email, assumimos que é CPF ou Telefone
         if (!isEmail(loginEmail)) {
-            const cleanIdentifier = loginEmail.replace(/\D/g, '');
-            
-            if (!cleanIdentifier) {
-                throw new Error("Por favor, digite um Email, CPF ou Telefone válido.");
-            }
-
             // Tenta buscar o email associado a esse CPF/Telefone via RPC
-            // A função SQL 'get_email_by_identifier' agora é robusta e limpa formatação automaticamente
             const { data: resolvedEmail, error: rpcError } = await supabase
                 .rpc('get_email_by_identifier', { identifier_input: loginEmail }); 
             
-            if (rpcError) {
-                console.error("RPC Error:", rpcError);
-            }
-
             if (resolvedEmail) {
                 loginEmail = resolvedEmail;
             } else {
-                // Se não achou com formatação original, tenta só números (redundância)
-                const { data: resolvedEmailClean } = await supabase
+                // Se falhar, tenta limpar a formatação e tentar de novo (redundância)
+                const cleanIdentifier = loginEmail.replace(/\D/g, '');
+                if (cleanIdentifier.length > 5) {
+                     const { data: resolvedEmailClean } = await supabase
                     .rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
-                
-                if (resolvedEmailClean) {
-                    loginEmail = resolvedEmailClean;
+                    if (resolvedEmailClean) loginEmail = resolvedEmailClean;
+                    else throw new Error("Conta não encontrada com este CPF ou Telefone. Cadastre-se.");
                 } else {
-                    throw new Error("Conta não encontrada com este CPF ou Telefone. Verifique os dados ou cadastre-se.");
+                    throw new Error("Por favor, digite um Email, CPF ou Telefone válido.");
                 }
             }
         }
@@ -210,7 +199,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             throw new Error("Por favor, preencha todos os dados para emitirmos suas faturas corretamente.");
         }
 
-        // 1. Verificação final de Duplicidade (caso o onBlur tenha falhado ou usuário sido rápido)
+        // Verificação final de Duplicidade
         const { data: existingEmailByCpf } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
         if (existingEmailByCpf) {
              setMessage({ text: 'Este CPF já possui cadastro. Redirecionando...', type: 'error' });
@@ -222,7 +211,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         const firstName = fullName.split(' ')[0];
         const lastName = fullName.split(' ').slice(1).join(' ');
 
-        // 2. Criar usuário no Auth
+        // 2. Criar usuário no Auth enviando TODOS os dados no 'options.data'
+        // Isso permite que o Trigger do banco capture e salve no perfil automaticamente
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
@@ -230,53 +220,29 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                 data: {
                     first_name: firstName,
                     last_name: lastName,
-                    cpf: cpf,
-                    phone: phone
+                    cpf: cpf.replace(/\D/g, ''), // Salva limpo para consistência
+                    phone: phone.replace(/\D/g, ''), // Salva limpo
+                    zip_code: cep.replace(/\D/g, ''),
+                    street_name: address.street,
+                    street_number: address.number,
+                    neighborhood: address.neighborhood,
+                    city: address.city,
+                    federal_unit: address.state
                 }
             }
         });
 
         if (error) throw error;
 
-        // 3. Se sucesso e temos usuário, atualizar tabela de perfil (Dados de Boleto)
-        if (data.user) {
-            try {
-                await updateProfile({
-                    id: data.user.id,
-                    email: email,
-                    first_name: firstName,
-                    last_name: lastName,
-                    identification_type: 'CPF',
-                    identification_number: cpf,
-                    phone: phone, // Salva o telefone (formatado ou não, o SQL limpa)
-                    zip_code: cep,
-                    street_name: address.street,
-                    street_number: address.number,
-                    neighborhood: address.neighborhood,
-                    city: address.city,
-                    federal_unit: address.state
-                });
-                
-            } catch (profileError: any) {
-                console.error("Erro ao salvar perfil detalhado:", profileError);
-                // Se o erro for permissão negada, significa que o RLS não permitiu (banco travado)
-                if (profileError.message?.includes('row-level security')) {
-                     setMessage({ text: 'Erro ao salvar dados. Contate o suporte (Erro RLS).', type: 'error' });
-                } 
-                // Se erro for de duplicidade (código 23505 no Postgres)
-                else if (profileError.code === '23505' || profileError.message?.includes('unique')) {
-                     setMessage({ text: 'Este CPF ou Telefone já está sendo usado em outra conta. Tente fazer login.', type: 'error' });
-                }
-            }
-
-            if (!data.session) {
-                 setMessage({ text: 'Cadastro realizado! Verifique seu e-mail para confirmar.', type: 'success' });
-                 setMode('login');
-            }
+        if (data.user && !data.session) {
+             setMessage({ text: 'Cadastro realizado! Verifique seu e-mail para confirmar.', type: 'success' });
+             setMode('login');
+        } else if (data.user && data.session) {
+             // Login automático ocorreu
+             setMessage({ text: 'Cadastro realizado com sucesso!', type: 'success' });
         }
 
       } else if (mode === 'recovery') {
-        // Recuperação também pode usar o resolvedor de email se o usuário digitar CPF
         let recoveryEmail = identifier.trim();
         
         if (!isEmail(recoveryEmail)) {

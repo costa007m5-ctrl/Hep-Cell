@@ -230,7 +230,6 @@ const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     
-    const authHookUrl = `${window.location.origin}/api/mercadopago/auth-hook`;
     const resetPasswordUrl = `${window.location.origin}/reset-password`;
 
     const rpcFunctionSQL = `
@@ -242,7 +241,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
     `.trim();
 
-    // SQL Completo com Políticas RLS e Função de Busca Aprimorada
+    // SQL Completo com Políticas RLS, Trigger de Cadastro e Função de Busca Aprimorada
     const SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
     
@@ -301,6 +300,49 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
         CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
     END $$;
 
+    -- GATILHO AUTOMÁTICO: Cria perfil ao registrar usuário no Supabase Auth
+    -- Isso garante que dados como CPF e Endereço sejam salvos mesmo sem sessão ativa
+    CREATE OR REPLACE FUNCTION public.handle_new_user() 
+    RETURNS trigger AS $$
+    BEGIN
+      INSERT INTO public.profiles (
+        id, 
+        email, 
+        first_name, 
+        last_name, 
+        identification_number, 
+        phone,
+        zip_code,
+        street_name,
+        street_number,
+        neighborhood,
+        city,
+        federal_unit
+      )
+      VALUES (
+        new.id, 
+        new.email, 
+        new.raw_user_meta_data->>'first_name', 
+        new.raw_user_meta_data->>'last_name', 
+        new.raw_user_meta_data->>'cpf', 
+        new.raw_user_meta_data->>'phone',
+        new.raw_user_meta_data->>'zip_code',
+        new.raw_user_meta_data->>'street_name',
+        new.raw_user_meta_data->>'street_number',
+        new.raw_user_meta_data->>'neighborhood',
+        new.raw_user_meta_data->>'city',
+        new.raw_user_meta_data->>'federal_unit'
+      );
+      RETURN new;
+    END;
+    $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+    -- Recria o trigger para garantir que esteja ativo
+    DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+    CREATE TRIGGER on_auth_user_created
+      AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
     -- Função Segura para Buscar Email por Identificador (CPF ou Telefone)
     -- MELHORADA: Limpa formatação tanto do input quanto do banco de dados para comparação
     CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
@@ -312,7 +354,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
       -- Remove tudo que não é número do input do usuário
       clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
       
-      IF length(clean_input) = 0 THEN
+      IF length(clean_input) < 5 THEN
          RETURN NULL;
       END IF;
 
@@ -355,7 +397,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
         CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
     END $$;
 
-    -- (Tabelas restantes criadas para garantir integridade)
     CREATE TABLE IF NOT EXISTS "public"."notifications" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "message" "text" NOT NULL, "type" "text" NOT NULL DEFAULT 'info', "read" boolean NOT NULL DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"), CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
     ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
     DO $$ BEGIN
@@ -444,9 +485,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-6">
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
-                        Para automatizar a criação das tabelas e a sincronização de perfis de usuário, o processo é dividido em 3 passos simples.
+                        Para automatizar a criação das tabelas e a sincronização de perfis de usuário, o processo é dividido em 2 passos simples.
                         <br/><br/>
-                        <strong>Importante:</strong> Após clicar no botão do Passo 2, o login via CPF/Telefone começará a funcionar e a verificação de duplicidade será ativada.
+                        <strong>Importante:</strong> O setup abaixo instala um "Gatilho" que salva os dados do cadastro automaticamente e habilita o login por CPF/Telefone. Execute-o sempre que houver atualizações.
                     </p>
                 </div>
 
@@ -459,7 +500,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                 <div className="mt-6">
                      <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Automático): Preparar o Banco</h3>
                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este passo criará as tabelas, aplicará regras de segurança (RLS) para garantir que os dados sejam salvos corretamente e <strong>ativa a função de Login por CPF/Telefone</strong>.
+                        Este passo criará as tabelas, aplicará regras de segurança (RLS) e <strong>configurará o login automático por CPF/Telefone</strong>.
                      </p>
                      
                      {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}
@@ -476,14 +517,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                             </>
                         ) : 'Executar Setup do Banco'}
                      </button>
-                </div>
-
-                <div className="mt-6">
-                    <CodeBlock
-                        title="Passo 3 (Manual): Sincronizar Novos Usuários"
-                        explanation="Para que um perfil seja criado automaticamente para cada novo usuário, configure um Webhook de Autenticação no Supabase: Vá para Authentication > Webhooks, clique em 'Add new webhook', dê um nome (ex: 'Criar Perfil'), selecione o evento 'User Signed Up' e cole a URL abaixo."
-                        code={authHookUrl}
-                    />
                 </div>
             </section>
         </div>
