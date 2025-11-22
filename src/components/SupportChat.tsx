@@ -1,13 +1,18 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import Modal from './Modal';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
+
+type ChatMode = 'bot' | 'human';
 
 const SupportChat: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<{role: 'user' | 'model', text: string}[]>([]);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(false);
+    const [mode, setMode] = useState<ChatMode>('bot');
+    const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -24,74 +29,115 @@ const SupportChat: React.FC = () => {
         return () => window.removeEventListener('open-support-chat', handleOpenChat);
     }, []);
 
+    // Polling for new messages when in human mode
+    useEffect(() => {
+        let interval: any;
+        if (mode === 'human' && activeTicketId && isOpen) {
+            const fetchMessages = async () => {
+                const { data } = await supabase
+                    .from('support_messages')
+                    .select('*')
+                    .eq('ticket_id', activeTicketId)
+                    .order('created_at', { ascending: true });
+                
+                if (data) {
+                    const mapped = data.map(m => ({
+                        role: m.sender_type === 'admin' ? 'model' : 'user',
+                        text: m.message
+                    }));
+                    setMessages(mapped);
+                }
+            };
+            
+            fetchMessages();
+            interval = setInterval(fetchMessages, 5000);
+        }
+        return () => clearInterval(interval);
+    }, [mode, activeTicketId, isOpen]);
+
+    const createTicket = async () => {
+        setLoading(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Faça login para falar com atendente.");
+
+            // Check for existing open ticket
+            const { data: existing } = await supabase.from('support_tickets').select('id').eq('user_id', user.id).eq('status', 'open').single();
+            
+            if (existing) {
+                setActiveTicketId(existing.id);
+            } else {
+                const { data: newTicket, error } = await supabase.from('support_tickets').insert({
+                    user_id: user.id,
+                    subject: 'Atendimento via Chat',
+                    status: 'open'
+                }).select().single();
+                
+                if (error) throw error;
+                setActiveTicketId(newTicket.id);
+            }
+            setMode('human');
+            setMessages([]); // Clear AI history
+        } catch (error: any) {
+            console.error(error);
+            alert("Erro ao iniciar atendimento: " + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSendMessage = async () => {
         if (!inputText.trim()) return;
-        
         const userMsg = inputText;
-        setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
         setInputText('');
+
+        if (mode === 'human') {
+            if (!activeTicketId) return;
+            // Send to DB
+            // Optimistic UI
+            setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+            
+            await supabase.from('support_messages').insert({
+                ticket_id: activeTicketId,
+                sender_type: 'user',
+                message: userMsg
+            });
+            return;
+        }
+        
+        // BOT MODE logic
+        setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
         setLoading(true);
 
-        // Cancela requisição anterior se existir
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
+        if (abortControllerRef.current) abortControllerRef.current.abort();
         const controller = new AbortController();
         abortControllerRef.current = controller;
 
-        // Timeout de segurança: se a API demorar mais de 15s, aborta.
-        const timeoutId = setTimeout(() => {
-            controller.abort();
-        }, 15000);
-
         try {
-             // Get User Context for "Smart" answers
              const { data: { user } } = await supabase.auth.getUser();
              let context = "";
-             
              if (user) {
                  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                 const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', user.id).eq('status', 'Em aberto');
-                 
-                 context += `Nome do usuário: ${profile?.first_name || 'Cliente'}. Faturas em aberto: ${invoices?.length || 0}.`;
-             } else {
-                 context = "Usuário não logado.";
+                 context += `Nome do usuário: ${profile?.first_name || 'Cliente'}.`;
              }
 
              const response = await fetch('/api/admin/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    message: userMsg,
-                    context: context 
-                }),
+                body: JSON.stringify({ message: userMsg, context }),
                 signal: controller.signal
             });
-            
-            clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                 throw new Error('Falha na comunicação com a IA.');
-            }
-
+            if (!response.ok) throw new Error('Erro na IA');
             const data = await response.json();
-            const reply = data.reply || "Desculpe, tive um problema ao processar sua resposta. Tente novamente.";
-
-            setMessages(prev => [...prev, { role: 'model', text: reply }]);
+            setMessages(prev => [...prev, { role: 'model', text: data.reply }]);
 
         } catch (error: any) {
-            console.error("Chat Error:", error);
-            let errorMsg = "Estou com dificuldades de conexão no momento. Tente novamente em alguns instantes.";
-            
-            if (error.name === 'AbortError') {
-                errorMsg = "A resposta demorou muito. Verifique sua conexão ou tente novamente.";
+            if (error.name !== 'AbortError') {
+                setMessages(prev => [...prev, { role: 'model', text: "Erro de conexão." }]);
             }
-            
-            setMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
         } finally {
             setLoading(false);
-            abortControllerRef.current = null;
-            clearTimeout(timeoutId);
         }
     };
 
@@ -100,7 +146,7 @@ const SupportChat: React.FC = () => {
             <button
                 onClick={() => setIsOpen(true)}
                 className="fixed bottom-20 right-4 z-40 w-14 h-14 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-lg shadow-indigo-600/30 flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
-                aria-label="Ajuda IA"
+                aria-label="Ajuda"
             >
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -109,23 +155,38 @@ const SupportChat: React.FC = () => {
 
             <Modal isOpen={isOpen} onClose={() => setIsOpen(false)}>
                 <div className="flex flex-col h-[500px] max-h-[80vh]">
-                    <div className="flex-shrink-0 pb-4 border-b border-slate-100 dark:border-slate-700 mb-2">
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                            Suporte Relp AI
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Pergunte sobre faturas, produtos ou sua conta.</p>
+                    <div className="flex-shrink-0 pb-2 border-b border-slate-100 dark:border-slate-700 mb-2">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Suporte Relp</h3>
+                            <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                                <button 
+                                    onClick={() => setMode('bot')}
+                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${mode === 'bot' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500'}`}
+                                >
+                                    IA
+                                </button>
+                                <button 
+                                    onClick={createTicket}
+                                    className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${mode === 'human' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500'}`}
+                                >
+                                    Humano
+                                </button>
+                            </div>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {mode === 'bot' ? 'Respostas automáticas instantâneas.' : 'Fale com um de nossos atendentes.'}
+                        </p>
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-3 p-2 custom-scrollbar">
                         {messages.length === 0 && (
                              <div className="text-center text-sm text-slate-400 mt-10">
-                                 <p>Olá! Sou a IA da Relp Cell.</p>
-                                 <p>Como posso ajudar hoje?</p>
-                                 <div className="mt-4 space-y-2">
-                                     <button onClick={() => setInputText("Como aumento meu limite?")} className="block w-full text-xs bg-slate-100 dark:bg-slate-700 p-2 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900">Como aumento meu limite?</button>
-                                     <button onClick={() => setInputText("Tenho faturas atrasadas?")} className="block w-full text-xs bg-slate-100 dark:bg-slate-700 p-2 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900">Tenho faturas atrasadas?</button>
-                                 </div>
+                                 <p>Olá! Como posso ajudar?</p>
+                                 {mode === 'bot' && (
+                                     <div className="mt-4 space-y-2">
+                                         <button onClick={() => setInputText("Como aumento meu limite?")} className="block w-full text-xs bg-slate-100 dark:bg-slate-700 p-2 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900">Como aumento meu limite?</button>
+                                     </div>
+                                 )}
                              </div>
                         )}
                         {messages.map((msg, idx) => (
@@ -138,11 +199,7 @@ const SupportChat: React.FC = () => {
                         {loading && (
                              <div className="flex justify-start">
                                 <div className="bg-slate-100 dark:bg-slate-700 p-3 rounded-xl rounded-bl-none">
-                                    <div className="flex space-x-1">
-                                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                                        <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
-                                    </div>
+                                    <LoadingSpinner />
                                 </div>
                             </div>
                         )}
@@ -155,7 +212,7 @@ const SupportChat: React.FC = () => {
                                 type="text"
                                 value={inputText}
                                 onChange={(e) => setInputText(e.target.value)}
-                                placeholder="Digite sua dúvida..."
+                                placeholder={mode === 'human' ? "Digite para o atendente..." : "Pergunte à IA..."}
                                 className="flex-1 px-4 py-2 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
                             <button type="submit" disabled={!inputText.trim() || loading} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50">

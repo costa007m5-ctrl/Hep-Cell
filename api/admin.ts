@@ -146,12 +146,43 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
             CREATE TABLE IF NOT EXISTS "public"."store_banners" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "image_url" "text" NOT NULL, "prompt" "text", "link" "text", "active" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "store_banners_pkey" PRIMARY KEY ("id") );
             ALTER TABLE "public"."store_banners" ENABLE ROW LEVEL SECURITY;
 
+            -- TABELAS DE SUPORTE (ENTERPRISE FEATURE)
+            CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( 
+                "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), 
+                "user_id" "uuid" NOT NULL, 
+                "status" "text" DEFAULT 'open', 
+                "subject" "text",
+                "created_at" timestamp with time zone DEFAULT "now"(), 
+                "updated_at" timestamp with time zone DEFAULT "now"(),
+                CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id"),
+                CONSTRAINT "support_tickets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+            );
+            ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY;
+
+            CREATE TABLE IF NOT EXISTS "public"."support_messages" (
+                "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+                "ticket_id" "uuid" NOT NULL,
+                "sender_type" "text" NOT NULL, -- 'user' or 'admin'
+                "message" "text" NOT NULL,
+                "created_at" timestamp with time zone DEFAULT "now"(),
+                CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id"),
+                CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
+            );
+            ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
+
             DO $$ BEGIN
                 CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true);
                 CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
                 CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
                 CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
                 CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id);
+                
+                -- Support Policies
+                CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
+                CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
+                CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
+                CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()));
+
             EXCEPTION WHEN duplicate_object THEN NULL; END $$;
             
             CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -170,7 +201,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
         }
 
         await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.');
-        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Novas tabelas criadas." });
+        res.status(200).json({ message: "Banco de dados atualizado com sucesso! Tabelas de suporte criadas." });
     } catch (error: any) {
         await logAction(supabase, 'DATABASE_SETUP', 'FAILURE', 'Failed to configure database.', { error: error.message });
         res.status(500).json({ error: 'Falha ao configurar o banco de dados.', message: error.message });
@@ -303,6 +334,60 @@ async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelRes
     }
 }
 
+// --- Support Tickets Handlers ---
+async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        if (req.method === 'POST') {
+            const { userId, subject, message } = req.body;
+            // 1. Create Ticket
+            const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ user_id: userId, subject, status: 'open' }).select().single();
+            if (ticketError) throw ticketError;
+            
+            // 2. Create Initial Message
+            const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message });
+            if (msgError) throw msgError;
+
+            res.status(201).json(ticket);
+        } else if (req.method === 'GET') {
+            // List all tickets (Admin view) or filter by user (Client view - needs filter param)
+            const { userId } = req.query;
+            let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email)').order('updated_at', { ascending: false });
+            if (userId) {
+                query = query.eq('user_id', userId);
+            }
+            const { data, error } = await query;
+            if (error) throw error;
+            res.status(200).json(data);
+        }
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        if (req.method === 'POST') {
+            const { ticketId, sender, message } = req.body;
+            const { data, error } = await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message }).select().single();
+            if (error) throw error;
+            
+            // Update ticket timestamp
+            await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId);
+            
+            res.status(201).json(data);
+        } else if (req.method === 'GET') {
+            const { ticketId } = req.query;
+            const { data, error } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true });
+            if (error) throw error;
+            res.status(200).json(data);
+        }
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
 // Simplified handlers for brevity (assuming they were correct before)
 async function handleSendNotification(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, title, message, type } = req.body; if (!userId || !title || !message) return res.status(400).json({ error: 'Missing required fields' }); await supabase.from('notifications').insert({ user_id: userId, title, message, type: type || 'info' }); res.status(200).json({ message: 'Notificação enviada.' }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateProductDetails(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: 'Gemini API key not configured.' }); const { prompt } = req.body; const instruction = `Extract product details from: "${prompt}". Return JSON: {name, description, price, stock, brand, category}.`; try { const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: instruction, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
@@ -345,6 +430,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/profiles': return await handleGetProfiles(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/banners': return await handleBanners(req, res);
+                case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
+                case '/api/admin/support-messages': return await handleSupportMessages(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -368,6 +455,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/generate-banner': return await handleGenerateBanner(req, res);
                 case '/api/admin/edit-image': return await handleEditImage(req, res);
                 case '/api/admin/banners': return await handleBanners(req, res);
+                case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
+                case '/api/admin/support-messages': return await handleSupportMessages(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

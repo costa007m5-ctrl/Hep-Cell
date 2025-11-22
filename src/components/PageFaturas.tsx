@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import { supabase } from '../services/clients';
@@ -62,29 +61,27 @@ const RenegotiationModal: React.FC<{
     overdueInvoices: Invoice[];
     onClose: () => void;
     onConfirm: (deal: Invoice) => void;
-}> = ({ overdueInvoices, onClose, onConfirm }) => {
+    maxInterestRate?: number;
+}> = ({ overdueInvoices, onClose, onConfirm, maxInterestRate = 15 }) => {
     const [installments, setInstallments] = useState(1);
     const [isGenerating, setIsGenerating] = useState(false);
 
     const totalOriginal = overdueInvoices.reduce((acc, inv) => acc + inv.amount, 0);
     
-    // Regra: Juros progressivo até 15% na parcela 7
-    // Fórmula simples: Juros % = 15% * (parcelas / 7)
-    // Ex: 1 parcela = 2.14% juros | 7 parcelas = 15% juros
-    const interestPercentage = (15 * (installments / 7)) / 100;
+    // Regra: Juros progressivo até a taxa máxima configurada (padrão 15%) na parcela 7
+    // Fórmula: Juros % = TaxaMaxima * (parcelas / 7)
+    const interestPercentage = (maxInterestRate * (installments / 7)) / 100;
     const totalWithInterest = totalOriginal * (1 + interestPercentage);
     const installmentValue = totalWithInterest / installments;
 
     const handleGenerateDeal = () => {
         setIsGenerating(true);
         
-        // Cria uma "fatura" virtual que representa o acordo
-        // Na prática, o backend (BoletoPayment) vai gerar um boleto com esse valor total
         const dealInvoice: Invoice = {
             id: `reneg_${Date.now()}`,
             user_id: overdueInvoices[0].user_id,
             month: `Acordo de Renegociação (${overdueInvoices.length} faturas)`,
-            due_date: new Date().toISOString().split('T')[0], // Vence hoje/amanhã
+            due_date: new Date().toISOString().split('T')[0], 
             amount: totalWithInterest,
             status: 'Em aberto',
             notes: `Renegociação de débitos. ${installments}x de ${installmentValue.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}`,
@@ -405,8 +402,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
     const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
     const [showConfetti, setShowConfetti] = useState(false);
-    const [bulkSelection, setBulkSelection] = useState<Invoice[]>([]); // Para pagamento em massa
-    const [isRenegotiating, setIsRenegotiating] = useState(false); // Estado para o modal de renegociação
+    const [bulkSelection, setBulkSelection] = useState<Invoice[]>([]); 
+    const [isRenegotiating, setIsRenegotiating] = useState(false); 
+    const [negotiationRate, setNegotiationRate] = useState(15);
     
     const { addToast } = useToast();
 
@@ -416,15 +414,23 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
             
-            // Fetch invoices and profile in parallel
-            const [invoicesRes, profileRes] = await Promise.all([
+            // Fetch invoices, profile and settings in parallel
+            const [invoicesRes, profileRes, settingsRes] = await Promise.all([
                 supabase.from('invoices').select('*').eq('user_id', user.id).order('due_date', { ascending: true }),
-                getProfile(user.id)
+                getProfile(user.id),
+                fetch('/api/admin/settings')
             ]);
 
             if (invoicesRes.error) throw invoicesRes.error;
             setInvoices(invoicesRes.data || []);
             if (profileRes) setProfile({ ...profileRes, id: user.id, email: user.email });
+            
+            if(settingsRes.ok) {
+                const settingsData = await settingsRes.json();
+                if(settingsData.negotiation_interest) {
+                    setNegotiationRate(parseFloat(settingsData.negotiation_interest));
+                }
+            }
 
         } catch (err: any) {
             const errorMessage = err.message || 'Ocorreu um erro desconhecido.';
@@ -716,6 +722,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     overdueInvoices={overdueInvoices} 
                     onClose={() => setIsRenegotiating(false)}
                     onConfirm={handleRenegotiationConfirm}
+                    maxInterestRate={negotiationRate}
                 />
             </Modal>
         </div>

@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
-import InputField from './InputField';
 import Alert from './Alert';
 
 interface FinancialDashboardProps {
@@ -20,6 +19,7 @@ const MetricCard: React.FC<{ title: string; value: string; description?: string 
 
 const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoading }) => {
     const [interestRate, setInterestRate] = useState<string>('');
+    const [negotiationInterest, setNegotiationInterest] = useState<string>('');
     const [isSavingInterest, setIsSavingInterest] = useState(false);
     const [interestMessage, setInterestMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -29,6 +29,7 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
             if (res.ok) {
                 const settings = await res.json();
                 setInterestRate(settings.interest_rate || '0');
+                setNegotiationInterest(settings.negotiation_interest || '15');
             }
         } catch (e) {
             console.error("Erro ao buscar configurações", e);
@@ -43,13 +44,20 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
         setIsSavingInterest(true);
         setInterestMessage(null);
         try {
-            const res = await fetch('/api/admin/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ key: 'interest_rate', value: interestRate })
-            });
-            if (!res.ok) throw new Error('Falha ao salvar.');
-            setInterestMessage({ text: 'Taxa atualizada!', type: 'success' });
+            await Promise.all([
+                fetch('/api/admin/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'interest_rate', value: interestRate })
+                }),
+                fetch('/api/admin/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'negotiation_interest', value: negotiationInterest })
+                })
+            ]);
+            
+            setInterestMessage({ text: 'Taxas atualizadas com sucesso!', type: 'success' });
             setTimeout(() => setInterestMessage(null), 3000);
         } catch (e) {
             setInterestMessage({ text: 'Erro ao salvar.', type: 'error' });
@@ -132,28 +140,45 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
         <div className="p-4 space-y-8">
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Crediário</h2>
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-md">
-                     <h3 className="text-lg font-semibold mb-4">Taxa de Juros</h3>
-                     <div className="flex items-end gap-4">
-                        <div className="flex-grow">
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Mensal (%)</label>
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-2xl">
+                     <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-white">Taxas de Juros</h3>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Nova Venda (% a.m.)</label>
                             <input 
                                 type="number" 
                                 step="0.01"
                                 value={interestRate}
                                 onChange={(e) => setInterestRate(e.target.value)}
                                 className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="0.00"
                             />
+                            <p className="text-xs text-slate-500 mt-1">Aplicado em novas vendas parceladas.</p>
                         </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Renegociação (Max %)</label>
+                            <input 
+                                type="number" 
+                                step="0.01"
+                                value={negotiationInterest}
+                                onChange={(e) => setNegotiationInterest(e.target.value)}
+                                className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="15.00"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">Teto de juros para renegociação de dívidas.</p>
+                        </div>
+                     </div>
+                     
+                     <div className="flex justify-end">
                         <button 
                             onClick={handleSaveInterest} 
                             disabled={isSavingInterest}
-                            className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50"
+                            className="py-2 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
-                            {isSavingInterest ? <LoadingSpinner /> : 'Salvar'}
+                            {isSavingInterest ? <LoadingSpinner /> : 'Salvar Configurações'}
                         </button>
                      </div>
-                     <p className="text-xs text-slate-500 mt-2">Esta taxa será aplicada automaticamente em novas vendas parceladas.</p>
+                     
                      {interestMessage && <div className="mt-3"><Alert message={interestMessage.text} type={interestMessage.type} /></div>}
                 </div>
             </section>
