@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'relp-cell-v17-pwa-ready';
+const CACHE_NAME = 'relp-cell-v18-store-ready';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
