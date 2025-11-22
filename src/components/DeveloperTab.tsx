@@ -278,7 +278,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     
     ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
-    -- Constraints para CPF e Telefone Únicos
+    -- Constraints para CPF e Telefone Únicos (Evita duplicidade no banco)
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_identification_number_key') THEN
         ALTER TABLE "public"."profiles" ADD CONSTRAINT "profiles_identification_number_key" UNIQUE ("identification_number");
@@ -302,21 +302,21 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     END $$;
 
     -- Função Segura para Buscar Email por Identificador (CPF ou Telefone)
-    -- Ignora formatação (pontos, traços) na busca
+    -- MELHORADA: Limpa formatação tanto do input quanto do banco de dados para comparação
     CREATE OR REPLACE FUNCTION get_email_by_identifier(identifier_input text)
     RETURNS text AS $$
     DECLARE
       found_email text;
       clean_input text;
     BEGIN
-      -- Remove tudo que não é número do input
+      -- Remove tudo que não é número do input do usuário
       clean_input := regexp_replace(identifier_input, '\\D', '', 'g');
       
       IF length(clean_input) = 0 THEN
          RETURN NULL;
       END IF;
 
-      -- Tenta encontrar pelo CPF (comparando apenas números)
+      -- Busca por CPF (comparando apenas números dos dois lados)
       SELECT email INTO found_email 
       FROM profiles 
       WHERE regexp_replace(identification_number, '\\D', '', 'g') = clean_input 
@@ -326,17 +326,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
         RETURN found_email; 
       END IF;
 
-      -- Tenta encontrar pelo Telefone (comparando apenas números)
+      -- Busca por Telefone (comparando apenas números dos dois lados)
       SELECT email INTO found_email 
       FROM profiles 
       WHERE regexp_replace(phone, '\\D', '', 'g') = clean_input 
       LIMIT 1;
       
-      -- Tenta encontrar pelo Telefone EXATO (caso tenha sido salvo com formatação estranha ou +55)
+      -- Fallback: Tenta encontrar pelo valor exato (caso seja email ou outro formato)
       IF found_email IS NULL THEN
         SELECT email INTO found_email 
         FROM profiles 
-        WHERE phone = identifier_input OR phone = clean_input
+        WHERE email = identifier_input
         LIMIT 1;
       END IF;
       
@@ -344,7 +344,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     END;
     $$ LANGUAGE plpgsql SECURITY DEFINER;
     
-    -- Permite que usuários anônimos (login) usem esta função
+    -- Permite que usuários anônimos (na tela de login/cadastro) usem esta função
     GRANT EXECUTE ON FUNCTION get_email_by_identifier(text) TO anon, authenticated, service_role;
 
     -- Outras tabelas essenciais (com RLS básico)
@@ -445,6 +445,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                     <h3 className="font-bold text-green-800 dark:text-green-200">Como funciona?</h3>
                     <p className="text-sm text-green-700 dark:text-green-300 mt-2">
                         Para automatizar a criação das tabelas e a sincronização de perfis de usuário, o processo é dividido em 3 passos simples.
+                        <br/><br/>
+                        <strong>Importante:</strong> Após clicar no botão do Passo 2, o login via CPF/Telefone começará a funcionar e a verificação de duplicidade será ativada.
                     </p>
                 </div>
 
@@ -457,7 +459,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                 <div className="mt-6">
                      <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Passo 2 (Automático): Preparar o Banco</h3>
                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este passo criará as tabelas, aplicará regras de segurança (RLS) para garantir que <strong>os dados sejam salvos corretamente</strong> e ativará a função de login por CPF.
+                        Este passo criará as tabelas, aplicará regras de segurança (RLS) para garantir que os dados sejam salvos corretamente e <strong>ativa a função de Login por CPF/Telefone</strong>.
                      </p>
                      
                      {message && <div className="mb-4"><Alert message={message.text} type={message.type} /></div>}

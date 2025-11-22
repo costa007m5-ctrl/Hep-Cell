@@ -138,6 +138,28 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   // Função para verificar se o input é um email
   const isEmail = (input: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
 
+  // Verifica se o usuário já existe no banco (por CPF ou Telefone)
+  const checkExistingUser = async (value: string) => {
+      const cleanValue = value.replace(/\D/g, '');
+      if (!cleanValue || cleanValue.length < 8) return; // Ignora se for muito curto
+
+      try {
+          const { data: existingEmail, error } = await supabase.rpc('get_email_by_identifier', { identifier_input: value });
+          
+          if (!error && existingEmail) {
+              setMessage({ text: 'Você já tem cadastro! Redirecionando para o login...', type: 'error' });
+              setTimeout(() => {
+                  setMode('login');
+                  setIdentifier(value); // Preenche o login com o dado que o usuário digitou
+                  setPassword('');
+                  setMessage(null);
+              }, 2000);
+          }
+      } catch (err) {
+          console.error("Erro ao verificar usuário existente", err);
+      }
+  };
+
   const handleAuth = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true);
@@ -149,7 +171,6 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
         // Se NÃO for email, assumimos que é CPF ou Telefone
         if (!isEmail(loginEmail)) {
-            // O usuário digitou CPF ou telefone
             const cleanIdentifier = loginEmail.replace(/\D/g, '');
             
             if (!cleanIdentifier) {
@@ -157,18 +178,18 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             }
 
             // Tenta buscar o email associado a esse CPF/Telefone via RPC
+            // A função SQL 'get_email_by_identifier' agora é robusta e limpa formatação automaticamente
             const { data: resolvedEmail, error: rpcError } = await supabase
                 .rpc('get_email_by_identifier', { identifier_input: loginEmail }); 
             
             if (rpcError) {
                 console.error("RPC Error:", rpcError);
-                // Se o RPC falhar, não mostre erro técnico, tente buscar com o número limpo
             }
 
             if (resolvedEmail) {
                 loginEmail = resolvedEmail;
             } else {
-                // Tenta enviar apenas números para o RPC caso a formatação tenha falhado
+                // Se não achou com formatação original, tenta só números (redundância)
                 const { data: resolvedEmailClean } = await supabase
                     .rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
                 
@@ -189,20 +210,11 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             throw new Error("Por favor, preencha todos os dados para emitirmos suas faturas corretamente.");
         }
 
-        // 1. Pré-verificação de Duplicidade (CPF/Telefone)
-        // Verifica se o CPF já existe no banco de dados
-        const { data: existingEmailByCpf, error: rpcCheckError } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
-        
-        if (!rpcCheckError && existingEmailByCpf) {
-             setMessage({ text: 'Este CPF já possui cadastro. Redirecionando para login...', type: 'error' });
-             
-             // Troca automaticamente para a tela de login preenchida
-             setTimeout(() => {
-                 setMode('login');
-                 setIdentifier(cpf); // Preenche com o CPF que o usuário digitou
-                 setPassword(''); // Limpa senha
-                 setMessage(null);
-             }, 2500);
+        // 1. Verificação final de Duplicidade (caso o onBlur tenha falhado ou usuário sido rápido)
+        const { data: existingEmailByCpf } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
+        if (existingEmailByCpf) {
+             setMessage({ text: 'Este CPF já possui cadastro. Redirecionando...', type: 'error' });
+             setTimeout(() => { setMode('login'); setIdentifier(cpf); }, 2000);
              setLoading(false);
              return;
         }
@@ -268,19 +280,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         let recoveryEmail = identifier.trim();
         
         if (!isEmail(recoveryEmail)) {
-             const cleanIdentifier = recoveryEmail.replace(/\D/g, '');
-             if (!cleanIdentifier) throw new Error("Digite um dado válido.");
-
              const { data: resolvedEmail } = await supabase
                 .rpc('get_email_by_identifier', { identifier_input: recoveryEmail });
              
-             if (!resolvedEmail) {
-                 // Tenta limpo
-                 const { data: resolvedEmailClean } = await supabase.rpc('get_email_by_identifier', { identifier_input: cleanIdentifier });
-                 if (resolvedEmailClean) recoveryEmail = resolvedEmailClean;
-                 else throw new Error("Dados não encontrados.");
-             } else {
+             if (resolvedEmail) {
                  recoveryEmail = resolvedEmail;
+             } else {
+                 throw new Error("Dados não encontrados.");
              }
         }
 
@@ -520,6 +526,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                                 required
                                 value={cpf}
                                 onChange={(e) => setCpf(maskCPF(e.target.value))}
+                                onBlur={(e) => checkExistingUser(e.target.value)}
                                 className={`${glassInput} pl-3.5`}
                                 placeholder="000.000.000-00"
                                 maxLength={14}
@@ -532,6 +539,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                                 required
                                 value={phone}
                                 onChange={(e) => setPhone(maskPhone(e.target.value))}
+                                onBlur={(e) => checkExistingUser(e.target.value)}
                                 className={`${glassInput} pl-3.5`}
                                 placeholder="(00) 00000-0000"
                                 maxLength={15}
