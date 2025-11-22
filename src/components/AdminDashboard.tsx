@@ -9,7 +9,8 @@ import ActionLogTab from './ActionLogTab';
 import StatusTab from './StatusTab';
 import AiConfigTab from './AiConfigTab'; 
 import AdvertisingTab from './AdvertisingTab'; 
-import SupportTab from './SupportTab'; // Nova Aba
+import SupportTab from './SupportTab';
+import PwaTab from './PwaTab'; // Nova Importação
 import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
@@ -105,7 +106,8 @@ const Icons = {
     Dev: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>,
     Ai: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
     Ads: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>,
-    Support: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+    Support: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
+    Pwa: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
 };
 
 const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: string; onClick: () => void }> = ({ title, icon, color, onClick }) => (
@@ -124,7 +126,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [stats, setStats] = useState({ today: 0, orders: 0, ticket: 0, last7Days: [0,0,0,0,0,0,0] });
   
-  // Lógica de Notificação para o Admin (para fins de teste na aba Status)
   const lastNotificationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -143,7 +144,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             
             if (data && data.length > 0) {
                 const latest = data[0];
-                // Se a notificação é nova e não foi lida
                 if (latest.id !== lastNotificationIdRef.current) {
                     if (lastNotificationIdRef.current !== null && !latest.read) {
                          if (Notification.permission === 'granted') {
@@ -170,28 +170,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         }
     };
 
-    // Polling a cada 10 segundos enquanto estiver no painel
     const interval = setInterval(checkNotifications, 10000);
-    checkNotifications(); // Check imediato
+    checkNotifications();
     return () => clearInterval(interval);
   }, []);
 
 
   useEffect(() => {
       const fetchStats = async () => {
-          // Mock de dados reais seria complexo de implementar em uma query só sem backend functions avançadas
-          // Aqui faremos queries simples para dar vida ao dashboard
           const today = new Date();
           const todayStr = today.toISOString().split('T')[0];
           
-          // Faturamento Hoje
           const { data: todaySales } = await supabase.from('invoices').select('amount').eq('status', 'Paga').gte('payment_date', todayStr);
           const totalToday = todaySales?.reduce((acc, curr) => acc + curr.amount, 0) || 0;
 
-          // Pedidos Novos (Orders)
           const { count: ordersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true }).gte('created_at', todayStr);
 
-          // Últimos 7 dias (Gráfico)
           const last7Days = [];
           for (let i = 6; i >= 0; i--) {
               const d = new Date();
@@ -204,7 +198,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           setStats({
               today: totalToday,
               orders: ordersCount || 0,
-              ticket: 150, // Mock médio para não pesar queries
+              ticket: 150,
               last7Days
           });
       };
@@ -217,17 +211,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     { id: 'new_sale', label: 'Nova Venda', icon: Icons.NewSale, color: 'bg-indigo-500' },
     { id: 'products', label: 'Produtos', icon: Icons.Products, color: 'bg-orange-500' },
     { id: 'ads', label: 'Publicidade', icon: Icons.Ads, color: 'bg-rose-500' },
-    { id: 'support', label: 'Suporte', icon: Icons.Support, color: 'bg-cyan-500' }, // Nova opção
+    { id: 'support', label: 'Suporte', icon: Icons.Support, color: 'bg-cyan-500' },
     { id: 'financials', label: 'Finanças', icon: Icons.Financials, color: 'bg-green-500' },
     { id: 'history', label: 'Histórico', icon: Icons.History, color: 'bg-purple-500' },
     { id: 'ai_config', label: 'IA & Chat', icon: Icons.Ai, color: 'bg-pink-500' },
+    { id: 'pwa_audit', label: 'PWA Audit', icon: Icons.Pwa, color: 'bg-violet-600' }, // Nova Opção
     { id: 'status', label: 'Status', icon: Icons.Status, color: 'bg-teal-500' },
     { id: 'dev', label: 'Dev Tools', icon: Icons.Dev, color: 'bg-gray-700' },
   ];
 
   const renderDashboardHome = () => (
       <div className="space-y-8 animate-fade-in">
-          {/* Resumo */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-green-500">
                   <p className="text-sm text-slate-500 dark:text-slate-400">Faturamento Hoje</p>
@@ -243,7 +237,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
               </div>
           </div>
 
-          {/* Menu Rápido */}
           <div>
              <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 px-1">Menu Rápido</h3>
              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4">
@@ -259,7 +252,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
              </div>
           </div>
 
-          {/* Gráficos e Kanban */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <SalesChart data={stats.last7Days} />
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm">
@@ -276,10 +268,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'financials': return <FinancialDashboard invoices={[]} isLoading={false} />;
           case 'products': return <ProductsTab />;
           case 'ads': return <AdvertisingTab />;
-          case 'support': return <SupportTab />; // Renderiza o novo componente
+          case 'support': return <SupportTab />;
           case 'new_sale': return <NewSaleTab />;
           case 'history': return <ActionLogTab />;
-          case 'ai_config': return <AiConfigTab />; 
+          case 'ai_config': return <AiConfigTab />;
+          case 'pwa_audit': return <PwaTab />; // Novo Renderizador
           case 'status': return <StatusTab />;
           case 'dev': return <DeveloperTab />;
           default: return renderDashboardHome();
@@ -288,7 +281,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col lg:flex-row">
-        {/* Sidebar - Desktop */}
         <aside className="hidden lg:flex w-64 flex-col bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 fixed h-full z-30 shadow-xl">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">
                 <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">R</div>
@@ -324,9 +316,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </div>
         </aside>
 
-        {/* Main Content Area */}
         <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
-            {/* Mobile Header */}
             <header className="lg:hidden bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 p-4 flex justify-between items-center sticky top-0 z-40">
                 <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-green-500"></span>
@@ -342,7 +332,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </main>
         </div>
 
-        {/* Bottom Navigation - Mobile (Scrollable) */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 z-50 pb-safe shadow-lg">
             <div className="flex overflow-x-auto no-scrollbar py-3 px-4 gap-4 snap-x">
                 {menuItems.map(item => (
@@ -363,7 +352,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                         </span>
                     </button>
                 ))}
-                {/* Spacer to allow scrolling to the very end */}
                 <div className="w-4 flex-shrink-0"></div>
             </div>
         </nav>
