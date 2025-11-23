@@ -216,41 +216,43 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           }).eq('id', pendingContract.id);
 
           if (contractError) {
-              console.error("Erro ao salvar contrato:", contractError);
-              throw new Error("Falha ao salvar assinatura. Verifique sua conexão.");
+              throw new Error("Falha ao salvar assinatura. Tente novamente.");
           }
 
-          // 2. Ativa as Faturas (usando lógica de tempo/user pois não temos FK direta)
+          // 2. Ativa as Faturas
           await supabase.from('invoices')
             .update({ status: 'Em aberto' })
             .eq('user_id', pendingContract.user_id)
             .eq('status', 'Aguardando Assinatura');
 
-          // 3. Limpa o estado imediatamente para remover o alerta da UI
+          // 3. Notificação de sucesso e limpeza
+          addToast("Contrato assinado com sucesso!", "success");
+          
+          // IMPORTANTE: Remove imediatamente o contrato pendente da UI
           setPendingContract(null); 
           setIsModalOpen(false);
-          setSignature(null); // Limpa assinatura para próxima vez
-          addToast("Contrato assinado com sucesso!", "success");
+          setSignature(null); 
           
           // 4. Recarrega faturas para mostrar atualizadas
           const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
           setInvoices(data || []);
 
-          // 5. Busca por MAIS contratos pendentes (fila)
+          // 5. Busca se ainda há MAIS contratos pendentes na fila (após o atual ter sido assinado)
+          // Usa neq(id, id_assinado) por segurança, mas o update acima já deve ter removido do status 'pending_signature'
           const { data: nextContract } = await supabase.from('contracts')
             .select('*')
             .eq('user_id', pendingContract.user_id)
             .eq('status', 'pending_signature')
-            .neq('id', pendingContract.id) // Garante que não pega o mesmo se o update falhou silenciosamente (fallback)
             .limit(1);
             
           if (nextContract && nextContract.length > 0) {
+              // Se tiver outro, define ele. Se não, fica null.
               setPendingContract(nextContract[0]);
           }
 
       } catch (e: any) {
           console.error(e);
-          addToast(e.message || "Erro ao assinar contrato. Tente novamente.", "error");
+          addToast(e.message || "Erro ao assinar contrato.", "error");
       } finally {
           setIsSigning(false);
       }

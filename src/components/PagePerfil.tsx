@@ -181,7 +181,9 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
 
     if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
+    // Filter Logic: 'pending_signature' vs everything else
     const pendingContracts = contracts.filter(c => c.status === 'pending_signature');
+    // History contains everything NOT pending (Active, Signed, Cancelled, etc.)
     const historyContracts = contracts.filter(c => c.status !== 'pending_signature');
 
     return (
