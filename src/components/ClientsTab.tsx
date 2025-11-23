@@ -227,12 +227,12 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     // Super Manager States
     const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
     const [showNegotiationModal, setShowNegotiationModal] = useState(false);
-    const [isEditingLimit, setIsEditingLimit] = useState(false);
+    
+    // Limit Request & Management State
     const [tempLimit, setTempLimit] = useState<string>('');
     const [tempScore, setTempScore] = useState<string>('');
-    
-    // Limit Request State
     const [responseReason, setResponseReason] = useState('');
+    const [processingRequest, setProcessingRequest] = useState(false);
 
     // Negotiation Form
     const [negotiationData, setNegotiationData] = useState({
@@ -245,9 +245,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     // Notes
     const [internalNotes, setInternalNotes] = useState('');
     const [isSavingNotes, setIsSavingNotes] = useState(false);
-
-    // Limit Request Actions
-    const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
     // Fetch Data
     const fetchData = useCallback(async () => {
@@ -338,7 +335,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             if (filterStatus === 'inadimplentes') return p.riskLevel === 'Alto';
             if (filterStatus === 'vip') return (p.credit_score || 0) > 800;
             if (filterStatus === 'solicitacoes') {
-                // Retorna se tem solicitação pendente
                 return limitRequests.some(r => r.user_id === p.id && r.status === 'pending');
             }
             return true;
@@ -351,14 +347,13 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         setIsDrawerOpen(true);
         setSelectedInvoiceIds(new Set());
         setActiveDrawerTab('geral');
-        setIsEditingLimit(false);
         setResponseReason('');
         
-        // Reseta campos de solicitação se houver
+        // Reseta campos de gestão de limite
         const req = limitRequests.find(r => r.user_id === client.id && r.status === 'pending');
         if(req) {
             setTempLimit(String(req.requested_amount));
-            setTempScore('600');
+            setTempScore('600'); // Sugestão padrão
         } else {
             setTempLimit(String(client.credit_limit || 0));
             setTempScore(String(client.credit_score || 0));
@@ -379,7 +374,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             if (res.ok) {
                 setSuccessMessage('Operação realizada com sucesso!');
                 setTimeout(() => setSuccessMessage(null), 3000);
-                setSelectedInvoiceIds(new Set()); // Clear selection
+                setSelectedInvoiceIds(new Set()); 
                 fetchData();
             } else {
                 alert('Erro ao atualizar faturas.');
@@ -423,64 +418,79 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         }
     };
 
-    const handleUpdateLimit = async () => {
-        if(!selectedClientId) return;
-        try {
-            const res = await fetch('/api/admin/update-limit', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    userId: selectedClientId,
-                    creditLimit: parseFloat(tempLimit),
-                    creditScore: parseInt(tempScore)
-                })
-            });
-            if(res.ok) {
-                setSuccessMessage('Limite atualizado!');
-                setTimeout(() => setSuccessMessage(null), 2000);
-                setIsEditingLimit(false);
-                fetchData();
-            }
-        } catch(e) { alert('Erro ao atualizar limite'); }
-    };
+    // Unified Limit Action Handler (For Request or Manual Update)
+    const handleLimitAction = async (action: 'approve_manual' | 'reject' | 'calculate_auto' | 'update', reqId?: string) => {
+        if (!selectedClientId) return;
+        setProcessingRequest(true);
+        
+        // Se for update sem request, usamos um endpoint diferente ou adaptamos
+        const endpoint = reqId ? '/api/admin/manage-limit-request' : '/api/admin/update-limit';
+        const payload: any = {
+            userId: selectedClientId,
+            action,
+            manualLimit: parseFloat(tempLimit),
+            manualScore: parseInt(tempScore),
+            responseReason: responseReason,
+            requestId: reqId
+        };
 
-    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject' | 'calculate_auto', manualLimit?: number, responseReasonText?: string) => {
-        setProcessingRequest(requestId);
+        // Se for apenas update, o payload muda
+        if (action === 'update') {
+            payload.creditLimit = parseFloat(tempLimit);
+            payload.creditScore = parseInt(tempScore);
+        }
+
+        // Se for calculo automatico, usamos o endpoint de request mas com user ID
+        if (action === 'calculate_auto') {
+             // Se tem request, manda o ID, senao manda so o user para analise
+             if (!reqId) {
+                 // Fallback para analise geral se não tiver request
+                 try {
+                     const res = await fetch('/api/admin/analyze-credit', {
+                         method: 'POST',
+                         headers: {'Content-Type': 'application/json'},
+                         body: JSON.stringify({ userId: selectedClientId })
+                     });
+                     const data = await res.json();
+                     if (res.ok) {
+                         setTempLimit(String(data.profile.credit_limit));
+                         setTempScore(String(data.profile.credit_score));
+                         setResponseReason(data.profile.reason || '');
+                         setSuccessMessage("Sugestão calculada!");
+                     }
+                 } catch (e) { alert("Erro ao calcular"); }
+                 setProcessingRequest(false);
+                 return;
+             }
+        }
+
         try {
-            const res = await fetch('/api/admin/manage-limit-request', {
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    requestId,
-                    action,
-                    manualLimit,
-                    manualScore: 600,
-                    responseReason: responseReasonText
-                })
+                body: JSON.stringify(payload)
             });
             
             const data = await res.json();
+            
             if(res.ok) {
-                // Se for apenas cálculo, não recarrega tudo, apenas atualiza campos locais
                 if (action === 'calculate_auto' && data.suggestedLimit) {
                     setTempLimit(String(data.suggestedLimit));
                     setTempScore(String(data.suggestedScore || 600));
                     setResponseReason(data.reason || '');
                     setSuccessMessage("Sugestão calculada pela IA!");
-                    setTimeout(() => setSuccessMessage(null), 2000);
-                    return;
+                } else {
+                    setSuccessMessage(data.message || 'Atualizado com sucesso!');
+                    fetchData();
                 }
-
-                setSuccessMessage(data.message);
                 setTimeout(() => setSuccessMessage(null), 3000);
-                fetchData();
             } else {
                 alert(data.error);
             }
         } catch(e) {
-            alert("Erro na solicitação");
+            alert("Erro na operação");
         } finally {
-            setProcessingRequest(null);
+            setProcessingRequest(false);
         }
     };
 
@@ -619,119 +629,95 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
                         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-900/30">
                             
-                            {/* --- TAB GERAL --- */}
+                            {/* --- TAB GERAL (GESTÃO DE CRÉDITO) --- */}
                             {activeDrawerTab === 'geral' && (
                                 <>
-                                    {/* Cartão de Solicitação Pendente APRIMORADO */}
-                                    {clientPendingRequest && (
-                                        <div className="bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-200 dark:border-purple-800 rounded-xl p-5 mb-6 shadow-md animate-fade-in">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div>
-                                                    <h3 className="font-bold text-purple-900 dark:text-purple-100 flex items-center gap-2 text-lg">
-                                                        <span className="animate-pulse text-xl">🔔</span> Solicitação de Aumento
-                                                    </h3>
-                                                    <div className="mt-2 bg-white dark:bg-slate-800 p-2 rounded border border-purple-100 dark:border-purple-900 inline-block">
-                                                        <p className="text-xs text-slate-500 uppercase font-bold">Valor Solicitado</p>
-                                                        <p className="text-2xl font-black text-purple-600 dark:text-purple-400">
-                                                            R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}
-                                                        </p>
-                                                    </div>
-                                                    <p className="text-sm text-slate-600 dark:text-slate-300 italic mt-2 border-l-2 border-purple-300 pl-2">
-                                                        "{clientPendingRequest.justification}"
-                                                    </p>
-                                                </div>
-                                                <span className="text-xs font-bold bg-purple-200 text-purple-800 px-2 py-1 rounded uppercase">{new Date(clientPendingRequest.created_at).toLocaleDateString()}</span>
-                                            </div>
-
-                                            {/* Área de Ação do Admin */}
-                                            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 space-y-3">
-                                                <div className="flex gap-2 items-center mb-2">
-                                                    <button 
-                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'calculate_auto')}
-                                                        className="text-xs bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm hover:opacity-90 flex items-center gap-1"
-                                                    >
-                                                        ✨ Calcular Sugestão Auto
-                                                    </button>
-                                                    <span className="text-xs text-slate-400">A IA analisará o perfil e sugerirá um valor.</span>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div>
-                                                        <label className="text-xs font-bold text-slate-500">Novo Limite (Aprovar)</label>
-                                                        <input 
-                                                            type="number" 
-                                                            value={tempLimit || clientPendingRequest.requested_amount} 
-                                                            onChange={e => setTempLimit(e.target.value)} 
-                                                            className="w-full p-2 border rounded bg-slate-50 dark:bg-slate-900 font-bold text-slate-700" 
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-xs font-bold text-slate-500">Score Ajustado</label>
-                                                        <input 
-                                                            type="number" 
-                                                            value={tempScore || 600} 
-                                                            onChange={e => setTempScore(e.target.value)} 
-                                                            className="w-full p-2 border rounded bg-slate-50 dark:bg-slate-900" 
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <label className="text-xs font-bold text-slate-500">Motivo / Explicação para o Cliente</label>
-                                                    <textarea 
-                                                        className="w-full p-2 border rounded text-sm bg-slate-50 dark:bg-slate-900 resize-none"
-                                                        rows={2}
-                                                        placeholder="Ex: Aprovado com base no bom histórico de pagamentos."
-                                                        value={responseReason}
-                                                        onChange={(e) => setResponseReason(e.target.value)}
-                                                    ></textarea>
-                                                </div>
-
-                                                <div className="flex gap-2 pt-2">
-                                                    <button 
-                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(tempLimit || String(clientPendingRequest.requested_amount)), responseReason)}
-                                                        disabled={!!processingRequest}
-                                                        className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition-colors"
-                                                    >
-                                                        Confirmar Aprovação
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'reject', undefined, responseReason || 'Critérios internos não atendidos no momento.')}
-                                                        disabled={!!processingRequest}
-                                                        className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 font-bold rounded-lg border border-red-200 transition-colors"
-                                                    >
-                                                        Rejeitar
-                                                    </button>
-                                                </div>
+                                    <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-lg">
+                                                Gestão de Crédito
+                                                {clientPendingRequest && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full animate-pulse font-bold">Solicitação Pendente</span>}
+                                            </h3>
+                                            <div className="text-right">
+                                                <p className="text-xs text-slate-500 uppercase">Limite Atual</p>
+                                                <p className="font-black text-lg text-indigo-600 dark:text-indigo-400">R$ {selectedClient.credit_limit?.toLocaleString()}</p>
                                             </div>
                                         </div>
-                                    )}
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 relative group">
-                                            <div className="flex justify-between items-center">
-                                                <p className="text-xs text-slate-500 uppercase font-bold">Limite Total</p>
-                                                <button onClick={() => { setIsEditingLimit(!isEditingLimit); setTempLimit(String(selectedClient.credit_limit)); setTempScore(String(selectedClient.credit_score)); }} className="text-slate-400 hover:text-indigo-600">
-                                                    ✏️
-                                                </button>
+                                        {clientPendingRequest && (
+                                            <div className="mb-5 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl">
+                                                <p className="text-sm text-purple-800 dark:text-purple-200 font-medium flex justify-between">
+                                                    <span>Solicitado:</span>
+                                                    <strong className="text-lg">R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}</strong>
+                                                </p>
+                                                <p className="text-xs text-purple-600 dark:text-purple-300 mt-1 italic">"{clientPendingRequest.justification}"</p>
+                                                <p className="text-[10px] text-purple-400 mt-1 text-right">{new Date(clientPendingRequest.created_at).toLocaleDateString()}</p>
                                             </div>
-                                            {isEditingLimit ? (
-                                                <div className="mt-2 space-y-2">
-                                                    <input type="number" value={tempLimit} onChange={e => setTempLimit(e.target.value)} className="w-full p-1 border rounded" placeholder="Limite" />
-                                                    <input type="number" value={tempScore} onChange={e => setTempScore(e.target.value)} className="w-full p-1 border rounded" placeholder="Score" />
-                                                    <button onClick={handleUpdateLimit} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded w-full">Salvar</button>
+                                        )}
+
+                                        <div className="grid grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Novo Limite</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-2 text-slate-400 font-bold">R$</span>
+                                                    <input 
+                                                        type="number" 
+                                                        value={tempLimit} 
+                                                        onChange={e => setTempLimit(e.target.value)} 
+                                                        className="w-full pl-8 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white"
+                                                    />
                                                 </div>
-                                            ) : (
-                                                <p className="text-xl font-black text-slate-900 dark:text-white">R$ {selectedClient.credit_limit}</p>
-                                            )}
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 mb-1 block">Novo Score</label>
+                                                <input 
+                                                    type="number" 
+                                                    value={tempScore} 
+                                                    onChange={e => setTempScore(e.target.value)} 
+                                                    className="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-medium"
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800/30">
-                                            <p className="text-xs text-red-600 uppercase font-bold">Dívida Ativa</p>
-                                            <p className="text-xl font-black text-red-600 dark:text-red-400">R$ {selectedClient.totalDebt}</p>
+
+                                        <div className="mb-4">
+                                            <label className="text-xs font-bold text-slate-500 mb-1 block">Motivo / Explicação (Visível ao Cliente)</label>
+                                            <textarea 
+                                                value={responseReason} 
+                                                onChange={e => setResponseReason(e.target.value)} 
+                                                className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm h-20 resize-none focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                placeholder="Ex: Aprovado mediante análise de renda e bom histórico..."
+                                            ></textarea>
+                                        </div>
+
+                                        <div className="flex flex-col gap-3">
+                                            <button 
+                                                onClick={() => handleLimitAction('calculate_auto', clientPendingRequest?.id)}
+                                                disabled={processingRequest}
+                                                className="w-full py-2.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
+                                            >
+                                                {processingRequest ? <LoadingSpinner /> : '✨ Calcular Sugestão Automática (IA)'}
+                                            </button>
+
+                                            <div className="flex gap-3 mt-1">
+                                                {clientPendingRequest ? (
+                                                    <>
+                                                        <button onClick={() => handleLimitAction('approve_manual', clientPendingRequest.id)} className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 shadow-lg shadow-green-500/20 transition-transform active:scale-95">
+                                                            Aprovar Solicitação
+                                                        </button>
+                                                        <button onClick={() => handleLimitAction('reject', clientPendingRequest.id)} className="px-6 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm border border-red-100 hover:bg-red-100 transition-colors">
+                                                            Rejeitar
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button onClick={() => handleLimitAction('update')} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition-transform active:scale-95">
+                                                        Atualizar Limite
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-200 dark:border-yellow-700">
+                                    <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-200 dark:border-yellow-700 mt-6">
                                         <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-200 mb-2">Notas Internas (Privado)</h4>
                                         <textarea 
                                             value={internalNotes} 

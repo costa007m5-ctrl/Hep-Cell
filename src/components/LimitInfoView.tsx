@@ -207,7 +207,7 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                     </div>
                                 </div>
 
-                                {/* Última Solicitação Status - Feedback para o cliente */}
+                                {/* Última Solicitação Status */}
                                 {lastRequest && lastRequest.status !== 'pending' && (
                                     <div className={`p-4 rounded-xl border animate-fade-in-up ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'}`}>
                                         <div className="flex justify-between items-start">
