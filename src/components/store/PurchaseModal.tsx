@@ -40,7 +40,9 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [minEntryPercentage, setMinEntryPercentage] = useState(0.15);
     const [signature, setSignature] = useState<string | null>(null);
     const [termsAccepted, setTermsAccepted] = useState(false);
-    const [totalUsedLimit, setTotalUsedLimit] = useState(0);
+    
+    // Controle de Limite Mensal
+    const [usedMonthlyLimit, setUsedMonthlyLimit] = useState(0);
     const [isLoadingLimit, setIsLoadingLimit] = useState(true);
 
     const isDiamond = (profile.credit_score || 0) >= 850;
@@ -57,16 +59,24 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     if(!isNaN(minEntry)) setMinEntryPercentage(minEntry / 100);
                 }
 
+                // Busca faturas em aberto para calcular o comprometimento MENSAL
                 const { data: invoices, error } = await supabase
                     .from('invoices')
-                    .select('amount')
+                    .select('amount, due_date')
                     .eq('user_id', profile.id)
                     .or('status.eq.Em aberto,status.eq.Boleto Gerado');
                 
                 if (error) throw error;
                 
-                const used = invoices?.reduce((acc, inv) => acc + inv.amount, 0) || 0;
-                setTotalUsedLimit(used);
+                // Lógica de Maior Comprometimento Mensal
+                const monthlyCommitments: Record<string, number> = {};
+                invoices?.forEach(inv => {
+                    const dueMonth = inv.due_date.substring(0, 7); // YYYY-MM
+                    monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
+                });
+                
+                const maxMonthly = Math.max(0, ...Object.values(monthlyCommitments));
+                setUsedMonthlyLimit(maxMonthly);
 
             } catch (e) {
                 console.error("Erro ao carregar dados iniciais", e);
@@ -79,8 +89,10 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const MAX_INSTALLMENTS_CREDIARIO = 12;
     const MAX_INSTALLMENTS_CARD = 12;
-    const creditLimit = profile.credit_limit ?? 0;
-    const availableLimit = Math.max(0, creditLimit - totalUsedLimit);
+    
+    // Interpretação correta: Credit Limit é o LIMITE DE PARCELA MENSAL
+    const monthlyLimitTotal = profile.credit_limit ?? 0;
+    const availableMonthlyLimit = Math.max(0, monthlyLimitTotal - usedMonthlyLimit);
     
     const downPaymentValue = parseFloat(downPayment) || 0;
     const principalAmount = Math.max(0, product.price - downPaymentValue);
@@ -106,21 +118,27 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const installmentValue = totalFinancedWithInterest / installments;
     
+    // Nova Validação baseada em Limite de Parcela
     const validationStatus = useMemo(() => {
         if (saleType !== 'crediario') return { isValid: true, message: null, mandatoryEntry: 0, limitGapEntry: 0 };
         
+        // 1. Entrada Mínima da Loja (Ex: 15% do valor total)
         const regulatoryEntry = product.price * minEntryPercentage;
         
-        // O valor financiado (com juros) não pode exceder o limite disponível.
-        // Se exceder, o cliente precisa dar entrada para cobrir.
-        // Cálculo reverso aproximado para encontrar o valor máximo financiável sem estourar o limite
-        let maxPrincipalAllowed = availableLimit;
-        if (installments > 1 && interestRate > 0) {
-             const factor = Math.pow(1 + (interestRate/100), installments);
-             maxPrincipalAllowed = availableLimit / factor;
-        }
+        // 2. Entrada por Limite de Parcela Excedido
+        // A parcela calculada não pode ser maior que o availableMonthlyLimit.
+        // Se installmentValue > availableMonthlyLimit, precisamos de mais entrada.
+        // Cálculo reverso: Qual entrada (E) faz a parcela ser <= limite?
+        // Parcela = ((Preco - E) * FatorJuros) / Parcelas <= Limite
+        // (Preco - E) <= (Limite * Parcelas) / FatorJuros
+        // E >= Preco - [(Limite * Parcelas) / FatorJuros]
+        
+        const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
+        const maxPrincipalAllowed = (availableMonthlyLimit * installments) / interestFactor;
         
         const limitGapEntry = Math.max(0, product.price - maxPrincipalAllowed);
+        
+        // A entrada necessária é a maior entre a regra da loja e a necessidade financeira
         const requiredEntry = Math.max(regulatoryEntry, limitGapEntry);
         
         if (downPaymentValue < requiredEntry) {
@@ -133,32 +151,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             };
         }
         return { isValid: true, message: 'Entrada Aprovada', mandatoryEntry: regulatoryEntry, limitGapEntry: limitGapEntry, requiredTotal: requiredEntry };
-    }, [saleType, product.price, availableLimit, installments, interestRate, downPaymentValue, minEntryPercentage]);
-
-    const installmentSchedule = useMemo(() => {
-        const schedule = [];
-        let currentDate = new Date();
-        let currentMonth = currentDate.getMonth();
-        let currentYear = currentDate.getFullYear();
-        currentMonth++;
-        
-        for (let i = 1; i <= installments; i++) {
-            if (currentMonth > 11) {
-                currentMonth = 0;
-                currentYear++;
-            }
-            const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
-            const day = Math.min(selectedDueDay, maxDay);
-            const date = new Date(currentYear, currentMonth, day);
-            schedule.push({
-                number: i,
-                date: date,
-                value: installmentValue
-            });
-            currentMonth++;
-        }
-        return schedule;
-    }, [installments, selectedDueDay, installmentValue]);
+    }, [saleType, product.price, availableMonthlyLimit, installments, interestRate, downPaymentValue, minEntryPercentage]);
 
     const handleNextStep = () => {
         if (saleType === 'crediario' && !validationStatus.isValid) return;
@@ -210,11 +203,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             {saleType === 'crediario' ? (
                 <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl flex justify-between items-center">
                     <div>
-                        <span className="block text-xs font-medium text-indigo-900 dark:text-indigo-200 uppercase">Limite Disponível</span>
-                        <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                        <span className="block text-xs font-medium text-indigo-900 dark:text-indigo-200 uppercase">Margem Mensal Livre</span>
+                        <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{availableMonthlyLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                     </div>
                     <div className="text-right">
-                        <span className="block text-xs text-slate-500 dark:text-slate-400">Total: {creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">Limite Parcela: {monthlyLimitTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                     </div>
                 </div>
             ) : (
@@ -286,7 +279,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                         <p className="font-bold mb-1">Motivo:</p>
                         <ul className="list-disc list-inside opacity-90 space-y-0.5">
                             <li>Mínimo da Loja ({(minEntryPercentage * 100).toFixed(0)}%): <strong>R$ {validationStatus.mandatoryEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></li>
-                            <li>Falta de Limite: <strong>R$ {validationStatus.limitGapEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></li>
+                            <li>Ajuste ao Limite Mensal: <strong>R$ {validationStatus.limitGapEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></li>
                         </ul>
                         <p className="mt-2 font-bold">Entrada Necessária: R$ {validationStatus.requiredTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                     </div>
@@ -295,28 +288,62 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         </div>
     );
 
-    // ... (Restante das funções renderContractStep e renderSummaryStep idênticas ao anterior, apenas mantendo estrutura)
     const renderContractStep = () => (
         <div className="space-y-6 flex-1 overflow-y-auto">
-            {/* Mesma lógica do arquivo anterior, simplificada aqui para brevidade, mas mantendo o código original */}
-            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg h-64 overflow-y-auto text-xs text-justify">
-                <p>CONTRATO DE CONFISSÃO DE DÍVIDA...</p>
-                <p>Valor Total: {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                {/* ... */}
+            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg h-64 overflow-y-auto text-xs text-justify border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                <p className="font-bold text-center mb-4 text-sm">CONTRATO DE CONFISSÃO DE DÍVIDA E COMPRA E VENDA</p>
+                <p><strong>CREDOR:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}, situado em {COMPANY_DATA.endereco}.</p>
+                <p><strong>DEVEDOR:</strong> {profile.first_name} {profile.last_name}, CPF {profile.identification_number}.</p>
+                <p className="mt-2">1. <strong>DO OBJETO:</strong> O CREDOR vende ao DEVEDOR o produto <strong>{product.name}</strong> pelo valor financiado de R$ {totalFinancedWithInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.</p>
+                <p>2. <strong>DO PAGAMENTO:</strong> O pagamento será realizado em {installments} parcelas mensais de R$ {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, com primeiro vencimento conforme selecionado.</p>
+                <p>3. <strong>DA ENTRADA:</strong> Foi pago a título de entrada o valor de R$ {downPaymentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.</p>
+                <p>4. <strong>DO ATRASO:</strong> O não pagamento na data de vencimento acarretará multa de 2% e juros moratórios de 1% ao mês.</p>
+                <p>5. <strong>DA ASSINATURA:</strong> A assinatura digital abaixo confirma a leitura e concordância com todos os termos deste contrato.</p>
+                <p className="mt-4 text-center">Macapá, {new Date().toLocaleDateString()}</p>
             </div>
-            <SignaturePad onEnd={setSignature} />
-            <div className="flex items-start gap-2">
-                <input type="checkbox" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
-                <label className="text-xs">Li e concordo com os termos.</label>
+            
+            <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Assine no espaço abaixo:</label>
+                <SignaturePad onEnd={setSignature} />
+            </div>
+
+            <div className="flex items-start gap-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <input 
+                    type="checkbox" 
+                    id="terms" 
+                    checked={termsAccepted} 
+                    onChange={e => setTermsAccepted(e.target.checked)}
+                    className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500" 
+                />
+                <label htmlFor="terms" className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
+                    Li, compreendi e concordo com todos os termos do contrato acima e autorizo a emissão das faturas em meu nome.
+                </label>
             </div>
         </div>
     );
 
     const renderSummaryStep = () => (
         <div className="text-center p-6">
-            <h3 className="text-xl font-bold mb-4">Confirmar Pedido?</h3>
-            <p>Produto: {product.name}</p>
-            <p className="font-bold text-lg mt-2">R$ {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+            <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Confirmar Pedido?</h3>
+            <p className="text-slate-500 dark:text-slate-400 mb-6">Revise os dados antes de finalizar.</p>
+            
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 mb-6 text-left space-y-2">
+                <div className="flex justify-between">
+                    <span className="text-sm text-slate-500">Produto</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">{product.name}</span>
+                </div>
+                <div className="flex justify-between">
+                    <span className="text-sm text-slate-500">Pagamento</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white uppercase">{paymentMethod.replace('_', ' ')}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Total</span>
+                    <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {totalFinancedWithInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+            </div>
         </div>
     );
 
@@ -341,7 +368,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                         </button>
                     ) : (
                         <button onClick={handleConfirmPurchase} disabled={isProcessing || (step === 'contract' && (!signature || !termsAccepted))} className="flex-[2] py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold disabled:opacity-50">
-                            {isProcessing ? <LoadingSpinner /> : 'Confirmar'}
+                            {isProcessing ? <LoadingSpinner /> : 'Confirmar Compra'}
                         </button>
                     )}
                 </div>

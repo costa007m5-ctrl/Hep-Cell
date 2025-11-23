@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Profile, Product } from '../types';
+import { Profile, Product, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import jsPDF from 'jspdf';
@@ -85,6 +85,7 @@ const NewSaleTab: React.FC = () => {
     // --- Data States ---
     const [products, setProducts] = useState<Product[]>([]);
     const [profiles, setProfiles] = useState<Profile[]>([]);
+    const [allInvoices, setAllInvoices] = useState<Invoice[]>([]); // To calculate used limits
     const [interestRate, setInterestRate] = useState(0);
     const [minEntryPercentage, setMinEntryPercentage] = useState(0.15); // Padrão 15%
     const [loading, setLoading] = useState(true);
@@ -121,14 +122,16 @@ const NewSaleTab: React.FC = () => {
         const load = async () => {
             try {
                 // Use Admin API to bypass RLS limitations
-                const [prodRes, profRes, setRes] = await Promise.all([
+                const [prodRes, profRes, invRes, setRes] = await Promise.all([
                     fetch('/api/admin/products'),
                     fetch('/api/admin/profiles'),
+                    fetch('/api/admin/invoices'),
                     fetch('/api/admin/settings')
                 ]);
                 
                 if (prodRes.ok) setProducts(await prodRes.json());
                 if (profRes.ok) setProfiles(await profRes.json());
+                if (invRes.ok) setAllInvoices(await invRes.json());
                 if (setRes.ok) {
                     const settings = await setRes.json();
                     setInterestRate(parseFloat(settings.interest_rate) || 0);
@@ -194,22 +197,33 @@ const NewSaleTab: React.FC = () => {
 
     const installmentValue = installments > 0 ? totalWithInterest / installments : 0;
 
-    // Cálculo de Limite Disponível do Cliente
+    // Cálculo de Limite de Parcela (Mensal)
     const clientLimitData = useMemo(() => {
-        if (!selectedProfile) return { total: 0, used: 0, available: 0 };
-        // Em um cenário real, isso viria do backend ou estaria no objeto profile se atualizado
-        // Aqui usamos o valor bruto do profile, assumindo que está atualizado
-        const total = selectedProfile.credit_limit || 0;
-        // Para saber o used exato precisaríamos das faturas, aqui vamos assumir que o credit_limit já é o total.
-        // O ideal é buscar as faturas do cliente no momento da seleção.
-        // Como NewSaleTab carrega profiles genéricos, vamos usar um valor estimado ou buscar sob demanda.
-        // Para simplificar neste componente admin, vamos confiar no que está no profile se houver campo 'available_limit'
-        // ou assumir que o credit_limit é o limite TOTAL e o cliente pode ter usado.
-        // *Nota: O componente NewSaleTab carrega profiles básicos. Vamos assumir disponibilidade total do limite cadastrado para simplificar a UI de venda,
-        // mas na vida real o backend bloquearia se excedesse.*
+        if (!selectedProfile) return { totalMonthly: 0, usedMonthly: 0, availableMonthly: 0 };
         
-        return { total, available: total }; // Simplificação para Admin
-    }, [selectedProfile]);
+        const totalMonthly = selectedProfile.credit_limit || 0;
+        
+        // Calcula o comprometimento mensal atual baseado nas faturas em aberto
+        const userOpenInvoices = allInvoices.filter(inv => 
+            inv.user_id === selectedProfile.id && 
+            (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado')
+        );
+
+        // Agrupa por mês para encontrar o mês mais "cheio" (Pior caso de comprometimento)
+        const monthlyCommitments: Record<string, number> = {};
+        userOpenInvoices.forEach(inv => {
+            // Usa o mês de vencimento como chave (YYYY-MM)
+            const dueMonth = inv.due_date.substring(0, 7); 
+            monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
+        });
+
+        // O "Uso Mensal" é o maior valor que o cliente tem a pagar em um único mês futuro
+        const maxMonthlyCommitment = Math.max(0, ...Object.values(monthlyCommitments));
+        
+        const availableMonthly = Math.max(0, totalMonthly - maxMonthlyCommitment);
+
+        return { totalMonthly, usedMonthly: maxMonthlyCommitment, availableMonthly };
+    }, [selectedProfile, allInvoices]);
 
 
     // --- Handlers ---
@@ -353,23 +367,28 @@ const NewSaleTab: React.FC = () => {
         }
     };
 
-    // --- Validation for Modal ---
+    // --- Validation for Modal (UPDATED LOGIC) ---
     const validationStatus = useMemo(() => {
         if (paymentMode !== 'crediario') return { isValid: true, message: null, mandatoryEntry: 0, limitGapEntry: 0 };
         
-        // 1. Entrada Regulatória (Porcentagem Mínima da Loja)
-        // Aplica-se sobre o valor total dos produtos
+        // 1. Entrada Regulatória (Porcentagem Mínima da Loja sobre o Valor TOTAL do Produto)
         const regulatoryEntry = cartTotal * minEntryPercentage;
         
-        // 2. Entrada por Falta de Limite
-        // O cliente só pode financiar o que cabe no limite dele.
-        // Financiamento Máximo Possível = Limite Disponível
-        // O que exceder isso, deve ser pago na entrada.
-        // Ex: Total 1000, Limite 300 -> Entrada de 700 obrigatória.
-        const maxFinancable = clientLimitData.available; 
-        const limitGapEntry = Math.max(0, cartTotal - maxFinancable);
+        // 2. Entrada por Falta de Limite MENSAL (Lógica de Parcela)
+        // O valor da parcela não pode exceder o Limite Mensal Disponível.
+        // Se a parcela calculada com 0 entrada exceder, precisamos aumentar a entrada até que a parcela caiba.
+        // Fórmula: Parcela = (Principal * FatorJuros) / Parcelas <= LimiteDisponivel
+        // (Principal * FatorJuros) <= LimiteDisponivel * Parcelas
+        // Principal <= (LimiteDisponivel * Parcelas) / FatorJuros
+        // Onde Principal = PrecoTotal - Entrada
+        // Logo: PrecoTotal - Entrada <= MaxPrincipalPermitido
+        // Entrada >= PrecoTotal - MaxPrincipalPermitido
         
-        // A entrada mínima final é a maior entre a regulatória e a de limite
+        const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
+        const maxPrincipalAllowed = (clientLimitData.availableMonthly * installments) / interestFactor;
+        const limitGapEntry = Math.max(0, cartTotal - maxPrincipalAllowed);
+        
+        // A entrada mínima final é a maior entre a regulatória e a de gap de limite
         const requiredEntry = Math.max(regulatoryEntry, limitGapEntry);
         
         if (entry < requiredEntry) {
@@ -382,7 +401,7 @@ const NewSaleTab: React.FC = () => {
             };
         }
         return { isValid: true, message: 'Entrada Aprovada', mandatoryEntry: regulatoryEntry, limitGapEntry: limitGapEntry, requiredTotal: requiredEntry };
-    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData]);
+    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData, installments, interestRate]);
 
 
     if (loading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
@@ -486,7 +505,7 @@ const NewSaleTab: React.FC = () => {
                                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{selectedProfile.credit_status || 'Ativo'}</span>
                             </div>
                             <span className="text-xs text-slate-500">Score: <strong>{selectedProfile.credit_score}</strong></span>
-                            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Limite: R$ {selectedProfile.credit_limit}</span>
+                            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Margem Mensal: R$ {clientLimitData.totalMonthly.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
                         </div>
                     )}
                 </div>
@@ -689,25 +708,31 @@ const NewSaleTab: React.FC = () => {
                                     </div>
                                 </div>
                                 
-                                {/* Validação de Entrada Explicita */}
+                                {/* Validação de Entrada Explicita (Nova Lógica de Limite de Parcela) */}
                                 {paymentMode === 'crediario' && (
                                     <div className={`p-3 rounded-lg border flex flex-col gap-1 ${validationStatus.isValid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                                         <div className="flex items-center gap-2 font-bold text-sm">
                                             {validationStatus.isValid ? (
-                                                <span className="text-green-700">Entrada Aprovada</span>
+                                                <span className="text-green-700">Aprovado</span>
                                             ) : (
                                                 <span className="text-red-700">Entrada Insuficiente</span>
                                             )}
                                         </div>
                                         {!validationStatus.isValid && (
                                             <div className="text-xs text-red-600 space-y-1 mt-1">
-                                                <p>Mínimo Obrigatório: <strong>R$ {validationStatus.requiredTotal?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></p>
-                                                <p className="opacity-80">Composto por:</p>
-                                                <ul className="list-disc list-inside pl-1">
-                                                    <li>10% do Produto: R$ {validationStatus.mandatoryEntry?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</li>
-                                                    <li>Falta de Limite: R$ {validationStatus.limitGapEntry?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</li>
-                                                </ul>
+                                                <p>Entrada Mínima Necessária: <strong>R$ {validationStatus.requiredTotal?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></p>
+                                                <div className="bg-white/50 p-2 rounded text-[10px] leading-tight">
+                                                    <p className="font-bold mb-0.5">Por que esse valor?</p>
+                                                    {validationStatus.limitGapEntry > 0 ? (
+                                                        <span>Sua parcela (R$ {installmentValue.toLocaleString('pt-BR', {maximumFractionDigits: 0})}) excede seu limite mensal disponível (R$ {clientLimitData.availableMonthly.toLocaleString('pt-BR', {maximumFractionDigits: 0})}). A entrada ajusta a parcela para caber no seu orçamento.</span>
+                                                    ) : (
+                                                        <span>Política da loja: Mínimo de {(minEntryPercentage * 100).toFixed(0)}% de entrada.</span>
+                                                    )}
+                                                </div>
                                             </div>
+                                        )}
+                                        {validationStatus.isValid && (
+                                            <p className="text-xs text-green-700 mt-1">Parcela dentro do seu limite mensal disponível.</p>
                                         )}
                                     </div>
                                 )}

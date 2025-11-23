@@ -25,7 +25,7 @@ const LiquidGauge: React.FC<{ value: number; max: number }> = ({ value, max }) =
             <div className={`relative w-full h-full rounded-full bg-white dark:bg-slate-800 shadow-2xl ${shadowClass} border-4 border-slate-50 dark:border-slate-700 flex flex-col items-center justify-center overflow-hidden`}>
                 <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t ${colorClass} opacity-10 transition-all duration-1000 ease-out`} style={{ height: `${percentage}%` }}></div>
                 <div className="relative z-10 text-center">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Disponível para Compras</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Margem Disponível</span>
                     <div className="flex items-baseline justify-center">
                         <span className="text-sm font-bold text-slate-500 mr-1">R$</span>
                         <span className="text-4xl font-black text-slate-800 dark:text-white tracking-tighter">
@@ -34,7 +34,7 @@ const LiquidGauge: React.FC<{ value: number; max: number }> = ({ value, max }) =
                     </div>
                     <div className="w-12 h-1 bg-slate-100 dark:bg-slate-700 rounded-full mx-auto my-2"></div>
                     <p className="text-xs text-slate-400 font-medium">
-                        Limite Total: R$ {max.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        Limite Mensal: R$ {max.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </p>
                 </div>
                 <svg className="absolute inset-0 w-full h-full transform -rotate-90 pointer-events-none">
@@ -49,9 +49,18 @@ const LiquidGauge: React.FC<{ value: number; max: number }> = ({ value, max }) =
 const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = ({ availableLimit, totalLimit }) => {
     const [productValue, setProductValue] = useState<number>(1500);
     const [installments, setInstallments] = useState(10);
+    
+    // Cálculo Simulado da Parcela (Sem juros para visualização básica)
     const installmentValue = installments > 0 ? productValue / installments : 0;
-    const canBuyFull = productValue <= availableLimit;
-    const entryNeeded = canBuyFull ? 0 : productValue - availableLimit;
+    
+    // Lógica de Limite de Parcela
+    const canBuyFull = installmentValue <= availableLimit;
+    
+    // Se não pode comprar cheio, qual entrada reduziria a parcela para o limite?
+    // ParcelaDesejada = (Valor - Entrada) / Parcelas <= availableLimit
+    // Valor - Entrada <= availableLimit * Parcelas
+    // Entrada >= Valor - (availableLimit * Parcelas)
+    const entryNeeded = canBuyFull ? 0 : productValue - (availableLimit * installments);
 
     return (
         <div className="space-y-6 animate-fade-in pt-2">
@@ -62,7 +71,7 @@ const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = (
                     </div>
                     <div>
                         <h3 className="font-bold text-slate-900 dark:text-white text-lg">Simulador de Compra</h3>
-                        <p className="text-xs text-slate-500">Planeje sua próxima aquisição.</p>
+                        <p className="text-xs text-slate-500">Veja quanto de entrada você precisaria.</p>
                     </div>
                 </div>
                 
@@ -71,7 +80,7 @@ const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = (
                         <label className="text-xs font-bold text-slate-500 uppercase">Valor do Produto</label>
                         <span className="text-indigo-600 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded">R$ {productValue.toLocaleString('pt-BR')}</span>
                     </div>
-                    <input type="range" min="100" max={totalLimit * 2 || 5000} step="50" value={productValue} onChange={(e) => setProductValue(Number(e.target.value))} className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
+                    <input type="range" min="500" max="10000" step="100" value={productValue} onChange={(e) => setProductValue(Number(e.target.value))} className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
                 </div>
 
                 <div className="mb-8">
@@ -84,22 +93,22 @@ const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = (
 
                 <div className={`p-5 rounded-2xl border-l-4 transition-all shadow-sm ${canBuyFull ? 'border-l-green-500 bg-green-50 dark:bg-green-900/10' : 'border-l-amber-500 bg-amber-50 dark:bg-amber-900/10'}`}>
                     <div className="flex justify-between items-end mb-2">
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Valor da Parcela:</span>
-                        <span className="text-2xl font-black text-slate-800 dark:text-white">{installmentValue.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Sua Parcela:</span>
+                        <span className={`text-2xl font-black ${canBuyFull ? 'text-green-600' : 'text-amber-600'}`}>{installmentValue.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
                     </div>
                     <div className="h-px bg-slate-200 dark:bg-slate-700/50 my-3"></div>
                     {canBuyFull ? (
                         <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
                             <div className="p-1 bg-green-100 dark:bg-green-900/30 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>
-                            <span className="font-bold text-sm">Aprovado sem entrada!</span>
+                            <span className="font-bold text-sm">Cabe no seu limite!</span>
                         </div>
                     ) : (
                         <div>
                             <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 mb-1">
                                 <div className="p-1 bg-amber-100 dark:bg-amber-900/30 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg></div>
-                                <span className="font-bold text-sm">Entrada Necessária</span>
+                                <span className="font-bold text-sm">Limite de Parcela Excedido</span>
                             </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 ml-7">Para liberar esta compra, você precisaria dar uma entrada de aprox. <strong className="text-slate-900 dark:text-white">{entryNeeded.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</strong>.</p>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 ml-7">Para liberar, você precisaria de uma entrada aproximada de <strong className="text-slate-900 dark:text-white">{entryNeeded.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</strong>.</p>
                         </div>
                     )}
                 </div>
@@ -111,7 +120,7 @@ const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = (
 const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
     const [activeTab, setActiveTab] = useState<Tab>('visão_geral');
     const [showRequestForm, setShowRequestForm] = useState(false);
-    const [usedLimit, setUsedLimit] = useState(0);
+    const [usedMonthlyLimit, setUsedMonthlyLimit] = useState(0);
     const [isLoadingData, setIsLoadingData] = useState(true);
     const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
@@ -119,16 +128,26 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
         const fetchData = async () => {
             setIsLoadingData(true);
             try {
-                // 1. Faturas
+                // 1. Faturas para calcular Comprometimento MENSAL
                 const { data: invoices, error } = await supabase
                     .from('invoices')
-                    .select('amount')
+                    .select('amount, due_date')
                     .eq('user_id', profile.id)
                     .or('status.eq.Em aberto,status.eq.Boleto Gerado');
 
                 if (error) throw error;
-                const totalUsed = invoices?.reduce((acc, inv) => acc + inv.amount, 0) || 0;
-                setUsedLimit(totalUsed);
+                
+                // Lógica: Encontrar o mês com o maior valor acumulado de parcelas
+                // Ex: Jan: 300, Fev: 300, Mar: 300 -> Comprometimento é 300.
+                // Ex: Jan: 300+100, Fev: 300 -> Comprometimento é 400 (pico).
+                const monthlyCommitments: Record<string, number> = {};
+                invoices?.forEach(inv => {
+                    const dueMonth = inv.due_date.substring(0, 7); // YYYY-MM
+                    monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
+                });
+                
+                const maxMonthly = Math.max(0, ...Object.values(monthlyCommitments));
+                setUsedMonthlyLimit(maxMonthly);
 
                 // 2. Histórico de Solicitações
                 const { data: requests } = await supabase
@@ -150,9 +169,10 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
         fetchData();
     }, [profile.id]);
     
+    // Limite de Parcela (Credit Limit no DB)
     const creditLimit = profile.credit_limit || 0;
-    const availableLimit = Math.max(0, creditLimit - usedLimit);
-    const lastRequest = requestHistory.length > 0 ? requestHistory[0] : null;
+    // Margem Disponível = Limite de Parcela - Maior Comprometimento Mensal
+    const availableLimit = Math.max(0, creditLimit - usedMonthlyLimit);
 
     if (showRequestForm) {
         return (
@@ -198,8 +218,8 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                 <LiquidGauge value={availableLimit} max={creditLimit} />
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                                        <p className="text-[10px] text-slate-400 uppercase font-bold">Utilizado</p>
-                                        <p className="text-lg font-bold text-slate-700 dark:text-slate-200">R$ {usedLimit.toLocaleString('pt-BR')}</p>
+                                        <p className="text-[10px] text-slate-400 uppercase font-bold">Comprometido (Mês)</p>
+                                        <p className="text-lg font-bold text-slate-700 dark:text-slate-200">R$ {usedMonthlyLimit.toLocaleString('pt-BR')}</p>
                                     </div>
                                     <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
                                         <p className="text-[10px] text-slate-400 uppercase font-bold">Score</p>
@@ -209,8 +229,8 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
 
                                 <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
                                     <div className="relative z-10">
-                                        <h4 className="font-bold text-lg mb-1">Precisa de mais limite?</h4>
-                                        <p className="text-xs text-indigo-100 mb-4 opacity-90">Solicite uma reanálise do seu perfil agora mesmo.</p>
+                                        <h4 className="font-bold text-lg mb-1">Aumentar Margem?</h4>
+                                        <p className="text-xs text-indigo-100 mb-4 opacity-90">Seu limite define o valor máximo da sua parcela mensal.</p>
                                         <button onClick={() => setShowRequestForm(true)} className="w-full py-3 bg-white text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
                                             Solicitar Aumento
                                         </button>
