@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import Modal from './Modal';
 
 interface LimitRequest {
     id: string;
@@ -38,6 +39,9 @@ const CreditAnalysisTab: React.FC = () => {
     const [approvedScore, setApprovedScore] = useState<string>('');
     const [adminReason, setAdminReason] = useState<string>('');
     const [feedbackMessage, setFeedbackMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+
+    // Document Viewer State
+    const [docPreview, setDocPreview] = useState<string | null>(null);
 
     const fetchRequests = async () => {
         setIsLoading(true);
@@ -318,15 +322,13 @@ const CreditAnalysisTab: React.FC = () => {
                                     <div>
                                         <p className="text-xs text-slate-500 uppercase font-bold mb-2">Comprovante de Renda</p>
                                         {incomeProof ? (
-                                            <a 
-                                                href={incomeProof.file_url} 
-                                                target="_blank" 
-                                                rel="noreferrer"
+                                            <button 
+                                                onClick={() => setDocPreview(incomeProof.file_url)}
                                                 className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                                                 Visualizar Documento
-                                            </a>
+                                            </button>
                                         ) : (
                                             <div className="w-full py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-lg text-xs font-medium text-center border border-slate-200 dark:border-slate-700">
                                                 Nenhum comprovante anexado
@@ -437,6 +439,32 @@ const CreditAnalysisTab: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            {/* Modal de Visualização de Documento */}
+            {docPreview && (
+                <Modal isOpen={true} onClose={() => setDocPreview(null)} maxWidth="max-w-3xl">
+                    <div className="flex flex-col h-[80vh]">
+                        <div className="flex justify-between items-center mb-4 px-1">
+                            <h3 className="font-bold text-lg text-slate-900 dark:text-white">Documento Anexado</h3>
+                            <a href={docPreview} download="documento_comprovante" className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded font-bold hover:bg-indigo-200 transition-colors">
+                                Baixar Arquivo
+                            </a>
+                        </div>
+                        <div className="flex-1 bg-slate-200 dark:bg-slate-900 rounded-lg overflow-hidden flex items-center justify-center relative border border-slate-300 dark:border-slate-700 shadow-inner p-2">
+                            {docPreview.startsWith('data:application/pdf') ? (
+                                <object data={docPreview} type="application/pdf" className="w-full h-full rounded">
+                                    <p className="text-center text-slate-500 p-4">
+                                        Não foi possível visualizar o PDF aqui.<br/>
+                                        <a href={docPreview} download="documento.pdf" className="underline font-bold">Clique para baixar</a>.
+                                    </p>
+                                </object>
+                            ) : (
+                                <img src={docPreview} alt="Documento" className="max-w-full max-h-full object-contain shadow-lg" />
+                            )}
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </div>
     );
 };
