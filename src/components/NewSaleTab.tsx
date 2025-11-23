@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Profile, Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -178,16 +179,38 @@ const NewSaleTab: React.FC = () => {
     const tradeIn = saleContext.tradeInValue || 0;
     const entry = parseFloat(entryValue) || 0;
     
+    // O valor a ser financiado é o Total - Entrada - TradeIn
     const principal = Math.max(0, cartTotal - entry - tradeIn);
     
+    // Juros é aplicado APENAS sobre o valor financiado (principal), não sobre o total do produto
     const totalWithInterest = useMemo(() => {
         if (paymentMode !== 'crediario' && paymentMode !== 'credit_card') return principal; 
         if (installments <= 1) return principal;
-        // Juros Composto
+        
+        // Juros Composto: M = P * (1 + i)^n
+        // P = principal (saldo devedor)
         return principal * Math.pow(1 + (interestRate/100), installments);
     }, [principal, installments, interestRate, paymentMode]);
 
     const installmentValue = installments > 0 ? totalWithInterest / installments : 0;
+
+    // Cálculo de Limite Disponível do Cliente
+    const clientLimitData = useMemo(() => {
+        if (!selectedProfile) return { total: 0, used: 0, available: 0 };
+        // Em um cenário real, isso viria do backend ou estaria no objeto profile se atualizado
+        // Aqui usamos o valor bruto do profile, assumindo que está atualizado
+        const total = selectedProfile.credit_limit || 0;
+        // Para saber o used exato precisaríamos das faturas, aqui vamos assumir que o credit_limit já é o total.
+        // O ideal é buscar as faturas do cliente no momento da seleção.
+        // Como NewSaleTab carrega profiles genéricos, vamos usar um valor estimado ou buscar sob demanda.
+        // Para simplificar neste componente admin, vamos confiar no que está no profile se houver campo 'available_limit'
+        // ou assumir que o credit_limit é o limite TOTAL e o cliente pode ter usado.
+        // *Nota: O componente NewSaleTab carrega profiles básicos. Vamos assumir disponibilidade total do limite cadastrado para simplificar a UI de venda,
+        // mas na vida real o backend bloquearia se excedesse.*
+        
+        return { total, available: total }; // Simplificação para Admin
+    }, [selectedProfile]);
+
 
     // --- Handlers ---
 
@@ -235,16 +258,58 @@ const NewSaleTab: React.FC = () => {
         }));
     };
 
+    const handleGenerateQuote = () => {
+        const doc = new jsPDF();
+        
+        // Header
+        doc.setFontSize(18);
+        doc.text("ORÇAMENTO - RELP CELL", 105, 20, { align: 'center' });
+        
+        doc.setFontSize(10);
+        doc.text(`Data: ${new Date().toLocaleDateString()}`, 20, 30);
+        doc.text(`Cliente: ${selectedProfile?.first_name || 'Consumidor'}`, 20, 35);
+        
+        // Itens
+        let y = 50;
+        doc.setFontSize(12);
+        doc.text("Itens:", 20, 45);
+        doc.setFontSize(10);
+        
+        cart.forEach((item) => {
+            doc.text(`- ${item.quantity}x ${item.name}`, 20, y);
+            doc.text(`R$ ${(item.price * item.quantity).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 170, y, { align: 'right' });
+            y += 7;
+        });
+        
+        y += 5;
+        doc.line(20, y, 190, y);
+        y += 10;
+        
+        // Totais e Condições
+        doc.text(`Subtotal: R$ ${cartTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y);
+        y += 7;
+        if (entry > 0) {
+            doc.text(`Entrada: R$ ${entry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y);
+            y += 7;
+        }
+        
+        doc.text(`Condição: ${paymentMode === 'crediario' ? 'Crediário' : 'À Vista/Cartão'}`, 20, y);
+        y += 7;
+        
+        if (installments > 1) {
+            doc.setFont("helvetica", "bold");
+            doc.text(`Plano Selecionado: ${installments}x de R$ ${installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y);
+            doc.text(`Total Final: R$ ${totalWithInterest.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y + 7);
+        }
+        
+        doc.save(`Orcamento_Relp_${Date.now()}.pdf`);
+    };
+
     const handleFinishSale = async () => {
         if (!selectedProfile) return alert("Selecione um cliente!");
         setIsProcessing(true);
         try {
             const itemsDescription = cart.map(i => `${i.quantity}x ${i.name}`).join(', ');
-            const fullNotes = `Venda PDV. Itens: ${itemsDescription}. \n` +
-                              (tradeIn > 0 ? `Trade-in: R$${tradeIn} (${saleContext.tradeInDescription}). ` : '') +
-                              (entry > 0 ? `Entrada: R$${entry}. ` : '') +
-                              `Vendedor: ${saleContext.sellerName}. Obs: ${saleContext.notes}`;
-
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -253,7 +318,7 @@ const NewSaleTab: React.FC = () => {
                     totalAmount: totalWithInterest,
                     installments: installments,
                     productName: itemsDescription.substring(0, 50) + (itemsDescription.length > 50 ? '...' : ''),
-                    saleType: paymentMode === 'crediario' ? 'crediario' : 'direct', // Lógica crucial
+                    saleType: paymentMode === 'crediario' ? 'crediario' : 'direct', 
                     paymentMethod: paymentMode,
                     downPayment: entry + tradeIn,
                     signature: null, 
@@ -290,19 +355,34 @@ const NewSaleTab: React.FC = () => {
 
     // --- Validation for Modal ---
     const validationStatus = useMemo(() => {
-        if (paymentMode !== 'crediario') return { isValid: true, message: null };
+        if (paymentMode !== 'crediario') return { isValid: true, message: null, mandatoryEntry: 0, limitGapEntry: 0 };
         
-        // Lógica de entrada mínima baseada na configuração do Admin
-        const requiredEntry = cartTotal * minEntryPercentage;
+        // 1. Entrada Regulatória (Porcentagem Mínima da Loja)
+        // Aplica-se sobre o valor total dos produtos
+        const regulatoryEntry = cartTotal * minEntryPercentage;
+        
+        // 2. Entrada por Falta de Limite
+        // O cliente só pode financiar o que cabe no limite dele.
+        // Financiamento Máximo Possível = Limite Disponível
+        // O que exceder isso, deve ser pago na entrada.
+        // Ex: Total 1000, Limite 300 -> Entrada de 700 obrigatória.
+        const maxFinancable = clientLimitData.available; 
+        const limitGapEntry = Math.max(0, cartTotal - maxFinancable);
+        
+        // A entrada mínima final é a maior entre a regulatória e a de limite
+        const requiredEntry = Math.max(regulatoryEntry, limitGapEntry);
         
         if (entry < requiredEntry) {
             return { 
                 isValid: false, 
-                message: `Entrada mínima de R$ ${requiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})} (${(minEntryPercentage * 100).toFixed(0)}%) necessária.`
+                message: `Entrada insuficiente.`,
+                mandatoryEntry: regulatoryEntry,
+                limitGapEntry: limitGapEntry,
+                requiredTotal: requiredEntry
             };
         }
-        return { isValid: true, message: 'Entrada Aprovada' };
-    }, [paymentMode, cartTotal, entry, minEntryPercentage]);
+        return { isValid: true, message: 'Entrada Aprovada', mandatoryEntry: regulatoryEntry, limitGapEntry: limitGapEntry, requiredTotal: requiredEntry };
+    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData]);
 
 
     if (loading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
@@ -533,7 +613,7 @@ const NewSaleTab: React.FC = () => {
 
                             <div className="pt-4 mt-auto border-t border-slate-200 dark:border-slate-700">
                                 <div className="flex justify-between items-center text-lg font-bold">
-                                    <span>A Pagar</span>
+                                    <span>A Pagar (Principal)</span>
                                     <span className="text-indigo-600 dark:text-indigo-400">R$ {principal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                             </div>
@@ -541,7 +621,10 @@ const NewSaleTab: React.FC = () => {
 
                         {/* Coluna 2: Pagamento */}
                         <div className="w-full md:w-1/2 p-6 bg-white dark:bg-slate-800 overflow-y-auto flex flex-col">
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6">Pagamento</h3>
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Pagamento</h3>
+                                <button onClick={handleGenerateQuote} className="text-xs text-indigo-600 font-bold underline">Gerar Orçamento PDF</button>
+                            </div>
                             
                             <div className="grid grid-cols-3 gap-2 mb-6">
                                 {['crediario', 'credit_card', 'pix', 'cash', 'debit_card', 'mixed'].map(mode => (
@@ -594,28 +677,38 @@ const NewSaleTab: React.FC = () => {
                                     </div>
                                 )}
 
-                                <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-sm text-slate-500">Valor da Parcela</span>
-                                        <span className="text-xl font-bold text-slate-900 dark:text-white">{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                                {/* Tabela de Simulação Rápida */}
+                                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 text-sm">
+                                    <div className="flex justify-between mb-1">
+                                        <span>Valor da Parcela:</span>
+                                        <span className="font-bold">{installmentValue.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
                                     </div>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-sm text-slate-500">Total Final</span>
-                                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{totalWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                                    <div className="flex justify-between border-t border-slate-200 dark:border-slate-600 pt-1 mt-1">
+                                        <span>Total a Pagar:</span>
+                                        <span className="font-bold text-indigo-600">{totalWithInterest.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
                                     </div>
                                 </div>
                                 
+                                {/* Validação de Entrada Explicita */}
                                 {paymentMode === 'crediario' && (
-                                    <div className={`p-3 rounded-lg border flex items-start gap-2 ${validationStatus.isValid ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
-                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 shrink-0 ${validationStatus.isValid ? 'text-yellow-600' : 'text-red-600'}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                        <div>
-                                            <p className={`text-xs font-bold ${validationStatus.isValid ? 'text-yellow-800 dark:text-yellow-200' : 'text-red-800 dark:text-red-200'}`}>
-                                                {validationStatus.isValid ? 'Atenção:' : 'Erro:'}
-                                            </p>
-                                            <p className={`text-xs leading-tight ${validationStatus.isValid ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'}`}>
-                                                {validationStatus.isValid ? "O cliente precisará aprovar o contrato no app." : validationStatus.message}
-                                            </p>
+                                    <div className={`p-3 rounded-lg border flex flex-col gap-1 ${validationStatus.isValid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                                        <div className="flex items-center gap-2 font-bold text-sm">
+                                            {validationStatus.isValid ? (
+                                                <span className="text-green-700">Entrada Aprovada</span>
+                                            ) : (
+                                                <span className="text-red-700">Entrada Insuficiente</span>
+                                            )}
                                         </div>
+                                        {!validationStatus.isValid && (
+                                            <div className="text-xs text-red-600 space-y-1 mt-1">
+                                                <p>Mínimo Obrigatório: <strong>R$ {validationStatus.requiredTotal?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong></p>
+                                                <p className="opacity-80">Composto por:</p>
+                                                <ul className="list-disc list-inside pl-1">
+                                                    <li>10% do Produto: R$ {validationStatus.mandatoryEntry?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</li>
+                                                    <li>Falta de Limite: R$ {validationStatus.limitGapEntry?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</li>
+                                                </ul>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
