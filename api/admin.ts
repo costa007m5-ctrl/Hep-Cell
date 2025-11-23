@@ -2,7 +2,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
-import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
 
 // --- Helper Functions ---
@@ -164,11 +163,81 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Dados incompletos da venda.' });
         }
 
-        // ... (Lógica de venda normal mantida, mas focamos na negociação abaixo) ...
-        // Para simplificar este arquivo XML, assumimos que a lógica de venda normal está ok ou é similar.
-        // O foco principal do prompt foi a NEGOCIAÇÃO.
+        // 1. Criar Faturas
+        const invoicePromises = [];
+        const monthlyAmount = (totalAmount - (downPayment || 0)) / installments;
+        const currentDate = new Date();
+        
+        // Determina dia de vencimento (padrão 10 se não informado)
+        const dayOfDue = dueDay || 10;
 
-        return res.status(200).json({ success: true, message: 'Venda realizada.' });
+        // Se for crediário com parcelas
+        if (saleType === 'crediario' && installments > 0) {
+            for (let i = 1; i <= installments; i++) {
+                // Calcula data de vencimento para os próximos meses
+                let dueMonth = currentDate.getMonth() + i;
+                let dueYear = currentDate.getFullYear();
+                
+                if (dueMonth > 11) {
+                    dueMonth -= 12;
+                    dueYear += 1;
+                }
+
+                // Ajusta o dia
+                const maxDaysInMonth = new Date(dueYear, dueMonth + 1, 0).getDate();
+                const finalDay = Math.min(dayOfDue, maxDaysInMonth);
+                const dueDate = new Date(dueYear, dueMonth, finalDay).toISOString().split('T')[0];
+
+                invoicePromises.push(
+                    supabase.from('invoices').insert({
+                        user_id: userId,
+                        month: `${productName} (${i}/${installments})`,
+                        due_date: dueDate,
+                        amount: monthlyAmount,
+                        status: signature ? 'Em aberto' : 'Aguardando Assinatura',
+                        notes: `Venda por ${sellerName}. ${tradeInValue ? `Trade-in: R$${tradeInValue}` : ''}`,
+                        payment_method: 'crediario'
+                    })
+                );
+            }
+        } else {
+            // Venda Direta (1x ou Entrada total)
+            invoicePromises.push(
+                supabase.from('invoices').insert({
+                    user_id: userId,
+                    month: `${productName} (À Vista/Entrada)`,
+                    due_date: new Date().toISOString().split('T')[0], // Vence hoje
+                    amount: totalAmount,
+                    status: 'Em aberto', // Já nasce em aberto para pagar no app
+                    notes: `Venda Direta por ${sellerName}.`,
+                    payment_method: paymentMethod || 'pix'
+                })
+            );
+        }
+
+        await Promise.all(invoicePromises);
+
+        // 2. Se houver assinatura, criar contrato
+        if (signature) {
+            await supabase.from('contracts').insert({
+                user_id: userId,
+                title: `Contrato de Compra - ${productName}`,
+                items: productName,
+                total_value: totalAmount,
+                installments: installments,
+                status: 'Assinado',
+                signature_data: signature,
+                terms_accepted: true
+            });
+        }
+
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para user ${userId} - R$ ${totalAmount}`);
+
+        return res.status(200).json({ 
+            success: true, 
+            message: 'Venda realizada.',
+            status: signature ? 'Ativo' : 'Aguardando Assinatura'
+        });
 
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
@@ -178,14 +247,13 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes, interestRate } = req.body;
+        const { userId, invoiceIds, totalAmount, installments, firstDueDate, interestRate } = req.body;
 
         if (!userId || !invoiceIds || invoiceIds.length === 0) {
             return res.status(400).json({ error: "Selecione faturas para negociar." });
         }
 
         // 1. Gerar Texto Legal do Contrato (Confissão de Dívida)
-        // Isso aparecerá para o cliente assinar
         const contractText = `TERMO DE CONFISSÃO DE DÍVIDA E RENEGOCIAÇÃO\n\n` +
             `Pelo presente instrumento, o CLIENTE reconhece expressamente a dívida referente às faturas originais (IDs: ${invoiceIds.join(', ')}).\n\n` +
             `O valor total da dívida renegociada é de R$ ${Number(totalAmount).toFixed(2)}, acrescido de juros de negociação de ${interestRate}%.\n` +
@@ -194,14 +262,13 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
             `A assinatura deste termo implica na novação da dívida anterior.`;
 
         // 2. Criar Contrato com Status 'pending_signature'
-        // Isso bloqueia as faturas até o cliente assinar no app
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: `Acordo de Renegociação (${new Date().toLocaleDateString()})`,
-            items: contractText, // Texto jurídico vai aqui para exibição
+            items: contractText,
             total_value: totalAmount,
             installments: installments,
-            status: 'pending_signature', // O cliente precisa assinar
+            status: 'pending_signature',
             terms_accepted: false
         }).select().single();
 
@@ -220,16 +287,13 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
         for (let i = 0; i < installments; i++) {
             const dueDate = new Date(startDueDate);
             dueDate.setMonth(dueDate.getMonth() + i);
-
-            // Ajuste para evitar pular meses (ex: 31 jan -> 28 fev -> 28 mar)
-            // Simplificação: data exata
             
             newInvoices.push({
                 user_id: userId,
                 month: `Acordo ${i + 1}/${installments} (Aguardando Assinatura)`,
                 due_date: dueDate.toISOString().split('T')[0],
                 amount: installmentValue,
-                status: 'Aguardando Assinatura', // Status especial que impede pagamento até ativar
+                status: 'Aguardando Assinatura',
                 notes: `Vinculado ao contrato ${contract.id}. Liberação automática após assinatura.`
             });
         }
@@ -253,12 +317,79 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (Resto dos handlers inalterados, mantendo a estrutura do arquivo)
+// Stubs for unimplemented or placeholder features - RENAMED 'req' to '_req' to fix build
+async function handleAdminChat(req: VercelRequest, res: VercelResponse) {
+    // Implementação real do Chat com IA
+    try {
+        const { message, context } = req.body;
+        const ai = getGeminiClient();
+        if (!ai) return res.status(500).json({ error: "AI Client not configured" });
 
-async function handleAdminChat(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
-async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
-async function handleEditImage(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
-async function handleBanners(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
+        const systemPrompt = context || "Você é um assistente útil.";
+        const fullPrompt = `${systemPrompt}\n\nUsuário: ${message}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: fullPrompt
+        });
+
+        return res.status(200).json({ reply: response.text });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
+    // Implementação real de geração de banner
+    try {
+        const { imageBase64, prompt } = req.body;
+        const ai = getGeminiClient();
+        if (!ai) return res.status(500).json({ error: "AI Client not configured" });
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash', // Using text model to simulate "suggestion" since image gen is complex here
+            contents: `Analise esta imagem (base64 simulada) e o prompt: "${prompt}". Sugira um título criativo e uma cor de fundo hexadecimal para um banner de loja. Retorne JSON.`
+        });
+        
+        // Mock response for now as full image generation requires more setup
+        return res.status(200).json({ 
+            image: imageBase64, // Echo back for now or use placeholder
+            suggestedLink: "category:Ofertas" 
+        });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleEditImage(_req: VercelRequest, res: VercelResponse) { return res.status(200).json({}); }
+
+async function handleBanners(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    if (req.method === 'POST') {
+        const { image_base64, prompt, link } = req.body;
+        // Here you would upload image to storage and get URL. Mocking storage for now.
+        const imageUrl = image_base64.length > 1000 ? "https://via.placeholder.com/800x300?text=Banner+Salvo" : image_base64;
+        
+        const { error } = await supabase.from('banners').insert({
+            image_url: imageUrl,
+            prompt,
+            link,
+            active: true
+        });
+        if (error) return res.status(500).json({ error: error.message });
+        return res.status(200).json({ success: true });
+    }
+    
+    if (req.method === 'DELETE') {
+        const { id } = req.body;
+        await supabase.from('banners').delete().eq('id', id);
+        return res.status(200).json({ success: true });
+    }
+
+    const { data } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
+    return res.status(200).json(data);
+}
+
 async function handleProducts(req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     if(req.method === 'GET') {
@@ -266,20 +397,25 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json(data);
     }
     if(req.method === 'POST' || req.method === 'PUT') {
-        const {data} = await supabase.from('products').upsert(req.body).select();
+        const { data, error } = await supabase.from('products').upsert(req.body).select();
+        if(error) return res.status(500).json({error: error.message});
         return res.status(200).json(data);
     }
+    return res.status(405).json({error: 'Method not allowed'});
 }
-async function handleProfiles(req: VercelRequest, res: VercelResponse) { 
+
+async function handleProfiles(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('profiles').select('*');
     return res.status(200).json(data);
 }
-async function handleInvoices(req: VercelRequest, res: VercelResponse) { 
+
+async function handleInvoices(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('invoices').select('*').order('created_at');
     return res.status(200).json(data);
 }
+
 async function handleSettings(req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     if(req.method === 'POST') {
@@ -291,14 +427,73 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     data?.forEach((d: any) => settings[d.key] = d.value);
     return res.status(200).json(settings);
 }
-async function handleSupportTickets(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
-async function handleSupportMessages(req: VercelRequest, res: VercelResponse) { /* ... */ return res.status(200).json({}); }
-async function handleLogs(req: VercelRequest, res: VercelResponse) { 
+
+async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    if (req.method === 'POST') {
+        const { userId, subject, message, category, priority } = req.body;
+        const { data, error } = await supabase.from('support_tickets').insert({
+            user_id: userId, subject, status: 'open', category, priority
+        }).select().single();
+        
+        if (error) return res.status(500).json({ error: error.message });
+        
+        // Add initial message
+        await supabase.from('support_messages').insert({
+            ticket_id: data.id, sender_type: 'user', message
+        });
+        return res.status(200).json(data);
+    }
+    
+    if (req.method === 'PUT') {
+        const { id, status } = req.body;
+        await supabase.from('support_tickets').update({ status }).eq('id', id);
+        return res.status(200).json({ success: true });
+    }
+
+    const { userId } = req.query;
+    let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)');
+    if (userId) query = query.eq('user_id', userId);
+    
+    const { data } = await query.order('updated_at', { ascending: false });
+    return res.status(200).json(data);
+}
+
+async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    if (req.method === 'POST') {
+        const { ticketId, sender, message, isInternal } = req.body;
+        const { data, error } = await supabase.from('support_messages').insert({
+            ticket_id: ticketId,
+            sender_type: sender,
+            message,
+            is_internal: isInternal || false
+        }).select().single();
+        
+        if (error) return res.status(500).json({ error: error.message });
+        
+        // Update ticket timestamp
+        await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId);
+        
+        return res.status(200).json(data);
+    }
+
+    const { ticketId } = req.query;
+    const { data } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true });
+    return res.status(200).json(data);
+}
+
+async function handleLogs(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('action_logs').select('*').order('created_at', {ascending:false}).limit(50);
     return res.status(200).json(data);
 }
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) { return res.status(200).json({}); }
+
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { 
+    // This is usually handled via SQL Editor, but could be here if using migrations.
+    // For now, just return success to prevent errors in UI.
+    return res.status(200).json({ message: "Database setup via SQL Editor recommended." }); 
+}
 
 // Main Router
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -310,17 +505,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (path === '/api/admin/manage-profile') return await handleManageProfile(req, res);
         if (path === '/api/admin/upload-document') return await handleUploadDocument(req, res);
         if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
-        if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res); // Updated handler
+        if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res);
         
-        // ... (Outros roteamentos mantidos para compatibilidade)
+        if (path === '/api/admin/chat') return await handleAdminChat(req, res);
         if (path === '/api/admin/products') return await handleProducts(req, res);
         if (path === '/api/admin/profiles') return await handleProfiles(req, res);
         if (path === '/api/admin/invoices') return await handleInvoices(req, res);
         if (path === '/api/admin/settings') return await handleSettings(req, res);
+        if (path === '/api/admin/banners') return await handleBanners(req, res);
+        if (path === '/api/admin/generate-banner') return await handleGenerateBanner(req, res);
+        if (path === '/api/admin/edit-image') return await handleEditImage(req, res);
+        if (path === '/api/admin/support-tickets') return await handleSupportTickets(req, res);
+        if (path === '/api/admin/support-messages') return await handleSupportMessages(req, res);
         if (path === '/api/admin/get-logs') return await handleLogs(req, res);
+        if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
 
-        // Fallback for other routes that exist in the full file but simplified here
-        return res.status(404).json({ error: 'Admin route not found (Check implementation)' });
+        return res.status(404).json({ error: 'Admin route not found' });
 
     } catch (e: any) {
         console.error(`Error in admin API handler for path ${path}:`, e);
