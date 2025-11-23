@@ -92,7 +92,7 @@ const PwaTab: React.FC = () => {
 
     const handleDownloadSVG = () => {
         const blob = new Blob([APP_ICON_SVG], { type: 'image/svg+xml;charset=utf-8' });
-        downloadBlob(blob, 'relp-cell-icon.svg');
+        downloadBlob(blob, 'logo.svg');
     };
 
     const handleDownloadPNG = async (size: number) => {
@@ -110,7 +110,7 @@ const PwaTab: React.FC = () => {
                 if (ctx) {
                     ctx.drawImage(img, 0, 0, size, size);
                     canvas.toBlob((blob) => {
-                        if (blob) downloadBlob(blob, `relp-cell-icon-${size}x${size}.png`);
+                        if (blob) downloadBlob(blob, `icon-${size}.png`);
                         URL.revokeObjectURL(url);
                         setIsDownloading(null);
                     }, 'image/png');
@@ -148,9 +148,9 @@ const PwaTab: React.FC = () => {
         <div className="p-4 space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Auditoria PWA Builder</h2>
+                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Auditoria PWA & Ativos</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        Verifique se seu app está pronto para publicação e baixe os ativos oficiais.
+                        Verifique a saúde do seu PWA e baixe os ícones oficiais atualizados.
                     </p>
                 </div>
                 <a 
@@ -159,7 +159,7 @@ const PwaTab: React.FC = () => {
                     rel="noreferrer"
                     className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors flex items-center gap-2"
                 >
-                    Ir para PWABuilder
+                    Testar no PWABuilder
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 </a>
             </div>
@@ -176,13 +176,13 @@ const PwaTab: React.FC = () => {
                         <div className="w-full space-y-2">
                             <button onClick={handleDownloadSVG} className="w-full py-2 px-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors flex items-center justify-center gap-2">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                Baixar Vetor (SVG)
+                                Baixar Vetor (logo.svg)
                             </button>
                             <button onClick={() => handleDownloadPNG(512)} disabled={!!isDownloading} className="w-full py-2 px-4 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors flex items-center justify-center gap-2">
                                 {isDownloading === '512px' ? <LoadingSpinner /> : (
                                     <>
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                        Baixar PNG (512px)
+                                        Baixar PNG (icon-512.png)
                                     </>
                                 )}
                             </button>
@@ -190,11 +190,14 @@ const PwaTab: React.FC = () => {
                                 {isDownloading === '192px' ? <LoadingSpinner /> : (
                                     <>
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                        Baixar PNG (192px)
+                                        Baixar PNG (icon-192.png)
                                     </>
                                 )}
                             </button>
                         </div>
+                        <p className="text-[10px] text-slate-400 mt-4 text-center">
+                            Para corrigir erros de validação de ícones PNG no navegador, baixe os arquivos acima e substitua-os na pasta <code>public/</code> do projeto.
+                        </p>
                     </div>
 
                     <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-3">
