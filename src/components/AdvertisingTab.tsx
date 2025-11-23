@@ -1,396 +1,388 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
 interface Banner {
     id: string;
     image_url: string;
-    title: string;
-    subtitle: string;
-    cta_text: string;
-    link: string;
-    segment: string;
+    prompt: string;
+    link?: string;
     active: boolean;
-    start_date: string;
-    end_date: string;
-    clicks: number;
-    views: number;
-    prompt?: string;
+    created_at: string;
 }
 
-// --- Componentes de UI ---
-
-const StatCard: React.FC<{ title: string; value: string; subtext: string; trend: 'up' | 'down' | 'neutral' }> = ({ title, value, subtext, trend }) => (
-    <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</p>
-        <div className="flex items-end justify-between mt-2">
-            <h3 className="text-2xl font-black text-slate-900 dark:text-white">{value}</h3>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${trend === 'up' ? 'bg-green-100 text-green-700' : trend === 'down' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
-                {trend === 'up' ? '▲' : trend === 'down' ? '▼' : '−'} {subtext}
-            </span>
-        </div>
-    </div>
-);
-
-const PhonePreview: React.FC<{ banner: Partial<Banner>; backgroundImage: string | null }> = ({ banner, backgroundImage }) => {
-    return (
-        <div className="relative w-[300px] h-[600px] bg-black rounded-[3rem] border-[8px] border-slate-800 shadow-2xl overflow-hidden mx-auto">
-            {/* Notch */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-7 bg-slate-800 rounded-b-xl z-20"></div>
-            
-            {/* Screen Content */}
-            <div className="w-full h-full bg-slate-50 dark:bg-slate-900 flex flex-col pt-10 relative">
-                {/* Fake App Header */}
-                <div className="px-4 py-2 flex justify-between items-center">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-full"></div>
-                    <div className="w-24 h-4 bg-slate-200 dark:bg-slate-700 rounded"></div>
-                    <div className="w-6 h-6 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
-                </div>
-
-                {/* The Banner Preview */}
-                <div className="mt-4 mx-4 relative aspect-[4/5] rounded-2xl overflow-hidden shadow-lg group cursor-pointer">
-                    {backgroundImage ? (
-                        <img src={backgroundImage} className="w-full h-full object-cover" alt="Preview" />
-                    ) : (
-                        <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-400 text-xs">
-                            Sem Imagem
-                        </div>
-                    )}
-                    
-                    {/* Overlay Text */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-5 text-left">
-                        {banner.subtitle && (
-                            <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider mb-1">{banner.subtitle}</span>
-                        )}
-                        <h2 className="text-2xl font-black text-white leading-none mb-2" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
-                            {banner.title || 'Título do Banner'}
-                        </h2>
-                        <button className="mt-2 w-fit bg-white text-black text-xs font-bold px-4 py-2 rounded-full shadow-lg">
-                            {banner.cta_text || 'Ver Oferta'}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Fake App Content Below */}
-                <div className="mt-6 px-4 space-y-3 opacity-30">
-                    <div className="h-32 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="h-40 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
-                        <div className="h-40 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const AdvertisingTab: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'studio' | 'campaigns'>('dashboard');
-    const [banners, setBanners] = useState<Banner[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-
-    // Studio State
-    const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-    const [isGenerating, setIsGenerating] = useState(false);
+    // Generation State
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [prompt, setPrompt] = useState('');
-    const [studioForm, setStudioForm] = useState({
-        title: '',
-        subtitle: '',
-        cta: 'Ver Agora',
-        link: 'category:Ofertas',
-        segment: 'all',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: ''
-    });
-    const [uploadFile, setUploadFile] = useState<File | null>(null);
+    const [targetLink, setTargetLink] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [isEditing, setIsEditing] = useState(false); // Novo state para edição
+    const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+    const [generateError, setGenerateError] = useState<string | null>(null);
+    const [isProcessingImage, setIsProcessingImage] = useState(false);
 
-    // Mock Metrics
-    const metrics = {
-        impressions: banners.reduce((acc, b) => acc + b.views, 0) + 12500,
-        clicks: banners.reduce((acc, b) => acc + b.clicks, 0) + 480,
-        ctr: '3.8%',
-        cost: 'R$ 0,00'
-    };
+    // Saving State
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+
+    // List State
+    const [banners, setBanners] = useState<Banner[]>([]);
+    const [isLoadingBanners, setIsLoadingBanners] = useState(true);
 
     useEffect(() => {
         fetchBanners();
     }, []);
 
     const fetchBanners = async () => {
+        setIsLoadingBanners(true);
         try {
             const res = await fetch('/api/admin/banners');
-            if (res.ok) setBanners(await res.json());
-        } catch (e) { console.error(e); }
-        finally { setIsLoading(false); }
-    };
-
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setUploadFile(file);
-            const reader = new FileReader();
-            reader.onload = () => setGeneratedImage(reader.result as string);
-            reader.readAsDataURL(file);
+            if (res.ok) {
+                setBanners(await res.json());
+            }
+        } catch (error) {
+            console.error("Erro ao buscar banners", error);
+        } finally {
+            setIsLoadingBanners(false);
         }
     };
 
-    const handleGenerateAI = async () => {
-        if (!prompt) return alert("Digite um prompt!");
+    // Função para converter qualquer formato de imagem (AVIF, WebP, etc) para JPEG compatível
+    const processImageFile = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    // Redimensiona se for muito grande para economizar tokens e evitar timeouts
+                    const maxDimension = 1024; 
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDimension || height > maxDimension) {
+                        if (width > height) {
+                            height *= maxDimension / width;
+                            width = maxDimension;
+                        } else {
+                            width *= maxDimension / height;
+                            height = maxDimension;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        // Fundo branco para PNGs transparentes
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Converte sempre para JPEG
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                        resolve(dataUrl);
+                    } else {
+                        reject(new Error("Falha ao processar imagem no canvas."));
+                    }
+                };
+                img.onerror = (err) => reject(err);
+                img.src = event.target?.result as string;
+            };
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setIsProcessingImage(true);
+            setGenerateError(null);
+            try {
+                const processedBase64 = await processImageFile(file);
+                setSelectedImage(processedBase64);
+            } catch (error) {
+                console.error("Erro ao processar imagem:", error);
+                setGenerateError("Erro ao processar o arquivo de imagem. Tente outro formato.");
+            } finally {
+                setIsProcessingImage(false);
+            }
+        }
+    };
+
+    const handleGenerate = async () => {
+        if (!selectedImage) {
+            setGenerateError("Por favor, selecione uma imagem do produto.");
+            return;
+        }
         setIsGenerating(true);
+        setGenerateError(null);
+        setGeneratedImage(null);
+
         try {
-            const res = await fetch('/api/admin/generate-banner', {
+            const response = await fetch('/api/admin/generate-banner', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
+                body: JSON.stringify({ 
+                    imageBase64: selectedImage,
+                    prompt: prompt 
+                })
             });
-            const data = await res.json();
-            if (data.image) {
-                setGeneratedImage(data.image);
-                if (data.suggestedLink) setStudioForm(prev => ({ ...prev, link: data.suggestedLink }));
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || data.error || "Erro ao gerar banner.");
             }
-        } catch (e) {
-            alert("Erro na geração.");
+
+            setGeneratedImage(data.image);
+            // Preenche o link sugerido pela IA
+            if (data.suggestedLink) {
+                setTargetLink(data.suggestedLink);
+            }
+        } catch (error: any) {
+            let msg = error.message;
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
+                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
+            }
+            setGenerateError(msg);
         } finally {
             setIsGenerating(false);
         }
     };
 
-    const handlePublish = async () => {
-        if (!generatedImage) return alert("Imagem obrigatória");
+    const handleEdit = async () => {
+        if (!selectedImage) {
+            setGenerateError("Por favor, selecione uma imagem para editar.");
+            return;
+        }
+        if (!prompt) {
+            setGenerateError("Por favor, digite uma instrução para a edição (ex: 'Adicionar filtro retro').");
+            return;
+        }
+        setIsEditing(true);
+        setGenerateError(null);
+        setGeneratedImage(null);
+
         try {
-            const res = await fetch('/api/admin/banners', {
+            const response = await fetch('/api/admin/edit-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    image_base64: generatedImage,
-                    title: studioForm.title,
-                    subtitle: studioForm.subtitle,
-                    cta_text: studioForm.cta,
-                    link: studioForm.link,
-                    segment: studioForm.segment,
-                    start_date: studioForm.startDate,
-                    end_date: studioForm.endDate,
-                    prompt: prompt
+                body: JSON.stringify({ 
+                    imageBase64: selectedImage,
+                    prompt: prompt 
                 })
             });
-            if (res.ok) {
-                alert("Campanha Publicada!");
-                fetchBanners();
-                setActiveTab('campaigns');
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || data.error || "Erro ao editar imagem.");
             }
-        } catch (e) { alert("Erro ao publicar"); }
+
+            setGeneratedImage(data.image);
+        } catch (error: any) {
+            let msg = error.message;
+            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
+                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
+            }
+            setGenerateError(msg);
+        } finally {
+            setIsEditing(false);
+        }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm("Excluir campanha?")) return;
-        await fetch('/api/admin/banners', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-        fetchBanners();
+    const handleSaveBanner = async () => {
+        if (!generatedImage) return;
+        setIsSaving(true);
+        setSaveMessage(null);
+
+        try {
+            const response = await fetch('/api/admin/banners', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image_base64: generatedImage,
+                    prompt: prompt || 'Banner Gerado por IA',
+                    link: targetLink // Envia o link
+                })
+            });
+            
+            if (!response.ok) throw new Error("Erro ao salvar banner.");
+            
+            setSaveMessage({ text: "Banner salvo e ativado na loja!", type: 'success' });
+            fetchBanners(); // Atualiza lista
+            
+            // Reset form parcial
+            setGeneratedImage(null);
+            setSelectedImage(null);
+            setPrompt('');
+            setTargetLink('');
+
+        } catch (error: any) {
+            setSaveMessage({ text: error.message, type: 'error' });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
-    if (isLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
+    const handleDeleteBanner = async (id: string) => {
+        if (!confirm("Tem certeza que deseja remover este banner?")) return;
+        try {
+             await fetch('/api/admin/banners', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id })
+            });
+            setBanners(prev => prev.filter(b => b.id !== id));
+        } catch (error) {
+            console.error(error);
+        }
+    };
 
     return (
-        <div className="flex flex-col h-[calc(100vh-100px)]">
-            {/* Tabs Header */}
-            <div className="flex border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-2 gap-6">
-                <button onClick={() => setActiveTab('dashboard')} className={`py-2 text-sm font-bold border-b-2 transition-colors ${activeTab === 'dashboard' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Dashboard</button>
-                <button onClick={() => setActiveTab('studio')} className={`py-2 text-sm font-bold border-b-2 transition-colors ${activeTab === 'studio' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Creative Studio</button>
-                <button onClick={() => setActiveTab('campaigns')} className={`py-2 text-sm font-bold border-b-2 transition-colors ${activeTab === 'campaigns' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500'}`}>Campanhas</button>
+        <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Coluna Esquerda: Gerador */}
+            <div className="space-y-6">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Estúdio de IA</h2>
+                
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    {/* Upload Imagem */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">1. Imagem Base</label>
+                        <div className="flex items-center justify-center w-full">
+                            <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50 cursor-wait' : ''}`}>
+                                {selectedImage ? (
+                                    <img src={selectedImage} className="absolute inset-0 w-full h-full object-contain p-2" alt="Preview" />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                        {isProcessingImage ? (
+                                            <LoadingSpinner />
+                                        ) : (
+                                            <>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                                                <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
+                                                <p className="text-xs text-slate-500">JPG, PNG, WEBP, AVIF</p>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" disabled={isProcessingImage} />
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* Prompt */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">2. Instrução</label>
+                        <textarea 
+                            rows={2} 
+                            className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="Ex: 'Oferta de Natal' para gerar banner OU 'Adicionar filtro vintage' para editar."
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                        ></textarea>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <button 
+                            onClick={handleGenerate} 
+                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
+                            className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {isGenerating ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
+                                    Gerar Novo Banner
+                                </>
+                            )}
+                        </button>
+                        
+                        <button 
+                            onClick={handleEdit} 
+                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
+                            className="flex-1 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {isEditing ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                    Editar Imagem
+                                </>
+                            )}
+                        </button>
+                    </div>
+                    
+                    {generateError && (
+                        <div className="mt-4 animate-fade-in">
+                             <Alert message={generateError} type="error" />
+                        </div>
+                    )}
+                </div>
+
+                {/* Preview Resultado */}
+                {generatedImage && (
+                    <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg border-2 border-indigo-500 animate-fade-in">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Resultado:</h3>
+                        <img src={generatedImage} className="w-full rounded-lg shadow-md mb-4" alt="Resultado IA" />
+                        
+                        {/* Campo de Link Gerado/Editável */}
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 uppercase">Link de Destino (Sugerido)</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" 
+                                    value={targetLink}
+                                    onChange={(e) => setTargetLink(e.target.value)}
+                                    className="flex-1 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:ring-indigo-500"
+                                    placeholder="category:Celulares"
+                                />
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Formatos: category:Nome ou brand:Nome</p>
+                        </div>
+
+                        <button 
+                            onClick={handleSaveBanner}
+                            disabled={isSaving}
+                            className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                             {isSaving ? <LoadingSpinner /> : 'Salvar e Ativar na Loja'}
+                        </button>
+                        {saveMessage && <div className="mt-4"><Alert message={saveMessage.text} type={saveMessage.type} /></div>}
+                    </div>
+                )}
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900/50 p-6">
+            {/* Coluna Direita: Banners Ativos */}
+            <div>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Banners Ativos na Loja</h2>
                 
-                {/* --- DASHBOARD --- */}
-                {activeTab === 'dashboard' && (
-                    <div className="space-y-6 animate-fade-in">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <StatCard title="Impressões Totais" value={metrics.impressions.toLocaleString()} subtext="vs mês anterior" trend="up" />
-                            <StatCard title="Cliques" value={metrics.clicks.toLocaleString()} subtext="Taxa estável" trend="neutral" />
-                            <StatCard title="CTR Médio" value={metrics.ctr} subtext="Acima da média" trend="up" />
-                            <StatCard title="Campanhas Ativas" value={banners.filter(b => b.active).length.toString()} subtext="Em rodízio" trend="neutral" />
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">Desempenho Recente</h3>
-                                <div className="h-64 flex items-end justify-between gap-2 px-2">
-                                    {[40, 65, 45, 80, 55, 90, 70, 85, 60, 75, 50, 95].map((h, i) => (
-                                        <div key={i} className="w-full bg-indigo-100 dark:bg-indigo-900/30 rounded-t-lg relative group">
-                                            <div className="absolute bottom-0 w-full bg-indigo-600 rounded-t-lg transition-all duration-1000" style={{ height: `${h}%` }}></div>
-                                            <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-xs px-2 py-1 rounded pointer-events-none transition-opacity">{h * 10} views</div>
+                {isLoadingBanners ? <div className="flex justify-center"><LoadingSpinner /></div> : (
+                    <div className="space-y-4">
+                        {banners.length === 0 ? (
+                            <p className="text-slate-500 dark:text-slate-400">Nenhum banner personalizado criado ainda.</p>
+                        ) : (
+                            banners.map(banner => (
+                                <div key={banner.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative group">
+                                    <img src={banner.image_url} className="w-full h-32 object-cover rounded-lg mb-2" alt="Banner" />
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex flex-col">
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">{banner.prompt}</p>
+                                            {banner.link && <span className="text-[10px] text-indigo-500 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1 rounded w-fit mt-1">{banner.link}</span>}
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">Melhor Performance</h3>
-                                {banners.length > 0 ? (
-                                    <div className="relative rounded-xl overflow-hidden group">
-                                        <img src={banners[0].image_url} className="w-full h-48 object-cover" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex flex-col justify-end">
-                                            <p className="text-white font-bold">{banners[0].title}</p>
-                                            <p className="text-xs text-slate-300">{banners[0].clicks} cliques</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="text-slate-400 text-center py-10">Sem dados suficientes</div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* --- CREATIVE STUDIO --- */}
-                {activeTab === 'studio' && (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
-                        {/* Controls */}
-                        <div className="lg:col-span-7 space-y-6 overflow-y-auto pr-2">
-                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-                                    1. Visual
-                                    <span className="text-xs font-normal bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full">IA Powered</span>
-                                </h3>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                    <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors relative">
-                                        <input type="file" onChange={handleImageUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                        <span className="text-sm font-bold text-slate-600 dark:text-slate-300">Upload Imagem</span>
-                                        <span className="text-xs text-slate-400">JPG, PNG, WebP</span>
-                                    </div>
-                                    
-                                    <div className="border border-indigo-200 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-900/10 rounded-xl p-4">
-                                        <label className="text-xs font-bold text-indigo-800 dark:text-indigo-300 mb-2 block">Gerar com IA (Gemini)</label>
-                                        <textarea 
-                                            value={prompt}
-                                            onChange={e => setPrompt(e.target.value)}
-                                            className="w-full p-2 text-sm border rounded-lg mb-2 bg-white dark:bg-slate-800 dark:border-slate-600 dark:text-white resize-none"
-                                            rows={3}
-                                            placeholder="Ex: Banner futurista para promoção de iPhone 15 com fundo neon..."
-                                        />
                                         <button 
-                                            onClick={handleGenerateAI} 
-                                            disabled={isGenerating}
-                                            className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 flex justify-center"
+                                            onClick={() => handleDeleteBanner(banner.id)}
+                                            className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-1"
                                         >
-                                            {isGenerating ? <LoadingSpinner /> : '✨ Gerar Imagem'}
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                            Remover
                                         </button>
                                     </div>
+                                    <div className="absolute top-2 right-2 bg-green-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">Ativo</div>
                                 </div>
-                            </div>
-
-                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">2. Conteúdo e Ação</h3>
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Título Principal</label>
-                                            <input type="text" value={studioForm.title} onChange={e => setStudioForm({...studioForm, title: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="Ex: Super Oferta" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Subtítulo / Badge</label>
-                                            <input type="text" value={studioForm.subtitle} onChange={e => setStudioForm({...studioForm, subtitle: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white" placeholder="Ex: Só hoje" />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Texto Botão</label>
-                                            <input type="text" value={studioForm.cta} onChange={e => setStudioForm({...studioForm, cta: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">Link de Destino</label>
-                                            <input type="text" value={studioForm.link} onChange={e => setStudioForm({...studioForm, link: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white font-mono text-xs" />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">3. Segmentação e Agendamento</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Público Alvo</label>
-                                        <select value={studioForm.segment} onChange={e => setStudioForm({...studioForm, segment: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white">
-                                            <option value="all">Todos os Usuários</option>
-                                            <option value="vip">Clientes VIP (Ouro/Black)</option>
-                                            <option value="churn">Risco de Churn</option>
-                                            <option value="new">Novos Cadastros</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Data Início</label>
-                                        <input type="date" value={studioForm.startDate} onChange={e => setStudioForm({...studioForm, startDate: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button 
-                                onClick={handlePublish}
-                                className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 shadow-lg shadow-green-500/20 transition-all active:scale-[0.98]"
-                            >
-                                Publicar Campanha
-                            </button>
-                        </div>
-
-                        {/* Preview */}
-                        <div className="lg:col-span-5 flex items-center justify-center bg-slate-200 dark:bg-slate-900/50 rounded-3xl border border-slate-300 dark:border-slate-800 p-8 sticky top-0">
-                            <PhonePreview banner={studioForm} backgroundImage={generatedImage} />
-                        </div>
-                    </div>
-                )}
-
-                {/* --- CAMPAIGNS LIST --- */}
-                {activeTab === 'campaigns' && (
-                    <div className="space-y-4 animate-fade-in">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Campanhas Ativas</h2>
-                            <button onClick={() => setActiveTab('studio')} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700">+ Nova Campanha</button>
-                        </div>
-
-                        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                                <thead className="bg-slate-50 dark:bg-slate-900">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Banner</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Detalhes</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Performance</th>
-                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Status</th>
-                                        <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase">Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                                    {banners.map((banner) => (
-                                        <tr key={banner.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                                            <td className="px-6 py-4">
-                                                <img src={banner.image_url} className="h-16 w-24 object-cover rounded-lg shadow-sm border border-slate-200 dark:border-slate-600" alt="" />
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <p className="font-bold text-sm text-slate-900 dark:text-white">{banner.title}</p>
-                                                <p className="text-xs text-slate-500">{banner.link}</p>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <p className="text-xs font-medium">👁️ {banner.views} imp.</p>
-                                                <p className="text-xs font-medium text-green-600">🖱️ {banner.clicks} clicks</p>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <span className={`px-2 py-1 text-[10px] font-bold rounded-full uppercase ${banner.active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                    {banner.active ? 'Ativo' : 'Pausado'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button onClick={() => handleDelete(banner.id)} className="text-red-600 hover:text-red-800 text-xs font-bold border border-red-200 bg-red-50 px-3 py-1.5 rounded-lg transition-colors">
-                                                    Excluir
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            {banners.length === 0 && (
-                                <div className="p-10 text-center text-slate-500">Nenhuma campanha encontrada.</div>
-                            )}
-                        </div>
+                            ))
+                        )}
                     </div>
                 )}
             </div>
