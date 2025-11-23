@@ -102,7 +102,124 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
     return updatedProfile;
 }
 
-// --- Handlers ---
+// --- New Handlers for Enhanced Functionality ---
+
+async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { invoiceId, action } = req.body; // action: 'pay', 'cancel', 'delete'
+        
+        if (!invoiceId || !action) return res.status(400).json({ error: "ID da fatura e ação são obrigatórios." });
+
+        if (action === 'pay') {
+            await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
+            await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `Fatura ${invoiceId} marcada como paga manualmente.`);
+        } else if (action === 'cancel') {
+            await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).eq('id', invoiceId);
+            await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `Fatura ${invoiceId} cancelada manualmente.`);
+        } else if (action === 'delete') {
+            await supabase.from('invoices').delete().eq('id', invoiceId);
+            await logAction(supabase, 'MANUAL_DELETE', 'SUCCESS', `Fatura ${invoiceId} excluída permanentemente.`);
+        } else {
+            return res.status(400).json({ error: "Ação inválida." });
+        }
+
+        return res.status(200).json({ message: "Ação realizada com sucesso." });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleRiskDetails(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const genAI = getGeminiClient();
+    if (!genAI) return res.status(500).json({ error: "IA não configurada." });
+
+    try {
+        const { userId } = req.body;
+        
+        // Coleta dados
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId);
+        const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10);
+
+        const prompt = `
+            Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares.
+            Perfil: ${JSON.stringify(profile)}
+            Faturas: ${JSON.stringify(invoices)}
+            Histórico Score: ${JSON.stringify(history)}
+            
+            Retorne um relatório em formato JSON com:
+            {
+                "riskLevel": "Baixo" | "Médio" | "Alto",
+                "reason": "Resumo curto do motivo principal",
+                "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.",
+                "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).",
+                "positivePoints": ["ponto 1", "ponto 2"],
+                "negativePoints": ["ponto 1", "ponto 2"]
+            }
+        `;
+
+        const response = await generateContentWithRetry(genAI, { 
+            model: 'gemini-2.5-flash', 
+            contents: prompt, 
+            config: { responseMimeType: 'application/json' } 
+        });
+
+        res.status(200).json(JSON.parse(response.text || '{}'));
+
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    
+    try {
+        if (req.method === 'GET') {
+            const { userId } = req.query;
+            // Busca contratos
+            const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId);
+            // Busca documentos manuais (nova tabela)
+            const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId);
+            
+            res.status(200).json({ contracts: contracts || [], uploads: uploads || [] });
+        } else if (req.method === 'POST') {
+            const { userId, title, type, fileBase64 } = req.body;
+            const { data, error } = await supabase.from('client_documents').insert({
+                user_id: userId,
+                title,
+                document_type: type,
+                file_url: fileBase64 // Armazenando base64 direto no banco para simplificar neste escopo, idealmente seria Storage
+            }).select();
+            
+            if (error) throw error;
+            res.status(201).json(data[0]);
+        }
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleManageInternalNotes(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId, notes } = req.body;
+        // Como não alteramos a tabela profiles no setup original para ter 'internal_notes',
+        // vamos salvar isso em uma tabela separada ou JSONB se possível, mas aqui vou assumir que vamos criar a coluna no setup
+        // ou usar a tabela action_logs para recuperar a última nota.
+        // Para ser mais robusto, vou adicionar a coluna no setup.
+        
+        const { error } = await supabase.from('profiles').update({ internal_notes: notes }).eq('id', userId);
+        if (error) throw error;
+        res.status(200).json({ message: "Notas atualizadas." });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// --- Handlers (Existing) ---
 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -358,7 +475,6 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (other handlers remain unchanged)
 async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
@@ -377,10 +493,10 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) { co
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const {data}=await supabase.from('profiles').select('*'); res.status(200).json(data); }
 async function handleDiagnoseError(_req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) { const { code_challenge } = req.body; const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${process.env.ML_CLIENT_ID}&response_type=code&platform_id=mp&state=random_state&redirect_uri=${req.headers.origin}/admin&code_challenge=${code_challenge}&code_challenge_method=S256`; res.status(200).json({ authUrl }); }
-async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const FULL_SETUP_SQL = `CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "phone" "text"; ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "identification_number" "text"; ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") ); ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL ); ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."products" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "name" "text" NOT NULL, "description" "text", "price" numeric(10, 2) NOT NULL, "stock" integer NOT NULL, "image_url" "text", "category" "text", "brand" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "products_pkey" PRIMARY KEY ("id") ); ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."contracts" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "items" "text", "total_value" numeric(10, 2), "installments" integer, "status" "text" DEFAULT 'Ativo', "signature_data" "text", "terms_accepted" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"), CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."fiscal_notes" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "number" "text", "series" "text", "access_key" "text", "total_value" numeric(10, 2), "items" "text", "issue_date" timestamp with time zone DEFAULT "now"(), "xml_url" "text", "pdf_url" "text", CONSTRAINT "fiscal_notes_pkey" PRIMARY KEY ("id"), CONSTRAINT "fiscal_notes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."fiscal_notes" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."action_logs" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "created_at" timestamp with time zone DEFAULT "now"(), "action_type" "text" NOT NULL, "status" "text" NOT NULL, "description" "text", "details" "jsonb", CONSTRAINT "action_logs_pkey" PRIMARY KEY ("id") ); ALTER TABLE "public"."action_logs" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."notifications" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "message" "text" NOT NULL, "type" "text" NOT NULL DEFAULT 'info', "read" boolean NOT NULL DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "notifications_pkey" PRIMARY KEY ("id"), CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."score_history" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "change" integer NOT NULL, "new_score" integer NOT NULL, "reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "score_history_pkey" PRIMARY KEY ("id"), CONSTRAINT "score_history_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."score_history" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2) NOT NULL, "current_limit" numeric(10, 2), "justification" "text", "status" "text" NOT NULL DEFAULT 'pending', "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."store_banners" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "image_url" "text" NOT NULL, "prompt" "text", "link" "text", "active" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "store_banners_pkey" PRIMARY KEY ("id") ); ALTER TABLE "public"."store_banners" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "status" "text" DEFAULT 'open', "subject" "text", "category" "text", "priority" "text" DEFAULT 'normal', "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id"), CONSTRAINT "support_tickets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."support_tickets" ADD COLUMN IF NOT EXISTS "category" "text"; ALTER TABLE "public"."support_tickets" ADD COLUMN IF NOT EXISTS "priority" "text"; ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY; CREATE TABLE IF NOT EXISTS "public"."support_messages" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "ticket_id" "uuid" NOT NULL, "sender_type" "text" NOT NULL, "message" "text" NOT NULL, "is_internal" boolean DEFAULT false, "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id"), CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE ); ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false; ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY; DROP POLICY IF EXISTS "Public read access products" ON "public"."products"; DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles"; DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices"; DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts"; DROP POLICY IF EXISTS "Users can view own fiscal notes" ON "public"."fiscal_notes"; DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets"; DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets"; DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages"; DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages"; CREATE POLICY "Public read access products" ON "public"."products" FOR SELECT USING (true); CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id); CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users can view own fiscal notes" ON "public"."fiscal_notes" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id); CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING ( EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) AND is_internal = false ); CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid())); CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean AS $$ BEGIN RETURN auth.uid() = '1da77e27-f1df-4e35-bcec-51dc2c5a9062'; END; $$ LANGUAGE plpgsql SECURITY DEFINER;`; const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL }); if (error) throw error; await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database tables and policies configured via developer panel.'); res.status(200).json({ message: "Banco de dados atualizado com sucesso! Correção is_internal aplicada." }); }
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const FULL_SETUP_SQL = `CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id);`; const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL }); if (error) throw error; await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.'); res.status(200).json({ message: "Banco de dados atualizado com sucesso!" }); }
 async function handleSupportTickets(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { userId, subject, message, category, priority } = req.body; const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ user_id: userId, subject: subject || 'Atendimento', category: category || 'Geral', priority: priority || 'normal', status: 'open' }).select().single(); if (ticketError) throw ticketError; if (message) { const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message }); if (msgError) throw msgError; } res.status(201).json(ticket); } else if (req.method === 'PUT') { const { id, status } = req.body; const { data, error } = await supabase.from('support_tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(); if (error) throw error; res.status(200).json(data[0]); } else if (req.method === 'GET') { const { userId } = req.query; let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)').order('updated_at', { ascending: false }); if (userId) { query = query.eq('user_id', userId); } const { data, error } = await query; if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSupportMessages(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { ticketId, sender, message, isInternal } = req.body; const { data, error } = await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message, is_internal: isInternal || false }).select().single(); if (error) throw error; await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId); res.status(201).json(data); } else if (req.method === 'GET') { const { ticketId } = req.query; const { data, error } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true }); if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
-async function handleSupportChat(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:"AI unavailable"}); const {message, context} = req.body; const prompt = `${context} User Message: "${message}" You are a helpful support assistant for Relp Cell. Respond in Portuguese (Brazil). Be concise, polite, and professional. If the user needs to check specific account details that you don't have, suggest they check their profile or wait for a human agent.`; try { const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt}); res.status(200).json({reply: response.text}); } catch(e: any) { res.status(500).json({error: e.message}); } }
+async function handleSupportChat(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:"AI unavailable"}); const {message, context} = req.body; const prompt = `${context} User Message: "${message}" You are a helpful support assistant for Relp Cell. Respond in Portuguese (Brazil). Be concise, polite, and professional.`; try { const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt}); res.status(200).json({reply: response.text}); } catch(e: any) { res.status(500).json({error: e.message}); } }
 async function handleGetAllInvoices(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { data, error } = await supabase.from('invoices').select('*').order('due_date', { ascending: false }); if (error) throw error; res.status(200).json(data); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 // Main Router
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -399,6 +515,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/support-messages': return await handleSupportMessages(req, res);
                 case '/api/admin/invoices': return await handleGetAllInvoices(req, res);
                 case '/api/admin/due-date-requests': return await handleDueDateRequests(req, res);
+                case '/api/admin/client-documents': return await handleClientDocuments(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -414,7 +531,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/analyze-credit': return await handleAnalyzeCredit(req, res);
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res); 
-                case '/api/admin/negotiate-debt': return await handleNegotiateDebt(req, res); // New Endpoint
+                case '/api/admin/negotiate-debt': return await handleNegotiateDebt(req, res); 
+                case '/api/admin/manage-invoice': return await handleManageInvoice(req, res); // Novo
+                case '/api/admin/risk-details': return await handleRiskDetails(req, res); // Novo
+                case '/api/admin/manage-notes': return await handleManageInternalNotes(req, res); // Novo
+                case '/api/admin/upload-document': return await handleClientDocuments(req, res); // Novo
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
