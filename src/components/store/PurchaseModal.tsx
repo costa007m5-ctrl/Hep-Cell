@@ -16,7 +16,7 @@ interface PurchaseModalProps {
 
 type Step = 'config' | 'contract' | 'summary';
 type SaleType = 'crediario' | 'direct';
-type PaymentMethod = 'pix' | 'boleto' | 'credit_card';
+type PaymentMethod = 'pix' | 'boleto' | 'redirect'; // Removido credit_card direto
 
 const COMPANY_DATA = {
     razaoSocial: "RELP CELL ELETRONICOS LTDA",
@@ -88,7 +88,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     }, [profile.id]);
 
     const MAX_INSTALLMENTS_CREDIARIO = 12;
-    const MAX_INSTALLMENTS_CARD = 12;
     
     // Interpretação correta: Credit Limit é o LIMITE DE PARCELA MENSAL
     const monthlyLimitTotal = profile.credit_limit ?? 0;
@@ -99,16 +98,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     
     const currentInterestRate = useMemo(() => {
         if (saleType === 'crediario') return interestRate;
-        if (saleType === 'direct') {
-            if (paymentMethod === 'credit_card') {
-                const interestFreeLimit = isDiamond ? 4 : 1;
-                if (installments <= interestFreeLimit) return 0;
-                return interestRate; 
-            }
-            return 0; 
-        }
         return 0;
-    }, [saleType, paymentMethod, installments, interestRate, isDiamond]);
+    }, [saleType, interestRate]);
 
     const totalFinancedWithInterest = useMemo(() => {
         if (installments <= 1 || currentInterestRate <= 0) return principalAmount;
@@ -126,13 +117,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         const regulatoryEntry = product.price * minEntryPercentage;
         
         // 2. Entrada por Limite de Parcela Excedido
-        // A parcela calculada não pode ser maior que o availableMonthlyLimit.
-        // Se installmentValue > availableMonthlyLimit, precisamos de mais entrada.
-        // Cálculo reverso: Qual entrada (E) faz a parcela ser <= limite?
-        // Parcela = ((Preco - E) * FatorJuros) / Parcelas <= Limite
-        // (Preco - E) <= (Limite * Parcelas) / FatorJuros
-        // E >= Preco - [(Limite * Parcelas) / FatorJuros]
-        
         const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
         const maxPrincipalAllowed = (availableMonthlyLimit * installments) / interestFactor;
         
@@ -174,8 +158,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 body: JSON.stringify({
                     userId: profile.id,
                     productName: product.name,
-                    totalAmount: totalFinancedWithInterest, 
-                    installments: installments,
+                    totalAmount: saleType === 'crediario' ? totalFinancedWithInterest : product.price, // Se for direto, usa preço cheio
+                    installments: saleType === 'crediario' ? installments : 1,
                     signature: signature,
                     saleType: saleType,
                     paymentMethod: paymentMethod,
@@ -229,9 +213,9 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 </div>
             ) : (
                 <div className="grid grid-cols-3 gap-2">
-                    {['pix', 'boleto', 'credit_card'].map(m => (
+                    {['redirect', 'pix', 'boleto'].map(m => (
                         <button key={m} onClick={() => setPaymentMethod(m as any)} className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${paymentMethod === m ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
-                            <span className="text-xs font-bold uppercase">{m.replace('_', ' ')}</span>
+                            <span className="text-xs font-bold uppercase">{m === 'redirect' ? 'Mercado Pago' : m.replace('_', ' ')}</span>
                         </button>
                     ))}
                 </div>
@@ -250,6 +234,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                             <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
                             <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 transition-all" />
                         </div>
+                        <p className="text-[10px] text-amber-600 mt-1 font-bold text-right">⚠️ Atenção: A entrada deve ser paga em até 12h ou a compra será cancelada.</p>
                         <p className="text-xs text-slate-500 mt-1 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                     </div>
                     <div>
@@ -260,35 +245,45 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                             ))}
                         </div>
                     </div>
+                
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Parcelamento</label>
+                        <div className="grid grid-cols-4 gap-2">
+                            {Array.from({ length: MAX_INSTALLMENTS_CREDIARIO }, (_, i) => i + 1).map((num) => (
+                                <button key={num} onClick={() => setInstallments(num)} className={`py-2 rounded-lg text-sm font-medium transition-all ${installments === num ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>{num}x</button>
+                            ))}
+                        </div>
+                        {currentInterestRate > 0 && installments > 1 && <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">*Inclui juros de {currentInterestRate}% a.m.</p>}
+                    </div>
                 </div>
             )}
 
-            <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Parcelamento</label>
-                <div className="grid grid-cols-4 gap-2">
-                    {Array.from({ length: saleType === 'direct' ? MAX_INSTALLMENTS_CARD : MAX_INSTALLMENTS_CREDIARIO }, (_, i) => i + 1).map((num) => (
-                        <button key={num} onClick={() => setInstallments(num)} className={`py-2 rounded-lg text-sm font-medium transition-all ${installments === num ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>{num}x</button>
-                    ))}
-                </div>
-                {currentInterestRate > 0 && installments > 1 && <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">*Inclui juros de {currentInterestRate}% a.m.</p>}
-            </div>
-
             {/* Resumo Dinâmico */}
             <div className={`p-4 rounded-xl border-2 transition-all ${!validationStatus.isValid && saleType === 'crediario' ? 'border-red-100 bg-red-50 dark:bg-red-900/20 dark:border-red-800/50' : 'border-green-100 bg-green-50 dark:bg-green-900/20 dark:border-green-800/50'}`}>
-                <div className="flex justify-between items-end">
-                    <div>
-                        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Valor da Parcela</p>
-                        <p className="text-2xl font-bold text-slate-900 dark:text-white">{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                {saleType === 'crediario' ? (
+                    <div className="flex justify-between items-end">
+                        <div>
+                            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Valor da Parcela</p>
+                            <p className="text-2xl font-bold text-slate-900 dark:text-white">{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                        </div>
+                        {!validationStatus.isValid ? 
+                            <span className="px-2 py-1 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 text-xs rounded-md font-bold">Entrada Insuficiente</span> : 
+                            <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded-md font-bold">Aprovado</span>
+                        }
                     </div>
-                    {!validationStatus.isValid && saleType === 'crediario' ? 
-                        <span className="px-2 py-1 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 text-xs rounded-md font-bold">Entrada Insuficiente</span> : 
-                        <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded-md font-bold">Aprovado</span>
-                    }
-                </div>
-                <div className="flex justify-between items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-2">
-                    <p className="text-xs text-slate-500">Total Final:</p>
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                </div>
+                ) : (
+                    <div className="text-center">
+                        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Total a Pagar</p>
+                        <p className="text-2xl font-bold text-slate-900 dark:text-white">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                    </div>
+                )}
+                
+                {saleType === 'crediario' && (
+                    <div className="flex justify-between items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-2">
+                        <p className="text-xs text-slate-500">Total Final (com juros):</p>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                    </div>
+                )}
                 
                 {/* Detalhe do Erro de Entrada */}
                 {!validationStatus.isValid && saleType === 'crediario' && (
@@ -325,7 +320,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 <p className="mt-3 font-bold">CLÁUSULA SEGUNDA - DO PREÇO E FORMA DE PAGAMENTO</p>
                 <p>2.1. O preço total ajustado para a aquisição do produto, já inclusos os encargos financeiros pactuados, é de R$ {totalFinancedWithInterest.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.</p>
                 <p>2.2. O pagamento será realizado da seguinte forma:</p>
-                <p className="pl-4">a) Entrada de R$ {downPaymentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, paga no ato.</p>
+                <p className="pl-4">a) Entrada de R$ {downPaymentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, paga no ato (tolerância máxima de 12 horas sob pena de cancelamento).</p>
                 <p className="pl-4">b) O saldo restante será pago em {installments} parcelas mensais e sucessivas de R$ {installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.</p>
 
                 <p className="mt-3 font-bold">CLÁUSULA TERCEIRA - DO VENCIMENTO E DAS PARCELAS</p>
@@ -389,13 +384,30 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 </div>
                 <div className="flex justify-between">
                     <span className="text-sm text-slate-500">Pagamento</span>
-                    <span className="text-sm font-bold text-slate-900 dark:text-white uppercase">{paymentMethod.replace('_', ' ')}</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white uppercase">
+                        {saleType === 'crediario' ? 'Crediário Próprio' : paymentMethod === 'redirect' ? 'Mercado Pago' : paymentMethod}
+                    </span>
                 </div>
+                {saleType === 'crediario' && downPaymentValue > 0 && (
+                    <div className="flex justify-between border-b border-slate-100 dark:border-slate-700 pb-2 mb-2">
+                        <span className="text-sm text-indigo-600 font-bold">Valor Entrada</span>
+                        <span className="text-sm font-bold text-indigo-600">R$ {downPaymentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                )}
                 <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Total</span>
-                    <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {totalFinancedWithInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Total Final</span>
+                    <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {saleType === 'crediario' ? totalFinancedWithInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : product.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
             </div>
+            
+            {saleType === 'crediario' && downPaymentValue > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-100 dark:border-amber-800 mb-4">
+                    <p className="text-xs font-bold text-amber-700 dark:text-amber-400">⚠️ Aviso Importante</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">
+                        O valor da entrada (R$ {downPaymentValue.toLocaleString()}) deve ser pago em até 12 horas. Caso contrário, a compra e o contrato serão cancelados automaticamente.
+                    </p>
+                </div>
+            )}
         </div>
     );
 

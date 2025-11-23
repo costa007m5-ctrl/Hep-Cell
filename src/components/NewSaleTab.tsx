@@ -187,7 +187,7 @@ const NewSaleTab: React.FC = () => {
     
     // Juros é aplicado APENAS sobre o valor financiado (principal), não sobre o total do produto
     const totalWithInterest = useMemo(() => {
-        if (paymentMode !== 'crediario' && paymentMode !== 'credit_card') return principal; 
+        if (paymentMode !== 'crediario') return principal; // Venda direta não aplica juros do crediário
         if (installments <= 1) return principal;
         
         // Juros Composto: M = P * (1 + i)^n
@@ -335,7 +335,7 @@ const NewSaleTab: React.FC = () => {
                     saleType: paymentMode === 'crediario' ? 'crediario' : 'direct', 
                     paymentMethod: paymentMode,
                     downPayment: entry + tradeIn,
-                    signature: null, 
+                    signature: null, // Venda admin sem assinatura
                     sellerName: saleContext.sellerName,
                     tradeInValue: tradeIn
                 }),
@@ -375,15 +375,6 @@ const NewSaleTab: React.FC = () => {
         const regulatoryEntry = cartTotal * minEntryPercentage;
         
         // 2. Entrada por Falta de Limite MENSAL (Lógica de Parcela)
-        // O valor da parcela não pode exceder o Limite Mensal Disponível.
-        // Se a parcela calculada com 0 entrada exceder, precisamos aumentar a entrada até que a parcela caiba.
-        // Fórmula: Parcela = (Principal * FatorJuros) / Parcelas <= LimiteDisponivel
-        // (Principal * FatorJuros) <= LimiteDisponivel * Parcelas
-        // Principal <= (LimiteDisponivel * Parcelas) / FatorJuros
-        // Onde Principal = PrecoTotal - Entrada
-        // Logo: PrecoTotal - Entrada <= MaxPrincipalPermitido
-        // Entrada >= PrecoTotal - MaxPrincipalPermitido
-        
         const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
         const maxPrincipalAllowed = (clientLimitData.availableMonthly * installments) / interestFactor;
         const limitGapEntry = Math.max(0, cartTotal - maxPrincipalAllowed);
@@ -671,42 +662,51 @@ const NewSaleTab: React.FC = () => {
                                             />
                                         </div>
 
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Parcelas</label>
-                                            <select 
-                                                value={installments}
-                                                onChange={e => setInstallments(Number(e.target.value))}
-                                                className="w-full p-3 text-lg font-bold border border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
-                                            >
-                                                {Array.from({ length: 12 }, (_, i) => i + 1).map(num => {
-                                                    const val = paymentMode === 'crediario' 
-                                                        ? (principal * Math.pow(1 + (interestRate/100), num)) / num 
-                                                        : principal / num;
-                                                    return (
-                                                        <option key={num} value={num}>
-                                                            {num}x de R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                                        </option>
-                                                    );
-                                                })}
-                                            </select>
-                                            {paymentMode === 'crediario' && installments > 1 && (
-                                                <p className="text-xs text-orange-600 mt-1 text-right font-medium">* Juros de {interestRate}% a.m. aplicado.</p>
-                                            )}
-                                        </div>
+                                        {/* Seletor de Parcelas apenas para Crediário ou Cartão Misto */}
+                                        {paymentMode === 'crediario' && (
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Parcelas</label>
+                                                <select 
+                                                    value={installments}
+                                                    onChange={e => setInstallments(Number(e.target.value))}
+                                                    className="w-full p-3 text-lg font-bold border border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none"
+                                                >
+                                                    {Array.from({ length: 12 }, (_, i) => i + 1).map(num => {
+                                                        const val = (principal * Math.pow(1 + (interestRate/100), num)) / num;
+                                                        return (
+                                                            <option key={num} value={num}>
+                                                                {num}x de R$ {val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                                {installments > 1 && (
+                                                    <p className="text-xs text-orange-600 mt-1 text-right font-medium">* Juros de {interestRate}% a.m. aplicado.</p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Tabela de Simulação Rápida */}
-                                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 text-sm">
-                                    <div className="flex justify-between mb-1">
-                                        <span>Valor da Parcela:</span>
-                                        <span className="font-bold">{installmentValue.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                                {/* Tabela de Simulação Rápida (Crediário) */}
+                                {paymentMode === 'crediario' && (
+                                    <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 text-sm">
+                                        <div className="flex justify-between mb-1">
+                                            <span>Valor da Parcela:</span>
+                                            <span className="font-bold">{installmentValue.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                                        </div>
+                                        <div className="flex justify-between border-t border-slate-200 dark:border-slate-600 pt-1 mt-1">
+                                            <span>Total a Pagar:</span>
+                                            <span className="font-bold text-indigo-600">{totalWithInterest.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                                        </div>
+                                        {entry > 0 && (
+                                            <div className="flex justify-between text-xs text-slate-500 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                                <span>Entrada (pagar em 12h):</span>
+                                                <span className="font-bold">{entry.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="flex justify-between border-t border-slate-200 dark:border-slate-600 pt-1 mt-1">
-                                        <span>Total a Pagar:</span>
-                                        <span className="font-bold text-indigo-600">{totalWithInterest.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>
-                                    </div>
-                                </div>
+                                )}
                                 
                                 {/* Validação de Entrada Explicita (Nova Lógica de Limite de Parcela) */}
                                 {paymentMode === 'crediario' && (

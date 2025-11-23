@@ -499,7 +499,12 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`; 
             
             let notes = saleType === 'direct' ? `Compra direta via ${paymentMethod}.` : `Referente a compra de ${productName} parcelada em ${installments}x.`; 
-            if (downPayment && Number(downPayment) > 0) { notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } 
+            if (downPayment && Number(downPayment) > 0) { 
+                notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+                if (saleType === 'crediario') {
+                    notes += ` [ATENÇÃO: Entrada deve ser paga em 12h sob pena de cancelamento]`;
+                }
+            } 
             if (tradeInValue && Number(tradeInValue) > 0) { notes += ` (Trade-In: R$ ${Number(tradeInValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } 
             if (sellerName) { notes += ` [Vendedor: ${sellerName}]`; } 
             
