@@ -17,6 +17,27 @@ interface PageInicioProps {
 
 // --- Componentes Internos ---
 
+const EntryPaymentAlert: React.FC<{ invoice: Invoice; onPay: () => void }> = ({ invoice, onPay }) => (
+    <div className="mx-4 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
+        <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 dark:bg-red-800 rounded-full text-red-700 dark:text-red-200">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+                <h3 className="font-bold text-red-800 dark:text-red-100">Pagamento de Entrada Pendente</h3>
+                <p className="text-xs text-red-700 dark:text-red-200 mt-1">
+                    Valor: <strong>R$ {invoice.amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong>
+                    <br/>
+                    Atenção: Pague em até 12h para evitar o cancelamento automático da sua compra.
+                </p>
+            </div>
+        </div>
+        <button onClick={onPay} className="w-full py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-sm shadow-md transition-colors">
+            Pagar Entrada Agora
+        </button>
+    </div>
+);
+
 const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }> = ({ contract, onSign }) => (
     <div className="mx-4 mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
         <div className="flex items-start gap-3">
@@ -272,7 +293,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const availableLimit = Math.max(0, creditLimit - maxMonthlyCommitment);
   const limitUsedPercent = creditLimit > 0 ? ((creditLimit - availableLimit) / creditLimit) * 100 : 0;
   
-  const nextInvoice = invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
+  // Identifica fatura de entrada pendente (Notas contêm 'ENTRADA' e status 'Em aberto')
+  const entryInvoice = useMemo(() => {
+      return invoices.find(i => i.notes?.includes('ENTRADA') && i.status === 'Em aberto');
+  }, [invoices]);
+
+  const nextInvoice = invoices.filter(i => !i.notes?.includes('ENTRADA') && (i.status === 'Em aberto' || i.status === 'Boleto Gerado')).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
 
   const formatValue = (value: number) => {
       if (!showValues) return '••••••';
@@ -333,8 +359,16 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             </div>
         </div>
 
+        {/* Entry Payment Alert (CRITICAL) */}
+        {entryInvoice && (
+            <EntryPaymentAlert 
+                invoice={entryInvoice} 
+                onPay={() => setActiveTab(Tab.FATURAS)}
+            />
+        )}
+
         {/* Pending Contract Alert */}
-        {pendingContract && (
+        {pendingContract && !entryInvoice && (
             <PendingContractAlert 
                 contract={pendingContract} 
                 onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} 

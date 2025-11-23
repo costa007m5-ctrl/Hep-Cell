@@ -481,8 +481,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const purchaseTimestamp = new Date().toISOString(); 
         
         // --- CORREÇÃO DE LÓGICA DE STATUS ---
-        // Se tem assinatura (vem do App Cliente), o contrato nasce assinado e as faturas em aberto.
-        // Se não tem assinatura (vem do Admin), o contrato é pendente e as faturas aguardam.
         const isSigned = !!signature;
         const initialStatus = saleType === 'crediario' && !isSigned ? 'Aguardando Assinatura' : 'Em aberto'; 
         const contractStatus = saleType === 'crediario' ? (isSigned ? 'Assinado' : 'pending_signature') : 'Ativo'; // Venda direta não gera pendência
@@ -491,6 +489,22 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         let currentMonth = today.getMonth() + 1; 
         let currentYear = today.getFullYear(); 
         
+        // --- GERAÇÃO DA FATURA DE ENTRADA ---
+        // Se houver entrada, cria uma fatura separada com vencimento IMEDIATO (hoje)
+        const entryValue = Number(downPayment);
+        if (saleType === 'crediario' && entryValue > 0) {
+            newInvoices.push({
+                user_id: userId,
+                month: `Entrada - ${productName}`,
+                due_date: today.toISOString().split('T')[0], // Vence HOJE
+                amount: entryValue,
+                status: 'Em aberto', // Fatura gerada para pagamento imediato
+                notes: `ENTRADA: ${productName}. Pagamento obrigatório em 12h. Cancelamento automático caso não pago.`,
+                created_at: purchaseTimestamp,
+                payment_method: paymentMethod || null
+            });
+        }
+
         for (let i = 1; i <= installments; i++) { 
             if (currentMonth > 11) { currentMonth = 0; currentYear++; } 
             const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate(); 
@@ -499,11 +513,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`; 
             
             let notes = saleType === 'direct' ? `Compra direta via ${paymentMethod}.` : `Referente a compra de ${productName} parcelada em ${installments}x.`; 
-            if (downPayment && Number(downPayment) > 0) { 
-                notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
-                if (saleType === 'crediario') {
-                    notes += ` [ATENÇÃO: Entrada deve ser paga em 12h sob pena de cancelamento]`;
-                }
+            if (entryValue > 0) { 
+                notes += ` (Entrada de R$ ${entryValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} processada separadamente)`;
             } 
             if (tradeInValue && Number(tradeInValue) > 0) { notes += ` (Trade-In: R$ ${Number(tradeInValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } 
             if (sellerName) { notes += ` [Vendedor: ${sellerName}]`; } 
@@ -545,7 +556,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             if (contractError) console.error("Erro ao salvar contrato:", contractError); 
             
             if (!isSigned) {
-                await supabase.from('notifications').insert({ user_id: userId, title: 'Aprovação Necessária', message: `Sua compra de ${productName} está aguardando sua assinatura digital no app. Você tem 24h.`, type: 'alert', read: false }); 
+                await supabase.from('notifications').insert({ user_id: userId, title: 'Aprovação Necessária', message: `Sua compra de ${productName} está aguardando sua assinatura digital no app.`, type: 'alert', read: false }); 
             }
         } 
         

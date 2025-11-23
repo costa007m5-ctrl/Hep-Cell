@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Invoice, Profile } from '../types';
+import { Invoice, Profile, Product } from '../types';
 import { supabase } from '../services/clients';
 import { getProfile } from '../services/profileService';
 import Alert from './Alert';
@@ -32,6 +32,7 @@ interface ErrorInfo {
 interface ProductGroup {
     id: string;
     name: string;
+    imageUrl?: string; // Adicionado imagem
     totalAmount: number;
     remainingAmount: number;
     paidAmount: number;
@@ -41,6 +42,7 @@ interface ProductGroup {
     status: 'active' | 'completed' | 'late';
     invoices: Invoice[];
     isDirectSale?: boolean;
+    createdAt: number; // Para ordenação
 }
 
 // --- Icons ---
@@ -343,11 +345,17 @@ const PurchaseGroupCard: React.FC<{
             >
                 <div className="w-full flex justify-between items-start">
                     <div className="flex items-center gap-3 text-left">
-                        <div className={`p-2 rounded-lg ${isCompleted ? 'bg-green-100 dark:bg-green-900/20 text-green-600' : hasLate ? 'bg-red-100 dark:bg-red-900/20 text-red-600' : 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-600'}`}>
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                        {/* Imagem do Produto */}
+                        <div className={`w-14 h-14 rounded-lg flex items-center justify-center shrink-0 overflow-hidden ${isCompleted ? 'bg-green-50 dark:bg-green-900/20' : hasLate ? 'bg-red-50 dark:bg-red-900/20' : 'bg-slate-50 dark:bg-slate-700'}`}>
+                             {group.imageUrl ? (
+                                 <img src={group.imageUrl} alt={group.name} className="w-full h-full object-cover" />
+                             ) : (
+                                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${isCompleted ? 'text-green-600' : hasLate ? 'text-red-600' : 'text-indigo-600'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                             )}
                         </div>
                         <div>
                             <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base line-clamp-1">{group.name}</h3>
+                            <p className="text-[10px] text-slate-400 mb-1">{new Date(group.createdAt).toLocaleDateString('pt-BR', {day:'2-digit', month:'short', year:'numeric'})}</p>
                             <p className={`text-xs ${hasLate ? 'text-red-500 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
                                 {isCompleted ? 'Finalizado' : hasLate ? 'Pagamento Atrasado' : group.isDirectSale ? 'Compra Direta' : `${group.paidInstallments}/${group.totalInstallments} parcelas pagas`}
                             </p>
@@ -409,6 +417,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [products, setProducts] = useState<Product[]>([]); // Carregar produtos para imagens
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
@@ -427,11 +436,12 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
             
-            // Fetch invoices, profile and settings in parallel
-            const [invoicesRes, profileRes, settingsRes] = await Promise.all([
+            // Fetch invoices, profile, settings and products in parallel
+            const [invoicesRes, profileRes, settingsRes, productsRes] = await Promise.all([
                 supabase.from('invoices').select('*').eq('user_id', user.id).order('due_date', { ascending: true }),
                 getProfile(user.id),
-                fetch('/api/admin/settings').catch(err => ({ ok: false, json: async () => ({}) })) as Promise<Response> // Soft fail for settings
+                fetch('/api/admin/settings').catch(err => ({ ok: false, json: async () => ({}) })) as Promise<Response>,
+                fetch('/api/products').catch(err => ({ ok: false, json: async () => ([]) })) as Promise<Response>
             ]);
 
             if (invoicesRes.error) throw invoicesRes.error;
@@ -443,6 +453,10 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 if(settingsData.negotiation_interest) {
                     setNegotiationRate(parseFloat(settingsData.negotiation_interest));
                 }
+            }
+
+            if(productsRes.ok) {
+                setProducts(await productsRes.json());
             }
 
         } catch (err: any) {
@@ -461,7 +475,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const groupedInvoices = useMemo(() => {
         // Agrupamento usando Nome + Data de Criação (precisão de minutos para agrupar lote)
-        // Isso separa compras do mesmo produto feitas em dias diferentes
         const groups: Record<string, ProductGroup> = {};
         
         invoices.forEach(inv => {
@@ -478,15 +491,19 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             // Cria chave única usando Nome + Timestamp de criação
             // Se created_at não existir (dados antigos), usa apenas o nome
             const creationTime = inv.created_at ? new Date(inv.created_at).getTime() : 0;
-            // Agrupa se criado dentro de um intervalo de 5 segundos (para garantir que o lote da mesma compra fique junto)
-            // ou usa o ID exato se disponível. Como não temos SaleID, usamos o tempo aproximado.
-            const timeKey = Math.floor(creationTime / 5000); 
+            // Agrupa se criado dentro de um intervalo de 10 segundos (para garantir que o lote da mesma compra fique junto)
+            const timeKey = Math.floor(creationTime / 10000); 
             const groupKey = `${baseName}_${timeKey}`;
 
             if (!groups[groupKey]) {
+                // Tenta encontrar imagem do produto
+                // Procura um produto cujo nome esteja contido no baseName da fatura (ex: "iPhone 15" contido em "iPhone 15 Pro")
+                const productMatch = products.find(p => baseName.toLowerCase().includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(baseName.toLowerCase()));
+
                 groups[groupKey] = {
                     id: groupKey,
                     name: baseName,
+                    imageUrl: productMatch?.image_url || undefined,
                     totalAmount: 0,
                     remainingAmount: 0,
                     paidAmount: 0,
@@ -495,7 +512,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     nextDueDate: null,
                     status: 'completed',
                     invoices: [],
-                    isDirectSale: !inv.month.includes('(') // Se não tem (1/10), assume venda direta ou parcela única
+                    isDirectSale: !inv.month.includes('('), // Se não tem (1/10), assume venda direta ou parcela única
+                    createdAt: creationTime // Guarda o timestamp real para ordenação
                 };
             }
             
@@ -518,15 +536,22 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             }
         });
 
-        return Object.values(groups).sort((a, b) => {
-            if (a.status === 'late' && b.status !== 'late') return -1;
-            if (a.status !== 'late' && b.status === 'late') return 1;
-            if (a.status === 'active' && b.status !== 'active') return -1;
-            if (a.status !== 'active' && b.status === 'active') return 1;
-            if (a.nextDueDate && b.nextDueDate) return new Date(a.nextDueDate).getTime() - new Date(b.nextDueDate).getTime();
-            return 0;
+        // Ordena as faturas dentro de cada grupo por data de vencimento
+        Object.values(groups).forEach(g => {
+            g.invoices.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
         });
-    }, [invoices]);
+
+        // Ordena os grupos: 
+        // 1. Compras ativas ou atrasadas primeiro
+        // 2. Dentro disso, pela data de COMPRA (createdAt) mais recente
+        return Object.values(groups).sort((a, b) => {
+            if ((a.status === 'late' || a.status === 'active') && b.status === 'completed') return -1;
+            if (a.status === 'completed' && (b.status === 'late' || b.status === 'active')) return 1;
+            
+            // Se ambos tem mesmo status macro, ordena pela data da compra (Mais recente primeiro)
+            return b.createdAt - a.createdAt;
+        });
+    }, [invoices, products]);
 
     const activeGroups = groupedInvoices.filter(g => g.status !== 'completed');
     const completedGroups = groupedInvoices.filter(g => g.status === 'completed');
