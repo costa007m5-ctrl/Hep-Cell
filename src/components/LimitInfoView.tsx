@@ -113,7 +113,7 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
     const [showRequestForm, setShowRequestForm] = useState(false);
     const [usedLimit, setUsedLimit] = useState(0);
     const [isLoadingData, setIsLoadingData] = useState(true);
-    const [lastRequest, setLastRequest] = useState<any>(null);
+    const [requestHistory, setRequestHistory] = useState<any[]>([]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -130,16 +130,15 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                 const totalUsed = invoices?.reduce((acc, inv) => acc + inv.amount, 0) || 0;
                 setUsedLimit(totalUsed);
 
-                // 2. Última solicitação
+                // 2. Histórico de Solicitações
                 const { data: requests } = await supabase
                     .from('limit_requests')
                     .select('*')
                     .eq('user_id', profile.id)
-                    .order('created_at', { ascending: false })
-                    .limit(1);
+                    .order('created_at', { ascending: false });
                 
-                if (requests && requests.length > 0) {
-                    setLastRequest(requests[0]);
+                if (requests) {
+                    setRequestHistory(requests);
                 }
 
             } catch (err) {
@@ -153,6 +152,7 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
     
     const creditLimit = profile.credit_limit || 0;
     const availableLimit = Math.max(0, creditLimit - usedLimit);
+    const lastRequest = requestHistory.length > 0 ? requestHistory[0] : null;
 
     if (showRequestForm) {
         return (
@@ -215,7 +215,7 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                                 {lastRequest.status === 'approved' ? (
                                                     <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg> Aprovado</>
                                                 ) : (
-                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg> Recusado</>
+                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg> Recusado</>
                                                 )}
                                             </h4>
                                             <span className="text-xs opacity-70 text-slate-500 dark:text-slate-400">{new Date(lastRequest.updated_at || lastRequest.created_at).toLocaleDateString()}</span>
@@ -247,17 +247,25 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                         )}
                         {activeTab === 'simulador' && <SimulatorTab availableLimit={availableLimit} totalLimit={creditLimit} />}
                         {activeTab === 'historico' && (
-                            <div className="space-y-6 animate-fade-in pt-2">
-                                <div className="relative pl-8 border-l-2 border-dashed border-slate-200 dark:border-slate-700 space-y-8">
-                                    <div className="relative">
-                                        <div className="absolute -left-[39px] top-0 w-5 h-5 bg-indigo-600 rounded-full border-4 border-white dark:border-slate-900 shadow-md"></div>
-                                        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-indigo-100 dark:border-slate-700">
-                                            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 block uppercase tracking-wide">Limite Atual</span>
-                                            <p className="text-2xl font-black text-slate-900 dark:text-white">{creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                                            <p className="text-[10px] text-slate-500 mt-1">Aprovado e vigente.</p>
+                            <div className="space-y-4 animate-fade-in pt-2">
+                                {requestHistory.length > 0 ? requestHistory.map((req) => (
+                                    <div key={req.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                {req.status === 'approved' ? 'Aprovado' : req.status === 'rejected' ? 'Recusado' : 'Pendente'}
+                                            </span>
+                                            <span className="text-xs text-slate-400">{new Date(req.created_at).toLocaleDateString()}</span>
                                         </div>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-1">Solicitado: R$ {req.requested_amount?.toLocaleString()}</p>
+                                        {req.admin_response_reason && (
+                                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400 italic">"{req.admin_response_reason}"</p>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
+                                )) : (
+                                    <div className="text-center py-10 text-slate-400">Nenhum histórico encontrado.</div>
+                                )}
                             </div>
                         )}
                     </>

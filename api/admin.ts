@@ -62,74 +62,115 @@ async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries
     throw new Error("Max retries exceeded");
 }
 
-// ... (Existing logic for runCreditAnalysis, updateProfileCredit, handleLimitRequestActions) ...
+// --- CRITICAL UPDATE: Enhanced AI Analysis with Document Verification ---
 async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string, useStrictRules: boolean = true) {
-    // ... logic maintained ...
     const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (profileError) throw profileError;
     
     const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date, payment_date').eq('user_id', userId);
     if (invoicesError) throw invoicesError;
 
-    const { data: docs } = await supabase.from('client_documents').select('document_type').eq('user_id', userId);
-    const hasIncomeProof = docs?.some(d => d.document_type === 'Comprovante de Renda' || d.document_type === 'Holerite');
+    // Fetch latest document
+    const { data: docs } = await supabase.from('client_documents').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1);
+    const latestDoc = docs && docs.length > 0 ? docs[0] : null;
 
     let suggestedLimit = 0;
     let suggestedScore = 0;
-    let riskReason = '';
+    let analysisReason = '';
+    let documentAnalysis = 'Nenhum documento encontrado.';
 
-    const paidInvoices = invoices?.filter(i => i.status === 'Paga').length || 0;
-    
-    if (paidInvoices < 3 && useStrictRules) {
-        if (hasIncomeProof && profile.salary && profile.salary > 0) {
-            suggestedLimit = Math.round(profile.salary * 0.20);
-            suggestedScore = 600;
-            riskReason = 'Limite inicial baseado em 20% da renda comprovada.';
-        } else {
-            suggestedLimit = 100.00;
-            suggestedScore = 400;
-            riskReason = 'Limite restrito (R$ 100) por falta de comprovante de renda.';
-        }
+    if (!genAI) {
+        // Fallback logic without AI
+        suggestedLimit = (profile.credit_limit || 200) * 1.1;
+        suggestedScore = Math.min(1000, (profile.credit_score || 500) + 50);
+        analysisReason = 'Aumento automático baseado apenas no histórico (IA indisponível).';
     } else {
-        if (!genAI) {
-            suggestedLimit = (profile.credit_limit || 200) * 1.1;
-            suggestedScore = Math.min(1000, (profile.credit_score || 500) + 50);
-            riskReason = 'Aumento automático por bom histórico (IA Indisponível).';
-        } else {
-            const prompt = `
-                Atue como um analista de crédito sênior.
-                Dados do Cliente:
-                - Salário Informado: R$ ${profile.salary || 0}
-                - Possui Comprovante de Renda: ${hasIncomeProof ? 'SIM' : 'NÃO'}
-                - Limite Atual: R$ ${profile.credit_limit}
-                - Histórico de Pagamentos: ${JSON.stringify(invoices)}
-                
-                Regras de Negócio:
-                1. Se não tiver comprovante de renda e histórico for fraco, teto é R$ 100.
-                2. Se tiver comprovante, base inicial é 20% do salário.
-                3. Se o histórico for EXCELENTE (pagamentos em dia), você pode sugerir um limite acima de 20% do salário, até no máximo 40%.
-                4. Se houver atrasos recentes, reduza o limite ou mantenha.
-
-                Retorne APENAS um JSON: {"credit_score": (0-1000), "credit_limit": (valor numérico), "credit_status": "Excelente"|"Bom"|"Regular"|"Risco", "reason": "Explicação curta"}
-            `;
-
-            const response = await generateContentWithRetry(genAI, { 
-                model: 'gemini-2.5-flash', 
-                contents: prompt, 
-                config: { responseMimeType: 'application/json' } 
-            });
+        // Prepare prompt for Gemini
+        let prompt = `
+            Atue como um analista de crédito sênior para a loja "Relp Cell".
             
-            const analysis = JSON.parse(response.text || '{}');
-            suggestedLimit = analysis.credit_limit;
-            suggestedScore = analysis.credit_score;
-            riskReason = analysis.reason;
+            DADOS DO CLIENTE:
+            - Salário Declarado: R$ ${profile.salary || 0}
+            - Limite Atual: R$ ${profile.credit_limit}
+            - Score Atual: ${profile.credit_score}
+            - Histórico de Pagamentos: ${JSON.stringify(invoices)}
+        `;
+
+        let parts: any[] = [];
+
+        // Check document using Gemini Vision if available
+        if (latestDoc && latestDoc.file_url) {
+            // Check if it's an image base64
+            const match = latestDoc.file_url.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+            if (match) {
+                parts.push({
+                    inlineData: {
+                        mimeType: match[1],
+                        data: match[2]
+                    }
+                });
+                prompt += `
+                
+                TAREFA DE VISÃO COMPUTACIONAL:
+                Analise a imagem anexada. 
+                1. Verifique se é um documento financeiro válido (Holerite, Extrato Bancário, Decore).
+                2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ALERTE IMEDIATAMENTE.
+                3. Se for válido, tente extrair o valor líquido aproximado.
+                `;
+            } else {
+                documentAnalysis = "Formato de documento não suportado para análise visual automática (provavelmente PDF).";
+            }
+        } else {
+            prompt += `\nNenhum documento de comprovação de renda foi anexado recentemente.`;
+        }
+
+        prompt += `
+            
+            REGRAS DE NEGÓCIO:
+            1. Se o documento for inválido ou irrelevante, REJEITE o aumento ou sugira um valor muito baixo (R$ 50-100) e explique o motivo claramente para o cliente.
+            2. Se o documento for válido, o limite sugerido deve ser aprox. 20% a 30% da renda comprovada no documento (ou da renda declarada se baterem).
+            3. Se o histórico de pagamentos tiver atrasos, seja conservador.
+            4. Escreva uma mensagem ("reason") POLIDA e DIRETA para o cliente, explicando a decisão (ex: "Aprovamos seu aumento com base no holerite enviado..." ou "Infelizmente o documento enviado não é um comprovante válido...").
+
+            RETORNO JSON OBRIGATÓRIO:
+            {
+                "credit_score": (inteiro 0-1000),
+                "credit_limit": (valor numérico),
+                "reason": "Mensagem final para o cliente ler",
+                "document_valid": boolean (true se parece um comprovante real, false se for foto aleatória/nada),
+                "document_analysis": "Breve descrição técnica do que foi visto na imagem para o admin (ex: 'Detectado holerite de R$ 2000' ou 'Foto de um cachorro')"
+            }
+        `;
+
+        parts.push({ text: prompt });
+
+        // Use gemini-2.5-flash for multimodal capabilities
+        const response = await generateContentWithRetry(genAI, { 
+            model: 'gemini-2.5-flash', 
+            contents: { parts }, 
+            config: { responseMimeType: 'application/json' } 
+        });
+        
+        const analysis = JSON.parse(response.text || '{}');
+        suggestedLimit = analysis.credit_limit || profile.credit_limit;
+        suggestedScore = analysis.credit_score || profile.credit_score;
+        analysisReason = analysis.reason || "Análise concluída.";
+        documentAnalysis = analysis.document_analysis || documentAnalysis;
+        
+        // Safety check: if document valid is false, ensure limit doesn't spike unless history is perfect
+        if (analysis.document_valid === false) {
+             // If explicitly invalid document, fallback to conservative increase only if needed
+             if (suggestedLimit > (profile.credit_limit || 0) * 1.2) {
+                 suggestedLimit = (profile.credit_limit || 0); // Reset to current if risk is high
+             }
         }
     }
 
     return {
         credit_limit: suggestedLimit,
         credit_score: suggestedScore,
-        reason: riskReason,
+        reason: analysisReason,
+        document_analysis: documentAnalysis,
         profile
     };
 }
@@ -147,12 +188,12 @@ async function updateProfileCredit(supabase: SupabaseClient, userId: string, lim
 
     if (updateError) throw updateError;
     
-    if (profile && profile.credit_limit !== limit) {
+    if (profile && (profile.credit_limit !== limit || profile.credit_score !== score)) {
         await supabase.from('score_history').insert({
             user_id: userId,
             change: score - (profile.credit_score || 0),
             new_score: score,
-            reason: reason
+            reason: reason || 'Atualização de crédito'
         });
     }
 }
@@ -182,7 +223,7 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
             await supabase.from('notifications').insert({
                 user_id: request.user_id,
                 title: 'Solicitação de Limite',
-                message: 'Sua solicitação de aumento de limite foi analisada. Confira o status no seu perfil.',
+                message: 'Sua solicitação de aumento de limite foi analisada. Veja o motivo no seu perfil.',
                 type: 'info'
             });
             return res.status(200).json({ message: "Solicitação rejeitada." });
@@ -193,16 +234,17 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
              return res.status(200).json({ 
                  suggestedLimit: analysis.credit_limit, 
                  suggestedScore: analysis.credit_score,
-                 reason: analysis.reason || "Sugestão baseada em renda e histórico."
+                 reason: analysis.reason,
+                 documentAnalysis: analysis.document_analysis
              });
         }
 
         if (action === 'approve_manual') {
-            if (!manualLimit) return res.status(400).json({ error: "Valor manual obrigatório." });
+            if (manualLimit === undefined) return res.status(400).json({ error: "Valor manual obrigatório." });
             newLimit = manualLimit;
             const newScore = manualScore || 600;
             
-            await supabase.from('profiles').update({ credit_limit: newLimit, credit_score: newScore }).eq('id', request.user_id);
+            await updateProfileCredit(supabase, request.user_id, newLimit, newScore, 'Ativo', `Aprovado via solicitação: ${reasonToSave}`);
             statusMsg = 'Aprovado manualmente.';
         } 
         

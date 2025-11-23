@@ -21,6 +21,7 @@ interface AIAnalysisResult {
     suggestedLimit: number;
     suggestedScore: number;
     reason: string;
+    documentAnalysis?: string;
 }
 
 const CreditAnalysisTab: React.FC = () => {
@@ -134,6 +135,7 @@ const CreditAnalysisTab: React.FC = () => {
                 setAiResult(data);
                 setApprovedLimit(String(data.suggestedLimit));
                 setApprovedScore(String(data.suggestedScore));
+                // Aqui preenchemos o campo de texto do motivo automaticamente
                 setAdminReason(data.reason); 
             }
         } catch (error) {
@@ -362,6 +364,11 @@ const CreditAnalysisTab: React.FC = () => {
                             {aiResult && (
                                 <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg animate-fade-in">
                                     <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase mb-1">Sugestão da IA</p>
+                                    {aiResult.documentAnalysis && (
+                                        <p className="text-xs text-indigo-600 dark:text-indigo-400 mb-2 border-b border-indigo-200 pb-2">
+                                            <strong>Análise do Documento:</strong> {aiResult.documentAnalysis}
+                                        </p>
+                                    )}
                                     <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{aiResult.reason}</p>
                                     <div className="mt-2 flex gap-4">
                                         <span className="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded">Limite: R$ {aiResult.suggestedLimit.toLocaleString()}</span>
