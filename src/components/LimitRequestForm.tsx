@@ -18,6 +18,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
     const [justification, setJustification] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+    const [isProcessingImage, setIsProcessingImage] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
     // --- Validação de 90 Dias ---
@@ -55,14 +56,77 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
         chanceMessage = "Anexe um comprovante para aumentar suas chances.";
     }
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Função para converter qualquer imagem para JPEG
+    const convertImageToJpeg = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    // Limita tamanho máximo para 1200px para economizar tokens da IA e largura de banda
+                    const maxDimension = 1200;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxDimension || height > maxDimension) {
+                        if (width > height) {
+                            height *= maxDimension / width;
+                            width = maxDimension;
+                        } else {
+                            width *= maxDimension / height;
+                            height = maxDimension;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if(ctx) {
+                        // Fundo branco para lidar com PNGs transparentes
+                        ctx.fillStyle = '#FFFFFF'; 
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.8));
+                    } else {
+                        reject(new Error("Falha ao criar contexto do canvas"));
+                    }
+                };
+                img.onerror = reject;
+                img.src = event.target?.result as string;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setProofFile(reader.result as string);
-            };
-            reader.readAsDataURL(file);
+            setIsProcessingImage(true);
+            setMessage(null);
+            try {
+                // Se for imagem, converte. Se for PDF, usa como está.
+                if (file.type.startsWith('image/')) {
+                    const processed = await convertImageToJpeg(file);
+                    setProofFile(processed);
+                } else if (file.type === 'application/pdf') {
+                    // PDFs são suportados como upload, mas não para análise visual direta da IA atualmente
+                    // A IA usará apenas o texto do prompt nesse caso
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        setProofFile(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    throw new Error("Formato não suportado. Use Imagem ou PDF.");
+                }
+            } catch (error: any) {
+                console.error("Erro ao processar arquivo", error);
+                setMessage({ text: error.message || "Erro ao processar o arquivo.", type: 'error' });
+            } finally {
+                setIsProcessingImage(false);
+            }
         }
     };
 
@@ -250,9 +314,14 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                         <button 
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
+                            disabled={isProcessingImage}
                             className={`w-full py-2 px-4 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors border ${proofFile ? 'bg-green-100 border-green-200 text-green-700' : 'bg-white border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}
                         >
-                            {proofFile ? (
+                            {isProcessingImage ? (
+                                <>
+                                    <LoadingSpinner /> Processando...
+                                </>
+                            ) : proofFile ? (
                                 <>
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                     Comprovante Anexado
@@ -264,7 +333,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                                 </>
                             )}
                         </button>
-                        <p className="text-[10px] text-indigo-400 mt-2 text-center">Obrigatório para análise precisa</p>
+                        <p className="text-[10px] text-indigo-400 mt-2 text-center">Formatos aceitos: JPG, PNG, PDF.</p>
                         <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
                     </div>
 
@@ -286,7 +355,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 pb-safe">
                  <button
                     onClick={handleSubmit}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isProcessingImage}
                     className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                 >
                     {isSubmitting ? <LoadingSpinner /> : 'Enviar Pedido de Análise'}

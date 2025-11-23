@@ -103,22 +103,34 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
             // Check if it's an image base64
             const match = latestDoc.file_url.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
             if (match) {
-                parts.push({
-                    inlineData: {
-                        mimeType: match[1],
-                        data: match[2]
-                    }
-                });
-                prompt += `
-                
-                TAREFA DE VISÃO COMPUTACIONAL:
-                Analise a imagem anexada. 
-                1. Verifique se é um documento financeiro válido (Holerite, Extrato Bancário, Decore).
-                2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ALERTE IMEDIATAMENTE.
-                3. Se for válido, tente extrair o valor líquido aproximado.
-                `;
+                const mimeType = match[1];
+                const base64Data = match[2];
+
+                // Lista de formatos suportados pelo Gemini Vision (Evita erro de AVIF)
+                const supportedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+
+                if (supportedMimeTypes.includes(mimeType)) {
+                    parts.push({
+                        inlineData: {
+                            mimeType: mimeType,
+                            data: base64Data
+                        }
+                    });
+                    prompt += `
+                    
+                    TAREFA DE VISÃO COMPUTACIONAL:
+                    Analise a imagem anexada. 
+                    1. Verifique se é um documento financeiro válido (Holerite, Extrato Bancário, Decore).
+                    2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ALERTE IMEDIATAMENTE.
+                    3. Se for válido, tente extrair o valor líquido aproximado.
+                    `;
+                } else {
+                    documentAnalysis = `Formato de arquivo (${mimeType}) não suportado para leitura visual pela IA. Análise baseada apenas em dados.`;
+                    prompt += `\nOBS: Um documento foi anexado, mas o formato (${mimeType}) não é compatível com a visão computacional atual. Ignore a análise visual do comprovante e baseie-se nos dados declarados e histórico.`;
+                }
             } else {
-                documentAnalysis = "Formato de documento não suportado para análise visual automática (provavelmente PDF).";
+                documentAnalysis = "Formato de documento não suportado para análise visual automática (provavelmente PDF ou link).";
+                prompt += `\nOBS: Documento em formato não suportado (PDF ou Link). Baseie-se nos dados declarados.`;
             }
         } else {
             prompt += `\nNenhum documento de comprovação de renda foi anexado recentemente.`;
@@ -127,18 +139,18 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
         prompt += `
             
             REGRAS DE NEGÓCIO:
-            1. Se o documento for inválido ou irrelevante, REJEITE o aumento ou sugira um valor muito baixo (R$ 50-100) e explique o motivo claramente para o cliente.
-            2. Se o documento for válido, o limite sugerido deve ser aprox. 20% a 30% da renda comprovada no documento (ou da renda declarada se baterem).
+            1. Se o documento for inválido ou irrelevante (quando analisável), REJEITE o aumento ou sugira um valor muito baixo e explique.
+            2. Se o documento for válido, o limite sugerido deve ser aprox. 20% a 30% da renda comprovada.
             3. Se o histórico de pagamentos tiver atrasos, seja conservador.
-            4. Escreva uma mensagem ("reason") POLIDA e DIRETA para o cliente, explicando a decisão (ex: "Aprovamos seu aumento com base no holerite enviado..." ou "Infelizmente o documento enviado não é um comprovante válido...").
+            4. Escreva uma mensagem ("reason") POLIDA e DIRETA para o cliente, explicando a decisão.
 
             RETORNO JSON OBRIGATÓRIO:
             {
                 "credit_score": (inteiro 0-1000),
                 "credit_limit": (valor numérico),
                 "reason": "Mensagem final para o cliente ler",
-                "document_valid": boolean (true se parece um comprovante real, false se for foto aleatória/nada),
-                "document_analysis": "Breve descrição técnica do que foi visto na imagem para o admin (ex: 'Detectado holerite de R$ 2000' ou 'Foto de um cachorro')"
+                "document_valid": boolean (true se parece um comprovante real ou se não foi possível analisar visualmente mas os dados batem, false se for claramente inválido),
+                "document_analysis": "Breve descrição técnica do que foi visto ou se foi ignorado pelo formato"
             }
         `;
 
@@ -157,11 +169,10 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
         analysisReason = analysis.reason || "Análise concluída.";
         documentAnalysis = analysis.document_analysis || documentAnalysis;
         
-        // Safety check: if document valid is false, ensure limit doesn't spike unless history is perfect
+        // Safety check
         if (analysis.document_valid === false) {
-             // If explicitly invalid document, fallback to conservative increase only if needed
              if (suggestedLimit > (profile.credit_limit || 0) * 1.2) {
-                 suggestedLimit = (profile.credit_limit || 0); // Reset to current if risk is high
+                 suggestedLimit = (profile.credit_limit || 0);
              }
         }
     }
