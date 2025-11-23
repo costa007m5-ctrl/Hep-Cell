@@ -207,32 +207,6 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                     </div>
                                 </div>
 
-                                {/* Última Solicitação Status */}
-                                {lastRequest && lastRequest.status !== 'pending' && (
-                                    <div className={`p-4 rounded-xl border animate-fade-in-up shadow-sm ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'}`}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className={`font-bold text-sm flex items-center gap-2 ${lastRequest.status === 'approved' ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
-                                                {lastRequest.status === 'approved' ? (
-                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg> Aprovado</>
-                                                ) : (
-                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg> Recusado</>
-                                                )}
-                                            </h4>
-                                            <span className="text-xs opacity-70 text-slate-500 dark:text-slate-400">{new Date(lastRequest.updated_at || lastRequest.created_at).toLocaleDateString()}</span>
-                                        </div>
-                                        
-                                        {/* Seção de Motivo/Resposta com destaque */}
-                                        {lastRequest.admin_response_reason && (
-                                            <div className="mt-3 bg-white dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
-                                                <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Mensagem da Análise</p>
-                                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed">
-                                                    "{lastRequest.admin_response_reason}"
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
                                 <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
                                     <div className="relative z-10">
                                         <h4 className="font-bold text-lg mb-1">Precisa de mais limite?</h4>
@@ -257,9 +231,12 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                             <span className="text-xs text-slate-400">{new Date(req.created_at).toLocaleDateString()}</span>
                                         </div>
                                         <p className="text-sm font-bold text-slate-800 dark:text-white mb-1">Solicitado: R$ {req.requested_amount?.toLocaleString()}</p>
+                                        
+                                        {/* Exibe o motivo de forma clara */}
                                         {req.admin_response_reason && (
-                                            <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 italic">"{req.admin_response_reason}"</p>
+                                            <div className={`mt-3 p-3 rounded-lg text-xs ${req.status === 'approved' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
+                                                <p className="font-bold mb-1 uppercase opacity-70">Motivo da Análise:</p>
+                                                <p className="font-medium">"{req.admin_response_reason}"</p>
                                             </div>
                                         )}
                                     </div>

@@ -1,5 +1,4 @@
 
-// ... imports (maintain existing)
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -106,7 +105,6 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
             - Total Já Pago em Compras: R$ ${totalPaid.toFixed(2)}
             - Quantidade de Faturas Pagas em Dia: ${onTimeCount}
             - Maior Fatura Paga: R$ ${highestPayment.toFixed(2)}
-            - Detalhe Faturas: ${JSON.stringify(invoices)}
         `;
 
         let parts: any[] = [];
@@ -153,25 +151,26 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
             
             REGRAS DE DECISÃO (IMPORTANTE):
 
-            CENÁRIO 1: CLIENTE NOVO (Sem histórico de pagamentos pagos)
-            - Se NÃO tiver comprovante de renda válido anexado: O limite deve ser TRAVADO em R$ 100,00 (ou próximo disso). Motivo: "Limite inicial padrão para novos clientes sem comprovação de renda."
-            - Se TIVER comprovante válido: Sugira 20% a 30% da renda comprovada.
+            CENÁRIO 1: CLIENTE NOVO (Sem histórico de pagamentos pagos na loja)
+            - Se NÃO tiver comprovante de renda válido (ou nenhum documento): O limite deve ser TRAVADO em R$ 100,00. 
+              Motivo obrigatório: "Limite inicial padrão para novos clientes sem histórico. Realize sua primeira compra para aumentar."
+            - Se TIVER comprovante válido (Holerite/Extrato): Sugira 25% da renda comprovada.
 
             CENÁRIO 2: CLIENTE ANTIGO / RECORRENTE (Tem histórico de pagamentos "Paga")
-            - O Comprovante de Renda é OPCIONAL neste caso. O histórico vale mais.
-            - Se o cliente paga em dia e tem bom volume de compras (Total Pago > 0):
-              -> Sugira AUMENTO de limite.
-              -> Base de cálculo: Pode sugerir até 150% do maior valor já pago ou com base na consistência.
-              -> Motivo: "Aumento aprovado devido ao excelente histórico de pagamentos e fidelidade."
-            - Se tiver atrasos recentes: Seja conservador ou mantenha o limite atual.
+            - O Comprovante de Renda é SECUNDÁRIO. O histórico de bom pagador vale muito mais.
+            - Se o cliente paga em dia:
+              -> Sugira AUMENTO de limite agressivo.
+              -> Base de cálculo: 150% da maior fatura paga ou 40% da renda estimada.
+              -> Motivo: "Aumento aprovado devido ao excelente histórico de pagamentos na Relp Cell."
+            - Se tiver atrasos recentes: Mantenha o limite atual.
 
             RETORNO JSON OBRIGATÓRIO:
             {
                 "credit_score": (inteiro 0-1000),
                 "credit_limit": (valor numérico, float),
-                "reason": "Mensagem final para o cliente ler (Seja claro sobre o motivo: histórico ou falta de doc)",
+                "reason": "Texto curto e direto para o cliente ler. Ex: 'Aprovado pelo bom histórico' ou 'Recusado: documento ilegível'.",
                 "document_valid": boolean (true/false),
-                "document_analysis": "Breve descrição técnica"
+                "document_analysis": "Breve descrição técnica para o admin"
             }
         `;
 
@@ -191,11 +190,11 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
         documentAnalysis = analysis.document_analysis || documentAnalysis;
         
         // Safety Check (Backup Logic if AI hallucinates)
-        if (isNewCustomer && analysis.document_valid === false) {
+        if (isNewCustomer && (analysis.document_valid === false || !latestDoc)) {
              // Force low limit for new customers without valid docs
-             if (suggestedLimit > 250) {
+             if (suggestedLimit > 150) {
                  suggestedLimit = 100;
-                 analysisReason = "Limite inicial padrão. Realize compras e pague em dia para aumentar seu limite automaticamente.";
+                 analysisReason = "Limite inicial de R$ 100,00 aprovado. Realize compras e pague em dia para liberar aumentos automáticos.";
              }
         }
     }
@@ -257,7 +256,7 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
             await supabase.from('notifications').insert({
                 user_id: request.user_id,
                 title: 'Solicitação de Limite',
-                message: 'Sua solicitação de aumento de limite foi analisada. Veja o motivo no seu perfil.',
+                message: 'Sua solicitação foi analisada. Toque para ver o resultado.',
                 type: 'info'
             });
             return res.status(200).json({ message: "Solicitação rejeitada." });
@@ -278,20 +277,24 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
             newLimit = manualLimit;
             const newScore = manualScore || 600;
             
-            await updateProfileCredit(supabase, request.user_id, newLimit, newScore, 'Ativo', `Aprovado via solicitação: ${reasonToSave}`);
+            await updateProfileCredit(supabase, request.user_id, newLimit, newScore, 'Ativo', `Aprovado: ${reasonToSave}`);
             statusMsg = 'Aprovado manualmente.';
         } 
         
+        // Atualiza a solicitação com o status e o motivo FINAL
         await supabase.from('limit_requests').update({ 
             status: 'approved',
-            admin_response_reason: reasonToSave
+            admin_response_reason: reasonToSave, // Salva o motivo no histórico
+            updated_at: new Date().toISOString()
         }).eq('id', requestId);
 
+        // Envia notificação para o cliente
         await supabase.from('notifications').insert({
             user_id: request.user_id,
-            title: 'Aumento de Limite Aprovado! 🎉',
-            message: `Parabéns! Seu novo limite é de R$ ${newLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.`,
-            type: 'success'
+            title: 'Limite Aprovado! 🎉',
+            message: `Sua solicitação foi aprovada! Seu novo limite é R$ ${newLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}. Toque para ver detalhes.`,
+            type: 'success',
+            read: false
         });
 
         return res.status(200).json({ message: statusMsg, newLimit });
@@ -335,8 +338,9 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     DROP POLICY IF EXISTS "Users view own documents" ON "public"."client_documents";
     CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); 
     
-    CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+    CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
     ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; 
+    ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
     ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
     
     DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";

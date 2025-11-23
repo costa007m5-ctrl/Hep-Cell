@@ -156,7 +156,7 @@ const CreditAnalysisTab: React.FC = () => {
                 action,
                 manualLimit: parseFloat(approvedLimit),
                 manualScore: parseInt(approvedScore),
-                responseReason: adminReason
+                responseReason: adminReason // Envia o motivo digitado
             };
 
             const res = await fetch('/api/admin/manage-limit-request', {

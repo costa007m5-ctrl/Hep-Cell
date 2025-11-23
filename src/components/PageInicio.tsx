@@ -35,6 +35,37 @@ const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }>
     </div>
 );
 
+// Novo Componente: Alerta de Limite
+const LimitRequestStatus: React.FC<{ status: string; onClick: () => void }> = ({ status, onClick }) => {
+    if (status !== 'approved' && status !== 'rejected') return null;
+    
+    const isApproved = status === 'approved';
+    
+    return (
+        <button 
+            onClick={onClick}
+            className={`mx-4 mt-4 w-[calc(100%-32px)] p-4 rounded-xl border shadow-sm flex items-center gap-3 text-left transition-transform active:scale-95 ${isApproved ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'}`}
+        >
+            <div className={`p-2 rounded-full ${isApproved ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                {isApproved ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                )}
+            </div>
+            <div className="flex-1">
+                <h4 className={`font-bold text-sm ${isApproved ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
+                    {isApproved ? 'Aumento de Limite Aprovado!' : 'Solicitação de Limite Atualizada'}
+                </h4>
+                <p className={`text-xs mt-0.5 ${isApproved ? 'text-green-600 dark:text-green-300' : 'text-red-600 dark:text-red-300'}`}>
+                    Toque para ver detalhes e o motivo.
+                </p>
+            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </button>
+    );
+};
+
 const StoryCircle: React.FC<{ img: string; label: string; viewed?: boolean; onClick?: () => void }> = ({ img, label, viewed, onClick }) => (
     <button onClick={onClick} className="flex flex-col items-center space-y-1 min-w-[72px] group">
         <div className={`p-[2px] rounded-full ${viewed ? 'bg-slate-200 dark:bg-slate-700' : 'bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600'}`}>
@@ -88,6 +119,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
+  const [latestLimitStatus, setLatestLimitStatus] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   // UI States
@@ -135,10 +167,11 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const [profile, invoicesData, contractsData] = await Promise.all([
+          const [profile, invoicesData, contractsData, requestsData] = await Promise.all([
             getProfile(user.id),
             supabase.from('invoices').select('*').eq('user_id', user.id),
-            supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1)
+            supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
+            supabase.from('limit_requests').select('status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
           ]);
 
           setProfileData({ id: user.id, email: user.email, ...profile });
@@ -146,6 +179,15 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           
           if (contractsData.data && contractsData.data.length > 0) {
               setPendingContract(contractsData.data[0]);
+          }
+
+          if (requestsData.data && requestsData.data.length > 0) {
+              const lastReq = requestsData.data[0];
+              // Só mostra se foi atualizado recentemente (ex: 7 dias)
+              const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
+              if (diff < 7 * 24 * 60 * 60 * 1000) {
+                  setLatestLimitStatus(lastReq.status);
+              }
           }
         }
       } catch (error) {
@@ -164,7 +206,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           // 1. Atualiza Contrato
           await supabase.from('contracts').update({ 
               status: 'Ativo', 
-              signature_data: signature,
+              signature_data: signature, 
               terms_accepted: true 
           }).eq('id', pendingContract.id);
 
@@ -257,6 +299,14 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             <PendingContractAlert 
                 contract={pendingContract} 
                 onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} 
+            />
+        )}
+
+        {/* Limit Request Status Notification */}
+        {latestLimitStatus && (
+            <LimitRequestStatus 
+                status={latestLimitStatus} 
+                onClick={() => { setModalView('limit'); setIsModalOpen(true); }}
             />
         )}
 
