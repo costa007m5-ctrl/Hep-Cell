@@ -8,7 +8,7 @@ interface LimitRequestFormProps {
     currentLimit: number;
     onClose: () => void;
     score: number;
-    lastRequestDate?: string | null; // Novo prop
+    lastRequestDate?: string | null;
 }
 
 const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose, score, lastRequestDate }) => {
@@ -39,10 +39,9 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
     };
 
     const eligibility = checkEligibility();
-
     const hasProof = !!proofFile;
 
-    // Lógica de "Chance de Aprovação" visual
+    // Lógica visual de chance
     const approvalChance = Math.min(100, Math.max(10, score / 10));
     let chanceColor = 'bg-red-500';
     let chanceText = 'Baixa';
@@ -85,18 +84,22 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
 
-            // 1. Salva o comprovante se houver
+            // 1. Salva o comprovante se houver (Via API Admin para garantir permissões e armazenamento)
             if (proofFile) {
-                await fetch('/api/admin/upload-document', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        userId: user.id,
-                        title: 'Comprovante de Renda (Solicitação Limite)',
-                        type: 'Comprovante de Renda',
-                        fileBase64: proofFile
-                    })
-                });
+                try {
+                    await fetch('/api/admin/upload-document', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            userId: user.id,
+                            title: 'Comprovante de Renda',
+                            type: 'Comprovante de Renda', // Importante para o Admin reconhecer
+                            fileBase64: proofFile
+                        })
+                    });
+                } catch (uploadError) {
+                    console.warn("Erro ao enviar imagem, prosseguindo com texto:", uploadError);
+                }
             }
 
             // 2. Atualiza o salário no perfil
@@ -104,25 +107,27 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                 await supabase.from('profiles').update({ salary: salaryValue }).eq('id', user.id);
             }
 
-            // 3. Cria a solicitação
+            // 3. Cria a solicitação na tabela limit_requests
             const { error } = await supabase.from('limit_requests').insert({
                 user_id: user.id,
                 requested_amount: requestedValue,
                 current_limit: currentLimit,
-                justification: justification + (hasProof ? ' [Comprovante Anexado]' : ' [Sem Comprovante]'),
-                status: 'pending'
+                justification: justification, // Salva a justificativa pura
+                status: 'pending',
+                admin_response_reason: null // Limpa resposta anterior se houver
             });
 
             if (error) throw error;
 
-            // Atualiza a data da última solicitação
+            // 4. Atualiza data da última solicitação
             await supabase.from('profiles').update({ last_limit_request_date: new Date().toISOString() }).eq('id', user.id);
 
-            setMessage({ text: 'Pedido enviado para análise!', type: 'success' });
+            setMessage({ text: 'Solicitação enviada com sucesso! Acompanhe pelo menu.', type: 'success' });
             setTimeout(onClose, 3000);
             
         } catch (error: any) {
-            setMessage({ text: 'Erro ao enviar solicitação.', type: 'error' });
+            console.error(error);
+            setMessage({ text: 'Erro ao enviar solicitação. Tente novamente.', type: 'error' });
         } finally {
             setIsSubmitting(false);
         }
@@ -218,7 +223,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                     </div>
 
                     <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
-                        <label className="block text-sm font-bold text-indigo-800 dark:text-indigo-200 mb-3">Comprovação de Renda (Obrigatório)</label>
+                        <label className="block text-sm font-bold text-indigo-800 dark:text-indigo-200 mb-3">Comprovação de Renda</label>
                         
                         <div className="mb-3">
                             <label className="block text-xs text-indigo-600 dark:text-indigo-300 mb-1">Renda Mensal (R$)</label>
@@ -240,7 +245,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                             {proofFile ? (
                                 <>
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                                    Arquivo Anexado
+                                    Comprovante Anexado
                                 </>
                             ) : (
                                 <>
@@ -249,6 +254,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                                 </>
                             )}
                         </button>
+                        <p className="text-[10px] text-indigo-400 mt-2 text-center">Obrigatório para análise precisa</p>
                         <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
                     </div>
 

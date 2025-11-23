@@ -11,8 +11,9 @@ interface LimitRequest {
     current_limit: number;
     justification: string;
     status: 'pending' | 'approved' | 'rejected';
+    admin_response_reason?: string;
     created_at: string;
-    profiles: Profile & { salary: number }; // Join
+    profiles?: Profile & { salary: number }; // Join opcional pois pode vir null
 }
 
 interface AIAnalysisResult {
@@ -44,7 +45,7 @@ const CreditAnalysisTab: React.FC = () => {
                 const data = await res.json();
                 setRequests(data);
             } else {
-                console.error("Erro API:", await res.text());
+                console.error("Erro API ao buscar requests");
             }
         } catch (error) {
             console.error("Erro ao buscar solicitações", error);
@@ -53,13 +54,13 @@ const CreditAnalysisTab: React.FC = () => {
         }
     };
 
+    // Função para buscar documentos do usuário selecionado
     const fetchDocuments = async (userId: string) => {
         try {
             const res = await fetch(`/api/admin/client-documents?userId=${userId}`);
             if (res.ok) {
                 const data = await res.json();
-                // Combina uploads e contratos, priorizando uploads recentes
-                setDocuments([...data.uploads, ...data.contracts]);
+                setDocuments([...(data.uploads || []), ...(data.contracts || [])]);
             }
         } catch (error) {
             console.error("Erro ao buscar documentos", error);
@@ -72,11 +73,15 @@ const CreditAnalysisTab: React.FC = () => {
 
     const handleSelectRequest = (req: LimitRequest) => {
         setSelectedReq(req);
-        setApprovedLimit(String(req.requested_amount)); // Sugere o que pediu inicialmente
+        // Define valores iniciais do formulário
+        setApprovedLimit(String(req.requested_amount));
         setApprovedScore(String(req.profiles?.credit_score || 600));
         setAdminReason('');
         setAiResult(null);
-        setDocuments([]);
+        setDocuments([]); // Limpa docs anteriores
+        setFeedbackMessage(null);
+        
+        // Busca documentos para este usuário
         fetchDocuments(req.user_id);
     };
 
@@ -97,10 +102,10 @@ const CreditAnalysisTab: React.FC = () => {
                 setAiResult(data);
                 setApprovedLimit(String(data.suggestedLimit));
                 setApprovedScore(String(data.suggestedScore));
-                setAdminReason(data.reason); // Preenche o motivo com a sugestão da IA
+                setAdminReason(data.reason); 
             }
         } catch (error) {
-            alert("Erro ao consultar IA");
+            setFeedbackMessage({ type: 'error', text: "Erro ao consultar IA" });
         } finally {
             setIsProcessing(false);
         }
@@ -129,9 +134,12 @@ const CreditAnalysisTab: React.FC = () => {
             if (res.ok) {
                 setFeedbackMessage({ type: 'success', text: `Solicitação ${action === 'reject' ? 'rejeitada' : 'aprovada'} com sucesso!` });
                 
-                // Atualiza a lista e fecha seleção
-                fetchRequests();
-                setSelectedReq(null);
+                // Atualiza a lista localmente para refletir a mudança sem recarregar tudo
+                setRequests(prev => prev.map(r => r.id === selectedReq.id ? { ...r, status: action === 'approve_manual' ? 'approved' : 'rejected', admin_response_reason: adminReason } : r));
+                
+                setTimeout(() => {
+                    setSelectedReq(null);
+                }, 2000);
             } else {
                 throw new Error("Falha na operação");
             }
@@ -142,7 +150,12 @@ const CreditAnalysisTab: React.FC = () => {
         }
     };
 
-    const incomeProof = documents.find(d => d.document_type === 'Comprovante de Renda' || d.title?.toLowerCase().includes('renda') || d.title?.toLowerCase().includes('holerite'));
+    // Filtra o comprovante de renda mais recente
+    const incomeProof = useMemo(() => {
+        return documents
+            .filter(d => d.document_type === 'Comprovante de Renda')
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    }, [documents]);
 
     const filteredRequests = useMemo(() => {
         if (filterStatus === 'all') return requests;
@@ -153,30 +166,20 @@ const CreditAnalysisTab: React.FC = () => {
         <div className="flex h-[calc(100vh-100px)] bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             
             {/* Sidebar: Lista de Solicitações */}
-            <div className="w-1/3 min-w-[300px] border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col">
+            <div className="w-1/3 min-w-[320px] border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col">
                 <div className="p-4 border-b border-slate-200 dark:border-slate-700 space-y-3">
                     <div className="flex justify-between items-center">
                         <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor"><path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" /></svg>
                             Solicitações ({filteredRequests.length})
                         </h3>
-                        <button onClick={fetchRequests} title="Atualizar Lista" className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.944 12.944A8.994 8.994 0 0012 3C6.477 3 2 7.477 2 13s4.477 10 10 10a9.96 9.96 0 005.657-1.843" /></svg>
+                        <button onClick={fetchRequests} className="p-1.5 bg-slate-100 dark:bg-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors" title="Atualizar">
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" /></svg>
                         </button>
                     </div>
                     <div className="flex gap-2 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-                        <button 
-                            onClick={() => setFilterStatus('pending')}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded ${filterStatus === 'pending' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
-                        >
-                            Pendentes
-                        </button>
-                        <button 
-                            onClick={() => setFilterStatus('all')}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded ${filterStatus === 'all' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
-                        >
-                            Todos
-                        </button>
+                        <button onClick={() => setFilterStatus('pending')} className={`flex-1 py-1.5 text-xs font-bold rounded ${filterStatus === 'pending' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Pendentes</button>
+                        <button onClick={() => setFilterStatus('all')} className={`flex-1 py-1.5 text-xs font-bold rounded ${filterStatus === 'all' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Todos</button>
                     </div>
                 </div>
                 
@@ -184,7 +187,7 @@ const CreditAnalysisTab: React.FC = () => {
                     {isLoading ? (
                         <div className="flex justify-center p-8"><LoadingSpinner /></div>
                     ) : filteredRequests.length === 0 ? (
-                        <div className="text-center p-8 text-slate-400 text-sm">Nenhuma solicitação encontrada.</div>
+                        <div className="text-center p-8 text-slate-400 text-sm">Nenhuma solicitação.</div>
                     ) : (
                         filteredRequests.map(req => (
                             <div 
@@ -192,14 +195,14 @@ const CreditAnalysisTab: React.FC = () => {
                                 onClick={() => handleSelectRequest(req)}
                                 className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${selectedReq?.id === req.id ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500' : 'bg-white dark:bg-slate-700/30 border-slate-200 dark:border-slate-700 hover:border-indigo-300'} ${req.status !== 'pending' ? 'opacity-60' : ''}`}
                             >
-                                <div className="flex justify-between items-start mb-1">
-                                    <span className="font-bold text-slate-800 dark:text-white text-sm truncate">{req.profiles?.first_name || 'Usuário'} {req.profiles?.last_name || 'Desconhecido'}</span>
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className="font-bold text-slate-800 dark:text-white text-sm truncate max-w-[150px]">{req.profiles?.first_name || 'Cliente'} {req.profiles?.last_name || ''}</span>
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${req.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : req.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{req.status === 'pending' ? 'Pendente' : req.status === 'approved' ? 'Aprovado' : 'Recusado'}</span>
                                 </div>
                                 <div className="flex justify-between items-end">
                                     <div>
                                         <p className="text-[10px] text-slate-500 uppercase">Solicitado</p>
-                                        <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {req.requested_amount?.toLocaleString()}</p>
+                                        <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {req.requested_amount?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                                     </div>
                                     <div className="text-right">
                                         <p className="text-[10px] text-slate-500 uppercase">Data</p>
@@ -215,7 +218,7 @@ const CreditAnalysisTab: React.FC = () => {
             {/* Área Principal: Detalhes e Ação */}
             <div className="flex-1 bg-slate-50 dark:bg-slate-900 overflow-y-auto p-6">
                 {selectedReq ? (
-                    <div className="max-w-3xl mx-auto space-y-6">
+                    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
                         {feedbackMessage && <Alert message={feedbackMessage.text} type={feedbackMessage.type} />}
 
                         {/* Cabeçalho do Cliente */}
@@ -225,72 +228,75 @@ const CreditAnalysisTab: React.FC = () => {
                                     {selectedReq.profiles?.first_name?.[0] || '?'}
                                 </div>
                                 <div>
-                                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{selectedReq.profiles?.first_name} {selectedReq.profiles?.last_name}</h2>
-                                    <p className="text-sm text-slate-500">CPF: {selectedReq.profiles?.identification_number || 'N/A'}</p>
+                                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{selectedReq.profiles?.first_name || 'Nome'} {selectedReq.profiles?.last_name || 'Indisponível'}</h2>
+                                    <p className="text-sm text-slate-500">{selectedReq.profiles?.email || 'Email não disponível'}</p>
                                 </div>
                             </div>
                             <div className="text-right">
                                 <div className="inline-flex flex-col items-end">
                                     <span className="text-xs font-bold text-slate-400 uppercase">Score Atual</span>
-                                    <span className={`text-2xl font-black ${!selectedReq.profiles ? 'text-slate-400' : selectedReq.profiles.credit_score > 700 ? 'text-green-500' : selectedReq.profiles.credit_score < 400 ? 'text-red-500' : 'text-yellow-500'}`}>
+                                    <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
                                         {selectedReq.profiles?.credit_score || 0}
                                     </span>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Comparativo Financeiro */}
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <p className="text-xs text-slate-500 uppercase font-bold">Limite Atual</p>
-                                <p className="text-xl font-bold text-slate-700 dark:text-slate-300">R$ {selectedReq.current_limit?.toLocaleString()}</p>
+                        {/* Dados da Solicitação */}
+                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                                <h4 className="font-bold text-slate-800 dark:text-white text-sm">Detalhes da Solicitação</h4>
                             </div>
-                            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-200 dark:border-indigo-800 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-200 dark:bg-indigo-800 rounded-bl-full -mr-8 -mt-8 opacity-50"></div>
-                                <p className="text-xs text-indigo-800 dark:text-indigo-300 uppercase font-bold">Solicitado</p>
-                                <p className="text-xl font-black text-indigo-700 dark:text-indigo-200">R$ {selectedReq.requested_amount?.toLocaleString()}</p>
-                            </div>
-                            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border border-green-200 dark:border-green-800">
-                                <p className="text-xs text-green-800 dark:text-green-300 uppercase font-bold">Renda Declarada</p>
-                                <p className="text-xl font-bold text-green-700 dark:text-green-200">R$ {selectedReq.profiles?.salary?.toLocaleString() || '0'}</p>
-                            </div>
-                        </div>
-
-                        {/* Justificativa e Comprovante */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300">Justificativa do Cliente</h4>
-                                <div className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-sm italic text-slate-600 dark:text-slate-400 min-h-[100px]">
-                                    "{selectedReq.justification}"
+                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div>
+                                    <div className="mb-4">
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Valor Solicitado</p>
+                                        <p className="text-3xl font-black text-indigo-600 dark:text-indigo-400">R$ {selectedReq.requested_amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                    </div>
+                                    <div className="mb-4">
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Limite Atual</p>
+                                        <p className="text-lg font-bold text-slate-700 dark:text-slate-300">R$ {selectedReq.current_limit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Renda Declarada</p>
+                                        <p className="text-lg font-bold text-green-600 dark:text-green-400">R$ {selectedReq.profiles?.salary?.toLocaleString('pt-BR', {minimumFractionDigits: 2}) || '0,00'}</p>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="space-y-2">
-                                <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300">Comprovante de Renda</h4>
-                                {incomeProof ? (
-                                    <div className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center min-h-[100px] gap-2">
-                                        <p className="text-xs font-medium truncate w-full text-center">{incomeProof.title}</p>
-                                        <a 
-                                            href={incomeProof.file_url} 
-                                            target="_blank" 
-                                            rel="noreferrer"
-                                            className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white text-xs font-bold rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center gap-2"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                            Visualizar Documento
-                                        </a>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Justificativa do Cliente</p>
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-sm italic text-slate-600 dark:text-slate-300">
+                                            "{selectedReq.justification}"
+                                        </div>
                                     </div>
-                                ) : (
-                                    <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-200 dark:border-red-800 flex items-center justify-center min-h-[100px] text-red-500 text-sm font-medium">
-                                        Nenhum comprovante anexado.
+                                    
+                                    <div>
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-2">Comprovante de Renda</p>
+                                        {incomeProof ? (
+                                            <a 
+                                                href={incomeProof.file_url} 
+                                                target="_blank" 
+                                                rel="noreferrer"
+                                                className="flex items-center justify-center gap-2 w-full py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                Visualizar Documento
+                                            </a>
+                                        ) : (
+                                            <div className="w-full py-2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-lg text-xs font-medium text-center border border-slate-200 dark:border-slate-700">
+                                                Nenhum comprovante anexado
+                                            </div>
+                                        )}
                                     </div>
-                                )}
+                                </div>
                             </div>
                         </div>
 
                         {/* Área de Decisão */}
                         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 relative">
                             <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
-                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Área de Decisão</h3>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Decisão do Analista</h3>
                                 {selectedReq.status === 'pending' && (
                                     <button 
                                         onClick={handleRunAI}
@@ -312,7 +318,7 @@ const CreditAnalysisTab: React.FC = () => {
                                     <p className="text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase mb-1">Sugestão da IA</p>
                                     <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{aiResult.reason}</p>
                                     <div className="mt-2 flex gap-4">
-                                        <span className="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded">Sugerido: R$ {aiResult.suggestedLimit.toLocaleString()}</span>
+                                        <span className="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded">Limite: R$ {aiResult.suggestedLimit.toLocaleString()}</span>
                                         <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded">Score: {aiResult.suggestedScore}</span>
                                     </div>
                                 </div>
@@ -322,36 +328,33 @@ const CreditAnalysisTab: React.FC = () => {
                                 <>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Limite Aprovado</label>
-                                            <div className="relative">
-                                                <span className="absolute left-3 top-2.5 text-slate-400 font-bold">R$</span>
-                                                <input 
-                                                    type="number" 
-                                                    value={approvedLimit}
-                                                    onChange={e => setApprovedLimit(e.target.value)}
-                                                    className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                                                />
-                                            </div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Limite Aprovado (R$)</label>
+                                            <input 
+                                                type="number" 
+                                                value={approvedLimit}
+                                                onChange={e => setApprovedLimit(e.target.value)}
+                                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Atualizar Score</label>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Novo Score</label>
                                             <input 
                                                 type="number" 
                                                 value={approvedScore}
                                                 onChange={e => setApprovedScore(e.target.value)}
-                                                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
                                             />
                                         </div>
                                     </div>
 
                                     <div className="mb-6">
-                                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Motivo / Feedback ao Cliente</label>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Motivo / Feedback (Visível ao Cliente)</label>
                                         <textarea 
                                             rows={3}
                                             value={adminReason}
                                             onChange={e => setAdminReason(e.target.value)}
                                             className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                                            placeholder="Ex: Aprovado mediante análise de renda e bom histórico..."
+                                            placeholder="Ex: Aprovado com base no histórico e comprovante."
                                         ></textarea>
                                     </div>
 
@@ -376,7 +379,7 @@ const CreditAnalysisTab: React.FC = () => {
                                 <div className={`p-4 rounded-lg text-center font-bold border ${selectedReq.status === 'approved' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                                     Solicitação {selectedReq.status === 'approved' ? 'Aprovada' : 'Recusada'}
                                     {selectedReq.admin_response_reason && (
-                                        <p className="text-xs font-normal mt-1 italic">"{selectedReq.admin_response_reason}"</p>
+                                        <p className="text-xs font-normal mt-1 italic text-slate-600">"{selectedReq.admin_response_reason}"</p>
                                     )}
                                 </div>
                             )}
@@ -386,7 +389,7 @@ const CreditAnalysisTab: React.FC = () => {
                     <div className="h-full flex flex-col items-center justify-center text-slate-400">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         <p className="text-lg font-medium">Selecione uma solicitação para analisar</p>
-                        <p className="text-sm opacity-60">Os detalhes aparecerão aqui.</p>
+                        <p className="text-sm opacity-60">Os detalhes e documentos aparecerão aqui.</p>
                     </div>
                 )}
             </div>
