@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Invoice } from '../types';
 import { supabase } from '../services/clients';
@@ -11,6 +12,27 @@ interface BoletoPaymentProps {
   onBack: () => void;
   onBoletoGenerated: (updatedInvoice: Invoice) => void;
 }
+
+// --- Validação CPF ---
+const isValidCPF = (cpf: string) => {
+    if (typeof cpf !== 'string') return false;
+    cpf = cpf.replace(/[^\d]+/g, '');
+    if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
+    let sum = 0;
+    let remainder;
+    for (let i = 1; i <= 9; i++) 
+        sum = sum + parseInt(cpf.substring(i-1, i)) * (11 - i);
+    remainder = (sum * 10) % 11;
+    if ((remainder == 10) || (remainder == 11))  remainder = 0;
+    if (remainder != parseInt(cpf.substring(9, 10)) ) return false;
+    sum = 0;
+    for (let i = 1; i <= 10; i++) 
+        sum = sum + parseInt(cpf.substring(i-1, i)) * (12 - i);
+    remainder = (sum * 10) % 11;
+    if ((remainder == 10) || (remainder == 11))  remainder = 0;
+    if (remainder != parseInt(cpf.substring(10, 11) ) ) return false;
+    return true;
+};
 
 // Componente para o formulário de dados do boleto
 const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; isSubmitting: boolean }> = ({ onSubmit, isSubmitting }) => {
@@ -28,6 +50,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
   });
   const [isFetchingCep, setIsFetchingCep] = useState(false);
   const [cepError, setCepError] = useState<string | null>(null);
+  const [cpfError, setCpfError] = useState<string | null>(null);
   const [saveData, setSaveData] = useState(true); // Checkbox para salvar dados
   const streetNumberRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +90,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
         setCepError(null);
         value = value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2').substring(0, 9);
     } else if (name === 'identificationNumber') {
+        setCpfError(null);
         value = value.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
     }
 
@@ -111,6 +135,12 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!isValidCPF(formData.identificationNumber)) {
+        setCpfError("CPF inválido. Verifique os dígitos.");
+        return;
+    }
+
     onSubmit(formData, saveData);
   };
 
@@ -132,7 +162,7 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
                 <option value="CPF">CPF</option>
             </select>
         </div>
-        <InputField label="Número do Documento" name="identificationNumber" value={formData.identificationNumber} onChange={handleChange} required placeholder="000.000.000-00" maxLength={14}/>
+        <InputField label="Número do Documento" name="identificationNumber" value={formData.identificationNumber} onChange={handleChange} required placeholder="000.000.000-00" maxLength={14} error={cpfError}/>
         <InputField label="CEP" name="zipCode" value={formData.zipCode} onChange={handleChange} required placeholder="00000-000" maxLength={9} isLoading={isFetchingCep} error={cepError} />
         <InputField label="Rua / Avenida" name="streetName" value={formData.streetName} onChange={handleChange} required />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -11,7 +11,28 @@ interface AuthPageProps {
 
 type AuthMode = 'login' | 'register' | 'recovery';
 
-// --- Textos Legais (Poderia ser extraído para um arquivo shared) ---
+// --- Validação de CPF ---
+const isValidCPF = (cpf: string) => {
+    if (typeof cpf !== 'string') return false;
+    cpf = cpf.replace(/[^\d]+/g, '');
+    if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
+    let sum = 0;
+    let remainder;
+    for (let i = 1; i <= 9; i++) 
+        sum = sum + parseInt(cpf.substring(i-1, i)) * (11 - i);
+    remainder = (sum * 10) % 11;
+    if ((remainder == 10) || (remainder == 11))  remainder = 0;
+    if (remainder != parseInt(cpf.substring(9, 10)) ) return false;
+    sum = 0;
+    for (let i = 1; i <= 10; i++) 
+        sum = sum + parseInt(cpf.substring(i-1, i)) * (12 - i);
+    remainder = (sum * 10) % 11;
+    if ((remainder == 10) || (remainder == 11))  remainder = 0;
+    if (remainder != parseInt(cpf.substring(10, 11) ) ) return false;
+    return true;
+};
+
+// --- Textos Legais ---
 const TERMS_TEXT = (
     <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
         <p><strong>1. Aceitação dos Termos</strong><br/>Ao acessar e usar o aplicativo Relp Cell, você concorda em cumprir estes Termos de Uso e todas as leis aplicáveis. Se você não concordar, não use o aplicativo.</p>
@@ -57,7 +78,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
     state: ''
   });
   
-  // Referral Logic - NOVO
+  // Referral Logic
   const [referralCode, setReferralCode] = useState('');
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [isValidatingReferral, setIsValidatingReferral] = useState(false);
@@ -224,7 +245,14 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   // Verifica se o usuário já existe no banco (por CPF ou Telefone)
   const checkExistingUser = async (value: string) => {
       const cleanValue = value.replace(/\D/g, '');
-      if (!cleanValue || cleanValue.length < 8) return; // Ignora se for muito curto
+      
+      // Se for CPF e tiver 11 dígitos, valida
+      if (cleanValue.length === 11 && !isValidCPF(cleanValue)) {
+          setMessage({ text: 'CPF inválido.', type: 'error' });
+          return;
+      }
+
+      if (!cleanValue || cleanValue.length < 8) return; 
 
       try {
           const { data: existingEmail, error } = await supabase.rpc('get_email_by_identifier', { identifier_input: value });
@@ -311,6 +339,11 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         if (error) throw error;
 
       } else if (mode === 'register') {
+        // Validação de CPF
+        if (!isValidCPF(cpf)) {
+            throw new Error("CPF inválido. Verifique os números digitados.");
+        }
+
         // Validação básica de cadastro
         if (!fullName || !cpf || !phone || !cep || !address.number) {
             throw new Error("Por favor, preencha todos os dados para emitirmos suas faturas corretamente.");
