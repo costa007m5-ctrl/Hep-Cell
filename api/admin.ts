@@ -74,6 +74,13 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
     const { data: docs } = await supabase.from('client_documents').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1);
     const latestDoc = docs && docs.length > 0 ? docs[0] : null;
 
+    // Calculate History Metrics
+    const paidInvoices = invoices?.filter(i => i.status === 'Paga') || [];
+    const totalPaid = paidInvoices.reduce((acc, curr) => acc + curr.amount, 0);
+    const onTimeCount = paidInvoices.filter(i => i.payment_date && new Date(i.payment_date) <= new Date(i.due_date)).length;
+    const isNewCustomer = paidInvoices.length === 0;
+    const highestPayment = paidInvoices.length > 0 ? Math.max(...paidInvoices.map(i => i.amount)) : 0;
+
     let suggestedLimit = 0;
     let suggestedScore = 0;
     let analysisReason = '';
@@ -93,7 +100,13 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
             - Salário Declarado: R$ ${profile.salary || 0}
             - Limite Atual: R$ ${profile.credit_limit}
             - Score Atual: ${profile.credit_score}
-            - Histórico de Pagamentos: ${JSON.stringify(invoices)}
+            
+            HISTÓRICO FINANCEIRO NA LOJA (CRUCIAL):
+            - Cliente Novo? ${isNewCustomer ? 'SIM' : 'NÃO (Já possui histórico)'}
+            - Total Já Pago em Compras: R$ ${totalPaid.toFixed(2)}
+            - Quantidade de Faturas Pagas em Dia: ${onTimeCount}
+            - Maior Fatura Paga: R$ ${highestPayment.toFixed(2)}
+            - Detalhe Faturas: ${JSON.stringify(invoices)}
         `;
 
         let parts: any[] = [];
@@ -121,8 +134,8 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
                     TAREFA DE VISÃO COMPUTACIONAL:
                     Analise a imagem anexada. 
                     1. Verifique se é um documento financeiro válido (Holerite, Extrato Bancário, Decore).
-                    2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ALERTE IMEDIATAMENTE.
-                    3. Se for válido, tente extrair o valor líquido aproximado.
+                    2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ignore o documento na decisão.
+                    3. Se for válido, extraia a renda líquida.
                     `;
                 } else {
                     documentAnalysis = `Formato de arquivo (${mimeType}) não suportado para leitura visual pela IA. Análise baseada apenas em dados.`;
@@ -138,19 +151,27 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 
         prompt += `
             
-            REGRAS DE NEGÓCIO:
-            1. Se o documento for inválido ou irrelevante (quando analisável), REJEITE o aumento ou sugira um valor muito baixo e explique.
-            2. Se o documento for válido, o limite sugerido deve ser aprox. 20% a 30% da renda comprovada.
-            3. Se o histórico de pagamentos tiver atrasos, seja conservador.
-            4. Escreva uma mensagem ("reason") POLIDA e DIRETA para o cliente, explicando a decisão.
+            REGRAS DE DECISÃO (IMPORTANTE):
+
+            CENÁRIO 1: CLIENTE NOVO (Sem histórico de pagamentos pagos)
+            - Se NÃO tiver comprovante de renda válido anexado: O limite deve ser TRAVADO em R$ 100,00 (ou próximo disso). Motivo: "Limite inicial padrão para novos clientes sem comprovação de renda."
+            - Se TIVER comprovante válido: Sugira 20% a 30% da renda comprovada.
+
+            CENÁRIO 2: CLIENTE ANTIGO / RECORRENTE (Tem histórico de pagamentos "Paga")
+            - O Comprovante de Renda é OPCIONAL neste caso. O histórico vale mais.
+            - Se o cliente paga em dia e tem bom volume de compras (Total Pago > 0):
+              -> Sugira AUMENTO de limite.
+              -> Base de cálculo: Pode sugerir até 150% do maior valor já pago ou com base na consistência.
+              -> Motivo: "Aumento aprovado devido ao excelente histórico de pagamentos e fidelidade."
+            - Se tiver atrasos recentes: Seja conservador ou mantenha o limite atual.
 
             RETORNO JSON OBRIGATÓRIO:
             {
                 "credit_score": (inteiro 0-1000),
-                "credit_limit": (valor numérico),
-                "reason": "Mensagem final para o cliente ler",
-                "document_valid": boolean (true se parece um comprovante real ou se não foi possível analisar visualmente mas os dados batem, false se for claramente inválido),
-                "document_analysis": "Breve descrição técnica do que foi visto ou se foi ignorado pelo formato"
+                "credit_limit": (valor numérico, float),
+                "reason": "Mensagem final para o cliente ler (Seja claro sobre o motivo: histórico ou falta de doc)",
+                "document_valid": boolean (true/false),
+                "document_analysis": "Breve descrição técnica"
             }
         `;
 
@@ -169,10 +190,12 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
         analysisReason = analysis.reason || "Análise concluída.";
         documentAnalysis = analysis.document_analysis || documentAnalysis;
         
-        // Safety check
-        if (analysis.document_valid === false) {
-             if (suggestedLimit > (profile.credit_limit || 0) * 1.2) {
-                 suggestedLimit = (profile.credit_limit || 0);
+        // Safety Check (Backup Logic if AI hallucinates)
+        if (isNewCustomer && analysis.document_valid === false) {
+             // Force low limit for new customers without valid docs
+             if (suggestedLimit > 250) {
+                 suggestedLimit = 100;
+                 analysisReason = "Limite inicial padrão. Realize compras e pague em dia para aumentar seu limite automaticamente.";
              }
         }
     }
