@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
 import { CardSkeleton } from './Skeleton'; 
@@ -164,51 +164,59 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     return 'Boa noite';
   };
 
-  useEffect(() => {
-    const fetchHomeData = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const [profile, invoicesData, contractsData, requestsData] = await Promise.all([
-            getProfile(user.id),
-            supabase.from('invoices').select('*').eq('user_id', user.id),
-            supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
-            supabase.from('limit_requests').select('status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
-          ]);
+  const fetchHomeData = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const [profile, invoicesData, contractsData, requestsData] = await Promise.all([
+          getProfile(user.id),
+          supabase.from('invoices').select('*').eq('user_id', user.id),
+          supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
+          supabase.from('limit_requests').select('status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
+        ]);
 
-          setProfileData({ id: user.id, email: user.email, ...profile });
-          setInvoices(invoicesData.data || []);
-          
-          if (contractsData.data && contractsData.data.length > 0) {
-              setPendingContract(contractsData.data[0]);
-          }
-
-          if (requestsData.data && requestsData.data.length > 0) {
-              const lastReq = requestsData.data[0];
-              // Só mostra se foi atualizado recentemente (ex: 7 dias) ou se é a primeira vez vendo
-              if (lastReq.status !== 'pending') {
-                  const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
-                  // Mostra por 7 dias após atualização
-                  if (diff < 7 * 24 * 60 * 60 * 1000) {
-                      setLatestLimitStatus(lastReq.status);
-                  }
-              }
-          }
+        setProfileData({ id: user.id, email: user.email, ...profile });
+        setInvoices(invoicesData.data || []);
+        
+        if (contractsData.data && contractsData.data.length > 0) {
+            setPendingContract(contractsData.data[0]);
+        } else {
+            setPendingContract(null);
         }
-      } catch (error) {
-        console.error("Erro ao buscar dados:", error);
-      } finally {
-        setIsLoading(false);
+
+        if (requestsData.data && requestsData.data.length > 0) {
+            const lastReq = requestsData.data[0];
+            // Só mostra se foi atualizado recentemente (ex: 7 dias) ou se é a primeira vez vendo
+            if (lastReq.status !== 'pending') {
+                const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
+                // Mostra por 7 dias após atualização
+                if (diff < 7 * 24 * 60 * 60 * 1000) {
+                    setLatestLimitStatus(lastReq.status);
+                }
+            }
+        }
       }
-    };
-    fetchHomeData();
+    } catch (error) {
+      console.error("Erro ao buscar dados:", error);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchHomeData();
+    
+    // Atualiza ao focar na janela (para garantir que status novos do admin apareçam)
+    const handleFocus = () => fetchHomeData();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [fetchHomeData]);
   
   const handleSignContract = async () => {
       if (!signature || !pendingContract) return;
       setIsSigning(true);
       try {
-          // 1. Atualiza Contrato para 'Assinado' (status consistente com Perfil)
+          // 1. Atualiza Contrato para 'Assinado'
           const { error: contractError } = await supabase.from('contracts').update({ 
               status: 'Assinado', 
               signature_data: signature, 
@@ -216,7 +224,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           }).eq('id', pendingContract.id);
 
           if (contractError) {
-              throw new Error("Falha ao salvar assinatura. Tente novamente.");
+              console.error("Erro de DB no contrato:", contractError);
+              throw new Error("Falha ao salvar assinatura. Verifique sua conexão ou tente mais tarde.");
           }
 
           // 2. Ativa as Faturas
@@ -227,28 +236,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
           // 3. Notificação de sucesso e limpeza
           addToast("Contrato assinado com sucesso!", "success");
-          
-          // IMPORTANTE: Remove imediatamente o contrato pendente da UI
           setPendingContract(null); 
           setIsModalOpen(false);
           setSignature(null); 
           
-          // 4. Recarrega faturas para mostrar atualizadas
-          const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
-          setInvoices(data || []);
-
-          // 5. Busca se ainda há MAIS contratos pendentes na fila (após o atual ter sido assinado)
-          // Usa neq(id, id_assinado) por segurança, mas o update acima já deve ter removido do status 'pending_signature'
-          const { data: nextContract } = await supabase.from('contracts')
-            .select('*')
-            .eq('user_id', pendingContract.user_id)
-            .eq('status', 'pending_signature')
-            .limit(1);
-            
-          if (nextContract && nextContract.length > 0) {
-              // Se tiver outro, define ele. Se não, fica null.
-              setPendingContract(nextContract[0]);
-          }
+          // 4. Recarrega dados
+          fetchHomeData();
 
       } catch (e: any) {
           console.error(e);

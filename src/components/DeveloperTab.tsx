@@ -295,27 +295,53 @@ const DeveloperTab: React.FC = () => {
     const SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
--- TABELA DE PERFIS DE USUÁRIO
+-- Tabela de Perfis
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
 
--- TABELA DE DOCUMENTOS E COMPROVANTES
+-- Tabela de Documentos
 CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
 ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; 
 DROP POLICY IF EXISTS "Users view own documents" ON "public"."client_documents";
 CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); 
 
--- TABELA DE SOLICITAÇÕES DE LIMITE
-CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+-- Tabela de Solicitações de Limite
+CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
 ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; 
+ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
 ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
 
+-- Policies para Limit Requests
 DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";
 DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_requests";
-
 CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
 CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Tabela de Contratos (Essencial para Assinatura)
+CREATE TABLE IF NOT EXISTS "public"."contracts" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "user_id" "uuid" NOT NULL,
+    "title" "text",
+    "items" "text",
+    "total_value" numeric(10, 2),
+    "installments" integer,
+    "status" "text" DEFAULT 'pending_signature',
+    "signature_data" "text",
+    "terms_accepted" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
+
+-- Policies CRÍTICAS para Contratos
+DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
+DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
+
+CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
+-- Esta policy corrige o erro ao assinar contrato
+CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
     `.trim();
 
     const handleSetupDatabase = async () => {
@@ -343,9 +369,9 @@ CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Instalação Automática</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Correção de Permissões</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Clique no botão abaixo para criar todas as tabelas necessárias (Solicitações de Crédito, Documentos, Perfis Expandidos). Se você ver erros na aba de Crédito, execute esta ação.
+                        Se você está tendo problemas com <strong>contratos não salvando a assinatura</strong> ou status de solicitações retornando para "Pendente", clique no botão abaixo. Isso vai recriar as regras de segurança (RLS) necessárias.
                     </p>
                 </div>
 
@@ -368,7 +394,7 @@ CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR
                     
                     <CodeBlock
                         title="Estrutura das Tabelas"
-                        explanation="Copie e cole no SQL Editor do Supabase se o botão automático falhar."
+                        explanation="Este script inclui as tabelas de Contratos e Limit Requests com as Policies corretas."
                         code={SETUP_SQL}
                     />
                 </div>
