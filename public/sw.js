@@ -1,11 +1,11 @@
 
-const CACHE_NAME = 'relp-cell-v22-ultra-pwa';
+const CACHE_NAME = 'relp-cell-v23-ultra-pwa';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
-  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=RC'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
@@ -91,7 +91,7 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
     badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
