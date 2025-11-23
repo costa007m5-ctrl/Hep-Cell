@@ -186,6 +186,7 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
 
         let newLimit = request.current_limit;
         let statusMsg = '';
+        // Garante que responseReason não seja null
         let reasonToSave = responseReason || '';
 
         if (action === 'reject') {

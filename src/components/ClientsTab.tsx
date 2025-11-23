@@ -233,6 +233,9 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [tempScore, setTempScore] = useState<string>('');
     const [responseReason, setResponseReason] = useState('');
     const [processingRequest, setProcessingRequest] = useState(false);
+    
+    // State para documentos específicos da solicitação
+    const [clientDocs, setClientDocs] = useState<any[]>([]);
 
     // Negotiation Form
     const [negotiationData, setNegotiationData] = useState({
@@ -341,6 +344,17 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         });
     }, [enhancedProfiles, searchTerm, filterStatus, limitRequests]);
 
+    // Função para buscar documentos ao abrir o drawer
+    const fetchClientDocsForDrawer = async (userId: string) => {
+        try {
+            const res = await fetch(`/api/admin/client-documents?userId=${userId}`);
+            if(res.ok) {
+                const data = await res.json();
+                setClientDocs(data.uploads || []);
+            }
+        } catch(e) { console.error("Erro ao buscar docs", e); }
+    };
+
     const handleOpenDrawer = (client: EnhancedProfile) => {
         setSelectedClientId(client.id);
         setInternalNotes(client.internal_notes || '');
@@ -348,6 +362,9 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         setSelectedInvoiceIds(new Set());
         setActiveDrawerTab('geral');
         setResponseReason('');
+        
+        // Busca documentos imediatamente para usar na aba Geral
+        fetchClientDocsForDrawer(client.id);
         
         // Reseta campos de gestão de limite
         const req = limitRequests.find(r => r.user_id === client.id && r.status === 'pending');
@@ -423,7 +440,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         if (!selectedClientId) return;
         setProcessingRequest(true);
         
-        // Se for update sem request, usamos um endpoint diferente ou adaptamos
         const endpoint = reqId ? '/api/admin/manage-limit-request' : '/api/admin/update-limit';
         const payload: any = {
             userId: selectedClientId,
@@ -442,9 +458,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
         // Se for calculo automatico, usamos o endpoint de request mas com user ID
         if (action === 'calculate_auto') {
-             // Se tem request, manda o ID, senao manda so o user para analise
              if (!reqId) {
-                 // Fallback para analise geral se não tiver request
                  try {
                      const res = await fetch('/api/admin/analyze-credit', {
                          method: 'POST',
@@ -519,6 +533,13 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     const selectedClient = enhancedProfiles.find(p => p.id === selectedClientId);
     const selectedClientInvoices = invoices.filter(inv => inv.user_id === selectedClientId);
     const clientPendingRequest = limitRequests.find(r => r.user_id === selectedClientId && r.status === 'pending');
+    
+    // Encontra o comprovante mais recente
+    const incomeProof = useMemo(() => {
+        return clientDocs
+            .filter(d => d.document_type === 'Comprovante de Renda')
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+    }, [clientDocs]);
 
     if (isDataLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
     if (errorMsg) return <div className="p-8"><Alert message={`Erro ao carregar dados: ${errorMsg}`} type="error" /></div>;
@@ -606,7 +627,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">{selectedClient.first_name} {selectedClient.last_name}</h2>
                                 <div className="flex gap-2 mt-1">
                                     <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-xs font-bold">{selectedClient.identification_number}</span>
-                                    {selectedClient.salary && <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold">Renda: R$ {selectedClient.salary}</span>}
+                                    {selectedClient.salary && <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold">Renda: R$ {selectedClient.salary.toLocaleString()}</span>}
                                 </div>
                             </div>
                             <button onClick={() => setIsDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300 transition-colors">
@@ -640,18 +661,38 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                             </h3>
                                             <div className="text-right">
                                                 <p className="text-xs text-slate-500 uppercase">Limite Atual</p>
-                                                <p className="font-black text-lg text-indigo-600 dark:text-indigo-400">R$ {selectedClient.credit_limit?.toLocaleString()}</p>
+                                                <p className="font-black text-lg text-indigo-600 dark:text-indigo-400">R$ {selectedClient.credit_limit?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                                             </div>
                                         </div>
 
                                         {clientPendingRequest && (
-                                            <div className="mb-5 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl">
-                                                <p className="text-sm text-purple-800 dark:text-purple-200 font-medium flex justify-between">
-                                                    <span>Solicitado:</span>
-                                                    <strong className="text-lg">R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}</strong>
-                                                </p>
-                                                <p className="text-xs text-purple-600 dark:text-purple-300 mt-1 italic">"{clientPendingRequest.justification}"</p>
-                                                <p className="text-[10px] text-purple-400 mt-1 text-right">{new Date(clientPendingRequest.created_at).toLocaleDateString()}</p>
+                                            <div className="mb-5 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl relative">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <p className="text-[10px] text-purple-500 uppercase font-bold">Valor Solicitado</p>
+                                                        <p className="text-2xl font-black text-purple-700 dark:text-purple-300">R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-[10px] text-purple-500 uppercase font-bold">Data Solicitação</p>
+                                                        <p className="text-sm font-bold text-purple-800 dark:text-purple-200">{new Date(clientPendingRequest.created_at).toLocaleDateString()} às {new Date(clientPendingRequest.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-purple-200 dark:border-purple-900/50 mb-3">
+                                                    <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">Motivo do Cliente</p>
+                                                    <p className="text-sm text-slate-700 dark:text-slate-300 italic">"{clientPendingRequest.justification}"</p>
+                                                </div>
+
+                                                {incomeProof && (
+                                                    <a 
+                                                        href={incomeProof.file_url} 
+                                                        download={`Comprovante_Renda_${selectedClient.first_name}.png`}
+                                                        className="w-full py-2 px-4 bg-purple-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-purple-700 transition-colors mb-1"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                                                        📄 Ver Comprovante Anexado
+                                                    </a>
+                                                )}
                                             </div>
                                         )}
 

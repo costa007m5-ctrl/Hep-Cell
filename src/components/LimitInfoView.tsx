@@ -209,18 +209,24 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
 
                                 {/* Última Solicitação Status */}
                                 {lastRequest && lastRequest.status !== 'pending' && (
-                                    <div className={`p-4 rounded-xl border animate-fade-in-up ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'}`}>
-                                        <div className="flex justify-between items-start">
-                                            <h4 className="font-bold text-sm flex items-center gap-2">
-                                                {lastRequest.status === 'approved' ? '✅ Solicitação Aprovada' : '❌ Solicitação Recusada'}
+                                    <div className={`p-4 rounded-xl border animate-fade-in-up shadow-sm ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'}`}>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h4 className={`font-bold text-sm flex items-center gap-2 ${lastRequest.status === 'approved' ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
+                                                {lastRequest.status === 'approved' ? (
+                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg> Aprovado</>
+                                                ) : (
+                                                    <><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg> Recusado</>
+                                                )}
                                             </h4>
-                                            <span className="text-xs opacity-70">{new Date(lastRequest.updated_at || lastRequest.created_at).toLocaleDateString()}</span>
+                                            <span className="text-xs opacity-70 text-slate-500 dark:text-slate-400">{new Date(lastRequest.updated_at || lastRequest.created_at).toLocaleDateString()}</span>
                                         </div>
+                                        
+                                        {/* Seção de Motivo/Resposta com destaque */}
                                         {lastRequest.admin_response_reason && (
-                                            <div className="mt-3 pt-3 border-t border-black/10 dark:border-white/10">
-                                                <p className="text-[10px] font-bold uppercase opacity-70 mb-1">Motivo / Resposta</p>
-                                                <p className="text-xs leading-relaxed font-medium">
-                                                    {lastRequest.admin_response_reason}
+                                            <div className="mt-3 bg-white dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
+                                                <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Mensagem da Análise</p>
+                                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 leading-relaxed">
+                                                    "{lastRequest.admin_response_reason}"
                                                 </p>
                                             </div>
                                         )}
