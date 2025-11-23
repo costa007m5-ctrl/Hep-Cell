@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import { supabase } from '../services/clients';
@@ -8,9 +8,10 @@ interface LimitRequestFormProps {
     currentLimit: number;
     onClose: () => void;
     score: number;
+    lastRequestDate?: string | null; // Novo prop
 }
 
-const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose, score }) => {
+const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose, score, lastRequestDate }) => {
     const [requestedAmount, setRequestedAmount] = useState('');
     const [salary, setSalary] = useState('');
     const [proofFile, setProofFile] = useState<string | null>(null);
@@ -19,9 +20,29 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
+    // --- Validação de 90 Dias ---
+    const checkEligibility = () => {
+        if (!lastRequestDate) return { eligible: true, date: null };
+        
+        const last = new Date(lastRequestDate);
+        const now = new Date();
+        const diffTime = Math.abs(now.getTime() - last.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const waitPeriod = 90;
+
+        if (diffDays < waitPeriod) {
+            const nextDate = new Date(last);
+            nextDate.setDate(last.getDate() + waitPeriod);
+            return { eligible: false, date: nextDate.toLocaleDateString('pt-BR') };
+        }
+        return { eligible: true, date: null };
+    };
+
+    const eligibility = checkEligibility();
+
     const hasProof = !!proofFile;
 
-    // Lógica de "Chance de Aprovação" baseada no Score e Salário
+    // Lógica de "Chance de Aprovação" visual
     const approvalChance = Math.min(100, Math.max(10, score / 10));
     let chanceColor = 'bg-red-500';
     let chanceText = 'Baixa';
@@ -32,7 +53,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
         if (approvalChance > 60) chanceColor = 'bg-emerald-500';
         else chanceColor = 'bg-amber-500';
     } else {
-        chanceMessage = "Sem comprovante, o limite pode ser restrito a R$ 100.";
+        chanceMessage = "Anexe um comprovante para aumentar suas chances.";
     }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,6 +115,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
 
             if (error) throw error;
 
+            // Atualiza a data da última solicitação
             await supabase.from('profiles').update({ last_limit_request_date: new Date().toISOString() }).eq('id', user.id);
 
             setMessage({ text: 'Pedido enviado para análise!', type: 'success' });
@@ -106,6 +128,28 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
         }
     };
 
+    // Renderização de Bloqueio (90 dias)
+    if (!eligibility.eligible) {
+        return (
+            <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 p-6 text-center justify-center">
+                <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Aguarde um pouco</h2>
+                <p className="text-slate-600 dark:text-slate-400 mb-6 text-sm">
+                    Para garantir uma análise justa, permitimos uma nova solicitação a cada 90 dias.
+                </p>
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 mb-8">
+                    <p className="text-xs text-slate-500 uppercase font-bold mb-1">Próxima solicitação disponível em</p>
+                    <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{eligibility.date}</p>
+                </div>
+                <button onClick={onClose} className="w-full py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold">
+                    Entendi, vou aguardar
+                </button>
+            </div>
+        );
+    }
+
     if (message?.type === 'success') {
         return (
             <div className="flex flex-col items-center justify-center text-center p-8 h-full animate-fade-in">
@@ -113,7 +157,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                     <svg className="w-12 h-12 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Pedido Enviado!</h3>
-                <p className="text-slate-500 dark:text-slate-400 mb-8 max-w-xs text-sm">Nossa equipe analisará seu perfil e responderemos em até 3 dias úteis.</p>
+                <p className="text-slate-500 dark:text-slate-400 mb-8 max-w-xs text-sm">Nossa equipe analisará seu perfil e responderemos em breve.</p>
                 <button onClick={onClose} className="px-8 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Voltar</button>
             </div>
         );
@@ -206,12 +250,6 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                             )}
                         </button>
                         <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
-                        
-                        {!proofFile && (
-                            <p className="text-[10px] text-red-500 mt-2">
-                                * Sem comprovante, seu limite máximo será de R$ 100,00.
-                            </p>
-                        )}
                     </div>
 
                     <div>

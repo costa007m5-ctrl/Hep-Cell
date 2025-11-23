@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -430,7 +429,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         } catch(e) { alert('Erro ao atualizar limite'); }
     };
 
-    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject', manualLimit?: number) => {
+    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject' | 'calculate_auto', manualLimit?: number, responseReason?: string) => {
         setProcessingRequest(requestId);
         try {
             const res = await fetch('/api/admin/manage-limit-request', {
@@ -440,12 +439,16 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                     requestId,
                     action,
                     manualLimit,
-                    manualScore: 600
+                    manualScore: 600,
+                    responseReason
                 })
             });
             
             const data = await res.json();
             if(res.ok) {
+                // Se for apenas cálculo, não recarrega tudo, apenas atualiza campos locais
+                if (action === 'calculate_auto' && data.suggestedLimit) return; // Apenas retorno dados, tratado abaixo no botão
+
                 setSuccessMessage(data.message);
                 setTimeout(() => setSuccessMessage(null), 3000);
                 fetchData();
@@ -597,41 +600,105 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                             {/* --- TAB GERAL --- */}
                             {activeDrawerTab === 'geral' && (
                                 <>
-                                    {/* Cartão de Solicitação Pendente */}
+                                    {/* Cartão de Solicitação Pendente APRIMORADO */}
                                     {clientPendingRequest && (
-                                        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 mb-4 shadow-sm animate-fade-in">
-                                            <div className="flex justify-between items-start">
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 border-2 border-purple-200 dark:border-purple-800 rounded-xl p-5 mb-6 shadow-md animate-fade-in">
+                                            <div className="flex justify-between items-start mb-4">
                                                 <div>
-                                                    <h3 className="font-bold text-purple-800 dark:text-purple-200 flex items-center gap-2">
-                                                        <span className="animate-pulse">🔔</span> Solicitação de Aumento
+                                                    <h3 className="font-bold text-purple-900 dark:text-purple-100 flex items-center gap-2 text-lg">
+                                                        <span className="animate-pulse text-xl">🔔</span> Solicitação de Aumento
                                                     </h3>
-                                                    <p className="text-sm text-purple-700 dark:text-purple-300 mt-1">
-                                                        Cliente pediu aumento para: <strong>R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}</strong>
+                                                    <div className="mt-2 bg-white dark:bg-slate-800 p-2 rounded border border-purple-100 dark:border-purple-900 inline-block">
+                                                        <p className="text-xs text-slate-500 uppercase font-bold">Valor Solicitado</p>
+                                                        <p className="text-2xl font-black text-purple-600 dark:text-purple-400">
+                                                            R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}
+                                                        </p>
+                                                    </div>
+                                                    <p className="text-sm text-slate-600 dark:text-slate-300 italic mt-2 border-l-2 border-purple-300 pl-2">
+                                                        "{clientPendingRequest.justification}"
                                                     </p>
-                                                    <p className="text-xs text-purple-600 dark:text-purple-400 italic mt-1">"{clientPendingRequest.justification}"</p>
                                                 </div>
-                                                <div className="flex flex-col gap-2">
+                                                <span className="text-xs font-bold bg-purple-200 text-purple-800 px-2 py-1 rounded uppercase">{new Date(clientPendingRequest.created_at).toLocaleDateString()}</span>
+                                            </div>
+
+                                            {/* Área de Ação do Admin */}
+                                            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 space-y-3">
+                                                <div className="flex gap-2 items-center mb-2">
                                                     <button 
-                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'approve_auto')}
-                                                        disabled={!!processingRequest}
-                                                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 disabled:opacity-50"
+                                                        onClick={async () => {
+                                                            setProcessingRequest(clientPendingRequest.id);
+                                                            try {
+                                                                const res = await fetch('/api/admin/manage-limit-request', {
+                                                                    method: 'POST',
+                                                                    headers: {'Content-Type': 'application/json'},
+                                                                    body: JSON.stringify({ requestId: clientPendingRequest.id, action: 'calculate_auto' })
+                                                                });
+                                                                const data = await res.json();
+                                                                if(data.suggestedLimit) {
+                                                                    setTempLimit(String(data.suggestedLimit));
+                                                                    setTempScore(String(data.suggestedScore || 600));
+                                                                    setInternalNotes(`Sugestão IA: ${data.reason}`); // Usa o campo de notas temporariamente para feedback visual rápido
+                                                                    alert(`Sugestão IA: R$ ${data.suggestedLimit} (Baseado em renda/histórico)`);
+                                                                }
+                                                            } catch(e) { alert('Erro ao calcular'); }
+                                                            setProcessingRequest(null);
+                                                        }}
+                                                        className="text-xs bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm hover:opacity-90 flex items-center gap-1"
                                                     >
-                                                        {processingRequest === clientPendingRequest.id ? 'Processando...' : 'Aprovar Sugerido (IA)'}
+                                                        ✨ Calcular Sugestão Auto
+                                                    </button>
+                                                    <span className="text-xs text-slate-400">A IA analisará o perfil e sugerirá um valor.</span>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="text-xs font-bold text-slate-500">Novo Limite (Aprovar)</label>
+                                                        <input 
+                                                            type="number" 
+                                                            value={tempLimit || clientPendingRequest.requested_amount} 
+                                                            onChange={e => setTempLimit(e.target.value)} 
+                                                            className="w-full p-2 border rounded bg-slate-50 dark:bg-slate-900 font-bold text-slate-700" 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-slate-500">Score Ajustado</label>
+                                                        <input 
+                                                            type="number" 
+                                                            value={tempScore || 600} 
+                                                            onChange={e => setTempScore(e.target.value)} 
+                                                            className="w-full p-2 border rounded bg-slate-50 dark:bg-slate-900" 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500">Motivo / Explicação para o Cliente</label>
+                                                    <textarea 
+                                                        className="w-full p-2 border rounded text-sm bg-slate-50 dark:bg-slate-900 resize-none"
+                                                        rows={2}
+                                                        placeholder="Ex: Aprovado com base no bom histórico de pagamentos."
+                                                        id="responseReason" 
+                                                    ></textarea>
+                                                </div>
+
+                                                <div className="flex gap-2 pt-2">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const reason = (document.getElementById('responseReason') as HTMLTextAreaElement).value;
+                                                            handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(tempLimit || String(clientPendingRequest.requested_amount)), reason);
+                                                        }}
+                                                        disabled={!!processingRequest}
+                                                        className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition-colors"
+                                                    >
+                                                        Confirmar Aprovação
                                                     </button>
                                                     <button 
                                                         onClick={() => {
-                                                            const val = prompt("Digite o novo limite aprovado:", String(clientPendingRequest.requested_amount));
-                                                            if(val) handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(val));
+                                                            const reason = (document.getElementById('responseReason') as HTMLTextAreaElement).value || 'Critérios internos não atendidos no momento.';
+                                                            handleLimitAction(clientPendingRequest.id, 'reject', undefined, reason);
                                                         }}
                                                         disabled={!!processingRequest}
-                                                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 disabled:opacity-50"
-                                                    >
-                                                        Definir Manualmente
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'reject')}
-                                                        disabled={!!processingRequest}
-                                                        className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 disabled:opacity-50"
+                                                        className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 font-bold rounded-lg border border-red-200 transition-colors"
                                                     >
                                                         Rejeitar
                                                     </button>

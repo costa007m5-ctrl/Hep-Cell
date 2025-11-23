@@ -80,6 +80,8 @@ export interface Profile {
   notify_promotions?: boolean;
   avatar_url?: string | null;
   preferred_due_day?: number;
+  salary?: number; // Adicionado
+  internal_notes?: string; // Adicionado
 }
 
 export interface Product {
@@ -147,7 +149,9 @@ export interface LimitRequest {
     current_limit: number;
     justification: string | null;
     status: 'pending' | 'approved' | 'rejected';
+    admin_response_reason?: string; // Novo campo para feedback
     created_at: string;
+    updated_at?: string;
 }
 
 export interface Contract {
