@@ -1,33 +1,12 @@
 
-// ... imports and helper functions remain same
-
-async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    try {
-        // IMPORTANTE: Buscamos TUDO, sem filtro de status, para garantir que o admin veja o histórico.
-        // O join com profiles é essencial para mostrar o nome do cliente.
-        const { data, error } = await supabase
-            .from('limit_requests')
-            .select('*, profiles(first_name, last_name, email, salary, credit_limit, credit_score)') 
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        
-        res.status(200).json(data);
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-}
-
-// ... rest of the file content unchanged ...
-// (Include other handlers like handleLimitRequestActions, handleManageInvoice, handler export etc.)
+// ... imports (maintain existing)
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
 import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
 
-// --- Helper Functions ---
+// --- Helper Functions (maintain existing) ---
 function getSupabaseAdminClient(): SupabaseClient {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -54,9 +33,10 @@ function getMercadoPagoClient() {
 }
 
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
-    const { error } = await supabase.from('action_logs').insert({ action_type, status, description, details });
-    if (error) {
-        console.error(`Failed to log action: ${action_type}`, error);
+    try {
+        await supabase.from('action_logs').insert({ action_type, status, description, details });
+    } catch (e) {
+        console.error(`Failed to log action: ${action_type}`, e);
     }
 }
 
@@ -71,7 +51,7 @@ async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries
                                 errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('overloaded') || errorMsg.includes('RESOURCE_EXHAUSTED');
             
             if (isRetryable && i < retries - 1) {
-                console.warn(`AI Request failed (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms... Error: ${errorMsg}`);
+                console.warn(`AI Request failed (Attempt ${i + 1}/${retries}). Retrying in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 delay *= 2;
             } else {
@@ -82,7 +62,9 @@ async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries
     throw new Error("Max retries exceeded");
 }
 
+// ... (Existing logic for runCreditAnalysis, updateProfileCredit, handleLimitRequestActions) ...
 async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string, useStrictRules: boolean = true) {
+    // ... logic maintained ...
     const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (profileError) throw profileError;
     
@@ -243,9 +225,62 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
     }
 }
 
-// ... (Outros handlers como handleManageInvoice, handleUpdateLimit etc. continuam igual, apenas handleGetLimitRequests foi atualizado acima) ...
-// Para economizar espaço, vou incluir os exports essenciais abaixo.
+// --- Updated Handle for Get Limit Requests ---
+async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        // Usa select 'profiles(*)' para evitar erros caso colunas específicas (ex: salary) não existam no schema
+        const { data, error } = await supabase
+            .from('limit_requests')
+            .select('*, profiles(*)') 
+            .order('created_at', { ascending: false });
 
+        if (error) throw error;
+        
+        res.status(200).json(data);
+    } catch (e: any) {
+        console.error("Error fetching limit requests:", e);
+        res.status(500).json({ error: e.message });
+    }
+}
+
+// --- Updated Handle for Database Setup (Includes limit_requests table) ---
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const FULL_SETUP_SQL = `
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
+    
+    CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); 
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
+    
+    CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+    ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; 
+    DROP POLICY IF EXISTS "Users view own documents" ON "public"."client_documents";
+    CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); 
+    
+    CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+    ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; 
+    ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
+    
+    DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";
+    DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_requests";
+    
+    CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
+    CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
+    `;
+    
+    const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL });
+    if (error) {
+        console.error("Database setup failed:", error);
+        return res.status(500).json({ error: error.message });
+    }
+    
+    await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.'); 
+    res.status(200).json({ message: "Banco de dados atualizado com sucesso!" }); 
+}
+
+// ... (Other handlers and default export maintained)
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { invoiceId, invoiceIds, action } = req.body; if ((!invoiceId && !invoiceIds) || !action) return res.status(400).json({ error: "ID(s) da fatura e ação são obrigatórios." }); const ids = invoiceIds || [invoiceId]; if (action === 'pay') { await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).in('id', ids); await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `${ids.length} fatura(s) marcada(s) como paga(s) manualmente.`); if(ids.length > 0) { const { data: inv } = await supabase.from('invoices').select('user_id').eq('id', ids[0]).single(); if(inv) { const genAI = getGeminiClient(); const analysis = await runCreditAnalysis(supabase, genAI, inv.user_id, false); await updateProfileCredit(supabase, inv.user_id, analysis.credit_limit, analysis.credit_score, analysis.profile.credit_status === 'Bloqueado' ? 'Bloqueado' : 'Ativo', analysis.reason); } } } else if (action === 'cancel') { await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).in('id', ids); await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `${ids.length} fatura(s) cancelada(s) manualmente.`); } else if (action === 'delete') { await supabase.from('invoices').delete().in('id', ids); await logAction(supabase, 'MANUAL_DELETE', 'SUCCESS', `${ids.length} fatura(s) excluída(s) permanentemente.`); } else { return res.status(400).json({ error: "Ação inválida." }); } return res.status(200).json({ message: "Ação realizada com sucesso." }); } catch (e: any) { return res.status(500).json({ error: e.message }); } }
 async function handleUpdateLimit(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, creditLimit, creditScore } = req.body; if (!userId) return res.status(400).json({ error: "User ID obrigatório." }); const updates: any = {}; if (creditLimit !== undefined) updates.credit_limit = creditLimit; if (creditScore !== undefined) updates.credit_score = creditScore; const { error } = await supabase.from('profiles').update(updates).eq('id', userId); if (error) throw error; await supabase.from('score_history').insert({ user_id: userId, change: 0, new_score: creditScore || 0, reason: 'Ajuste manual pelo administrador' }); await logAction(supabase, 'MANUAL_LIMIT_UPDATE', 'SUCCESS', `Limite/Score atualizado manualmente para user ${userId}.`); return res.status(200).json({ message: "Perfil atualizado com sucesso." }); } catch (e: any) { return res.status(500).json({ error: e.message }); } }
 async function handleRiskDetails(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: "IA não configurada." }); try { const { userId } = req.body; const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single(); const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId); const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10); const prompt = `Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares. Perfil: ${JSON.stringify(profile)} Faturas: ${JSON.stringify(invoices)} Histórico Score: ${JSON.stringify(history)} Retorne um relatório em formato JSON com: { "riskLevel": "Baixo" | "Médio" | "Alto", "reason": "Resumo curto do motivo principal", "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.", "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).", "positivePoints": ["ponto 1", "ponto 2"], "negativePoints": ["ponto 1", "ponto 2"] }`; const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
@@ -272,7 +307,6 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) { co
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const {data}=await supabase.from('profiles').select('*'); res.status(200).json(data); }
 async function handleDiagnoseError(_req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) { const { code_challenge } = req.body; const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${process.env.ML_CLIENT_ID}&response_type=code&platform_id=mp&state=random_state&redirect_uri=${req.headers.origin}/admin&code_challenge=${code_challenge}&code_challenge_method=S256`; res.status(200).json({ authUrl }); }
-async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const FULL_SETUP_SQL = `CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);`; const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL }); if (error) throw error; await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.'); res.status(200).json({ message: "Banco de dados atualizado com sucesso!" }); }
 async function handleSupportTickets(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { userId, subject, message, category, priority } = req.body; const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ user_id: userId, subject: subject || 'Atendimento', category: category || 'Geral', priority: priority || 'normal', status: 'open' }).select().single(); if (ticketError) throw ticketError; if (message) { const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message }); if (msgError) throw msgError; } res.status(201).json(ticket); } else if (req.method === 'PUT') { const { id, status } = req.body; const { data, error } = await supabase.from('support_tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(); if (error) throw error; res.status(200).json(data[0]); } else if (req.method === 'GET') { const { userId } = req.query; let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)').order('updated_at', { ascending: false }); if (userId) { query = query.eq('user_id', userId); } const { data, error } = await query; if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSupportMessages(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { ticketId, sender, message, isInternal } = req.body; const { data, error } = await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message, is_internal: isInternal || false }).select().single(); if (error) throw error; await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId); res.status(201).json(data); } else if (req.method === 'GET') { const { ticketId } = req.query; const { data, error } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true }); if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSupportChat(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:"AI unavailable"}); const {message, context} = req.body; const prompt = `${context} User Message: "${message}" You are a helpful support assistant for Relp Cell. Respond in Portuguese (Brazil). Be concise, polite, and professional.`; try { const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt}); res.status(200).json({reply: response.text}); } catch(e: any) { res.status(500).json({error: e.message}); } }

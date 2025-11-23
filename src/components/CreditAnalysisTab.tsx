@@ -13,7 +13,7 @@ interface LimitRequest {
     status: 'pending' | 'approved' | 'rejected';
     admin_response_reason?: string;
     created_at: string;
-    profiles?: Profile & { salary: number }; // Join opcional pois pode vir null
+    profiles?: Profile & { salary?: number }; // Salary é opcional
 }
 
 interface AIAnalysisResult {
@@ -30,6 +30,8 @@ const CreditAnalysisTab: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [aiResult, setAiResult] = useState<AIAnalysisResult | null>(null);
     const [filterStatus, setFilterStatus] = useState<'pending' | 'all'>('pending');
+    const [error, setError] = useState<string | null>(null);
+    const [isRepairing, setIsRepairing] = useState(false);
     
     // Form States
     const [approvedLimit, setApprovedLimit] = useState<string>('');
@@ -39,18 +41,44 @@ const CreditAnalysisTab: React.FC = () => {
 
     const fetchRequests = async () => {
         setIsLoading(true);
+        setError(null);
         try {
             const res = await fetch('/api/admin/limit-requests');
+            const data = await res.json();
+            
             if (res.ok) {
-                const data = await res.json();
                 setRequests(data);
             } else {
-                console.error("Erro API ao buscar requests");
+                // Captura erro específico (ex: tabela não existe)
+                const msg = data.error || 'Erro desconhecido ao buscar solicitações.';
+                setError(msg);
+                console.error("Erro API:", msg);
             }
-        } catch (error) {
-            console.error("Erro ao buscar solicitações", error);
+        } catch (error: any) {
+            setError(error.message || "Falha de conexão.");
+            console.error("Erro de conexão:", error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Função para tentar reparar o banco de dados automaticamente
+    const handleRepairDatabase = async () => {
+        setIsRepairing(true);
+        try {
+            const res = await fetch('/api/admin/setup-database', { method: 'POST' });
+            if (res.ok) {
+                await fetchRequests(); // Tenta buscar novamente
+                setError(null);
+                setFeedbackMessage({ type: 'success', text: 'Banco de dados atualizado! Tente novamente.' });
+            } else {
+                const data = await res.json();
+                setFeedbackMessage({ type: 'error', text: `Falha ao reparar: ${data.error}` });
+            }
+        } catch (e) {
+            setFeedbackMessage({ type: 'error', text: "Erro de conexão ao tentar reparar." });
+        } finally {
+            setIsRepairing(false);
         }
     };
 
@@ -186,6 +214,22 @@ const CreditAnalysisTab: React.FC = () => {
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     {isLoading ? (
                         <div className="flex justify-center p-8"><LoadingSpinner /></div>
+                    ) : error ? (
+                        <div className="p-4 text-center">
+                            <p className="text-xs text-red-500 mb-3">{error}</p>
+                            <button 
+                                onClick={handleRepairDatabase} 
+                                disabled={isRepairing}
+                                className="w-full py-2 bg-red-100 text-red-700 rounded-lg text-xs font-bold hover:bg-red-200 transition-colors flex justify-center gap-2"
+                            >
+                                {isRepairing ? <LoadingSpinner /> : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                        Inicializar Banco de Dados
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     ) : filteredRequests.length === 0 ? (
                         <div className="text-center p-8 text-slate-400 text-sm">Nenhuma solicitação.</div>
                     ) : (

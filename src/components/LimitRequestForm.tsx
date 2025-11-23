@@ -93,18 +93,22 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                         body: JSON.stringify({
                             userId: user.id,
                             title: 'Comprovante de Renda',
-                            type: 'Comprovante de Renda', // Importante para o Admin reconhecer
+                            type: 'Comprovante de Renda', 
                             fileBase64: proofFile
                         })
                     });
                 } catch (uploadError) {
-                    console.warn("Erro ao enviar imagem, prosseguindo com texto:", uploadError);
+                    console.warn("Erro ao enviar imagem (não crítico):", uploadError);
                 }
             }
 
-            // 2. Atualiza o salário no perfil
+            // 2. Atualiza o salário no perfil (se possível)
             if (salaryValue > 0) {
-                await supabase.from('profiles').update({ salary: salaryValue }).eq('id', user.id);
+                try {
+                    await supabase.from('profiles').update({ salary: salaryValue }).eq('id', user.id);
+                } catch (e) {
+                    console.warn("Erro ao salvar salário no perfil:", e);
+                }
             }
 
             // 3. Cria a solicitação na tabela limit_requests
@@ -112,22 +116,28 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                 user_id: user.id,
                 requested_amount: requestedValue,
                 current_limit: currentLimit,
-                justification: justification, // Salva a justificativa pura
+                justification: justification, 
                 status: 'pending',
-                admin_response_reason: null // Limpa resposta anterior se houver
+                admin_response_reason: null
             });
 
-            if (error) throw error;
+            if (error) {
+                // Tratamento específico para tabela inexistente
+                if (error.code === '42P01' || error.message.includes('relation "limit_requests" does not exist')) {
+                    throw new Error("Sistema de crédito temporariamente indisponível. Contate o suporte.");
+                }
+                throw error;
+            }
 
             // 4. Atualiza data da última solicitação
             await supabase.from('profiles').update({ last_limit_request_date: new Date().toISOString() }).eq('id', user.id);
 
-            setMessage({ text: 'Solicitação enviada com sucesso! Acompanhe pelo menu.', type: 'success' });
+            setMessage({ text: 'Solicitação enviada com sucesso! Nossa equipe analisará em breve.', type: 'success' });
             setTimeout(onClose, 3000);
             
         } catch (error: any) {
-            console.error(error);
-            setMessage({ text: 'Erro ao enviar solicitação. Tente novamente.', type: 'error' });
+            console.error("Erro envio solicitação:", error);
+            setMessage({ text: error.message || 'Erro ao enviar solicitação. Tente novamente.', type: 'error' });
         } finally {
             setIsSubmitting(false);
         }

@@ -293,111 +293,29 @@ const DeveloperTab: React.FC = () => {
     
     // SQL Completo com Políticas RLS e Correção de Parsing
     const SETUP_SQL = `
--- 1. Habilitar Extensões
-CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
--- 2. Tabelas Principais (Profiles)
-CREATE TABLE IF NOT EXISTS "public"."profiles" ( 
-    "id" "uuid" NOT NULL, 
-    "email" "text", 
-    "first_name" "text", 
-    "last_name" "text",
-    "identification_number" "text",
-    "phone" "text",
-    "credit_score" integer DEFAULT 0,
-    "credit_limit" numeric(10, 2) DEFAULT 0,
-    "credit_status" "text" DEFAULT 'Em Análise',
-    "last_limit_request_date" timestamp with time zone,
-    "avatar_url" "text",
-    "zip_code" "text",
-    "street_name" "text",
-    "street_number" "text",
-    "neighborhood" "text",
-    "city" "text",
-    "federal_unit" "text",
-    "preferred_due_day" integer DEFAULT 10,
-    "created_at" timestamp with time zone DEFAULT "now"(), 
-    "updated_at" timestamp with time zone DEFAULT "now"(), 
-    CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), 
-    CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, 
-    CONSTRAINT "profiles_email_key" UNIQUE ("email") 
-);
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "preferred_due_day" integer DEFAULT 10;
+-- TABELA DE PERFIS DE USUÁRIO
+CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); 
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
 
--- Atualização de Tabela de Faturas
-CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
-ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_code" "text";
-ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_expiration" timestamp with time zone;
+-- TABELA DE DOCUMENTOS E COMPROVANTES
+CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; 
+DROP POLICY IF EXISTS "Users view own documents" ON "public"."client_documents";
+CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); 
 
--- 3. Tabela de Contratos
-CREATE TABLE IF NOT EXISTS "public"."contracts" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "items" "text", "total_value" numeric(10, 2), "installments" integer, "status" "text" DEFAULT 'Ativo', "signature_data" "text", "terms_accepted" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"), CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
-ALTER TABLE "public"."contracts" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
+-- TABELA DE SOLICITAÇÕES DE LIMITE
+CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "admin_response_reason" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
+ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; 
+ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
 
--- 4. Tabela de Solicitação de Mudança de Data
-CREATE TABLE IF NOT EXISTS "public"."due_date_requests" (
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
-    "user_id" "uuid" NOT NULL,
-    "current_day" integer NOT NULL,
-    "requested_day" integer NOT NULL,
-    "reason" "text",
-    "status" "text" NOT NULL DEFAULT 'pending', -- pending, approved, rejected
-    "admin_notes" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "due_date_requests_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "due_date_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
-);
-ALTER TABLE "public"."due_date_requests" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";
+DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_requests";
 
--- 5. Políticas de Segurança (RLS)
-ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
-
--- Dropar políticas antigas para evitar conflitos
-DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
-DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
-DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
-DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts";
-DROP POLICY IF EXISTS "Users view own requests" ON "public"."due_date_requests";
-DROP POLICY IF EXISTS "Users create own requests" ON "public"."due_date_requests";
-
--- Criar novas políticas
-CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users view own requests" ON "public"."due_date_requests" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users create own requests" ON "public"."due_date_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- 6. Função Segura para Resgate de Missão (RPC)
-CREATE OR REPLACE FUNCTION claim_mission_reward(mission_id_input text, xp_reward int, reason_input text)
-RETURNS void AS $$
-DECLARE
-  v_user_id uuid;
-BEGIN
-  v_user_id := auth.uid();
-  
-  -- Verifica se já foi resgatada
-  IF EXISTS (SELECT 1 FROM public.user_missions WHERE user_id = v_user_id AND mission_id = mission_id_input) THEN
-    RAISE EXCEPTION 'Missão já resgatada.';
-  END IF;
-
-  -- Registra a missão
-  INSERT INTO public.user_missions (user_id, mission_id, claimed_at, completed_at)
-  VALUES (v_user_id, mission_id_input, now(), now());
-
-  -- Atualiza o score (máximo 1000)
-  UPDATE public.profiles
-  SET credit_score = LEAST(1000, credit_score + xp_reward)
-  WHERE id = v_user_id;
-
-  -- Registra histórico
-  INSERT INTO public.score_history (user_id, change, new_score, reason)
-  SELECT v_user_id, xp_reward, credit_score, reason_input
-  FROM public.profiles WHERE id = v_user_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
+CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
     `.trim();
 
     const handleSetupDatabase = async () => {
@@ -425,9 +343,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização Importante (Contratos e Datas)</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Instalação Automática</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Clique no botão abaixo para atualizar a estrutura do banco de dados. Isso adicionará suporte para solicitações de mudança de data e contratos robustos.
+                        Clique no botão abaixo para criar todas as tabelas necessárias (Solicitações de Crédito, Documentos, Perfis Expandidos). Se você ver erros na aba de Crédito, execute esta ação.
                     </p>
                 </div>
 
@@ -437,19 +355,19 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                         disabled={isLoading}
                         className="w-full sm:w-auto flex justify-center items-center py-3 px-6 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-wait"
                     >
-                        {isLoading ? <LoadingSpinner /> : 'Atualizar Banco de Dados'}
+                        {isLoading ? <LoadingSpinner /> : 'Atualizar / Reparar Banco de Dados'}
                     </button>
                     {message && <div className="mt-4"><Alert message={message.text} type={message.type} /></div>}
                 </div>
 
                 <div>
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Setup</h3>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Referência</h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este script configura as novas tabelas e políticas de segurança.
+                        Este script mostra exatamente o que será criado no seu banco de dados.
                     </p>
                     
                     <CodeBlock
-                        title="SQL Completo de Setup"
+                        title="Estrutura das Tabelas"
                         explanation="Copie e cole no SQL Editor do Supabase se o botão automático falhar."
                         code={SETUP_SQL}
                     />
