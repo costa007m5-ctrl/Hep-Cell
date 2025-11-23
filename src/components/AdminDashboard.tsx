@@ -10,14 +10,15 @@ import StatusTab from './StatusTab';
 import AiConfigTab from './AiConfigTab'; 
 import AdvertisingTab from './AdvertisingTab'; 
 import SupportTab from './SupportTab';
-import PwaTab from './PwaTab'; // Nova Importação
+import PwaTab from './PwaTab';
+import CreditAnalysisTab from './CreditAnalysisTab'; // Importação do novo componente
 import { supabase } from '../services/clients';
 
 interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-// --- Simple CSS Chart Component with Real Data ---
+// ... (SalesChart component remains unchanged) ...
 const SalesChart = ({ data }: { data: number[] }) => {
     const max = Math.max(...data, 1); // Avoid division by zero
     const days = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
@@ -48,7 +49,7 @@ const SalesChart = ({ data }: { data: number[] }) => {
     );
 };
 
-// --- Kanban Board Component (Mock for now, but structure ready for real data) ---
+// ... (DefaultersList component remains unchanged) ...
 const DefaultersList = () => {
     const [defaulters, setDefaulters] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -98,9 +99,10 @@ const DefaultersList = () => {
 const Icons = {
     Dashboard: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>,
     Clients: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
+    Credit: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>, // Novo ícone
     NewSale: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Products: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
-    Financials: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    Financials: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
     History: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Status: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Dev: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>,
@@ -110,6 +112,7 @@ const Icons = {
     Pwa: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
 };
 
+// ... (QuickAccessCard component remains unchanged) ...
 const QuickAccessCard: React.FC<{ title: string; icon: React.ReactNode; color: string; onClick: () => void }> = ({ title, icon, color, onClick }) => (
     <button 
         onClick={onClick}
@@ -126,6 +129,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [stats, setStats] = useState({ today: 0, orders: 0, ticket: 0, last7Days: [0,0,0,0,0,0,0] });
   
+  // ... (Notification Logic remains unchanged) ...
   const lastNotificationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -175,7 +179,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     return () => clearInterval(interval);
   }, []);
 
-
+  // ... (Stats Fetching remains unchanged) ...
   useEffect(() => {
       const fetchStats = async () => {
           const today = new Date();
@@ -207,6 +211,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   
   const menuItems = [
     { id: 'dashboard', label: 'Início', icon: Icons.Dashboard, color: 'bg-slate-500' },
+    { id: 'credit', label: 'Central de Crédito', icon: Icons.Credit, color: 'bg-yellow-500' }, // Nova aba
     { id: 'clients', label: 'Clientes', icon: Icons.Clients, color: 'bg-blue-500' },
     { id: 'new_sale', label: 'Nova Venda', icon: Icons.NewSale, color: 'bg-indigo-500' },
     { id: 'products', label: 'Produtos', icon: Icons.Products, color: 'bg-orange-500' },
@@ -215,7 +220,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     { id: 'financials', label: 'Finanças', icon: Icons.Financials, color: 'bg-green-500' },
     { id: 'history', label: 'Histórico', icon: Icons.History, color: 'bg-purple-500' },
     { id: 'ai_config', label: 'IA & Chat', icon: Icons.Ai, color: 'bg-pink-500' },
-    { id: 'pwa_audit', label: 'PWA Audit', icon: Icons.Pwa, color: 'bg-violet-600' }, // Nova Opção
+    { id: 'pwa_audit', label: 'PWA Audit', icon: Icons.Pwa, color: 'bg-violet-600' },
     { id: 'status', label: 'Status', icon: Icons.Status, color: 'bg-teal-500' },
     { id: 'dev', label: 'Dev Tools', icon: Icons.Dev, color: 'bg-gray-700' },
   ];
@@ -264,6 +269,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const renderContent = () => {
       switch(currentView) {
           case 'dashboard': return renderDashboardHome();
+          case 'credit': return <CreditAnalysisTab />; // Renderiza a nova aba
           case 'clients': return <ClientsTab allInvoices={[]} isLoading={false} errorInfo={null} />; 
           case 'financials': return <FinancialDashboard invoices={[]} isLoading={false} />;
           case 'products': return <ProductsTab />;
@@ -272,7 +278,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'new_sale': return <NewSaleTab />;
           case 'history': return <ActionLogTab />;
           case 'ai_config': return <AiConfigTab />;
-          case 'pwa_audit': return <PwaTab />; // Novo Renderizador
+          case 'pwa_audit': return <PwaTab />;
           case 'status': return <StatusTab />;
           case 'dev': return <DeveloperTab />;
           default: return renderDashboardHome();
@@ -281,12 +287,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex flex-col lg:flex-row">
+        {/* Sidebar - Unchanged except for menuItems mapping */}
         <aside className="hidden lg:flex w-64 flex-col bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 fixed h-full z-30 shadow-xl">
             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">
                 <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">R</div>
                 <div>
                     <h1 className="text-lg font-bold text-slate-900 dark:text-white">Admin Relp</h1>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wider">Painel Gerencial</p>
+                    <p className="text-sm text-slate-500 uppercase tracking-wider">Painel Gerencial</p>
                 </div>
             </div>
             <nav className="flex-1 overflow-y-auto py-6">
@@ -316,6 +323,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </div>
         </aside>
 
+        {/* Main Content - Unchanged structure */}
         <div className="flex-1 lg:ml-64 flex flex-col min-h-screen">
             <header className="lg:hidden bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 p-4 flex justify-between items-center sticky top-0 z-40">
                 <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -332,6 +340,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </main>
         </div>
 
+        {/* Mobile Nav - Unchanged except for updated menuItems */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 z-50 pb-safe shadow-lg">
             <div className="flex overflow-x-auto no-scrollbar py-3 px-4 gap-4 snap-x">
                 {menuItems.map(item => (
