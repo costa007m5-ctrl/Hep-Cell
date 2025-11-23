@@ -119,10 +119,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const purchaseTimestamp = new Date().toISOString();
         const initialStatus = saleType === 'crediario' ? 'Aguardando Assinatura' : 'Em aberto';
 
-        // Definir datas de vencimento com base no dueDay escolhido (default 10 se não vier)
         const selectedDay = dueDay || 10;
         
-        // Começa no próximo mês
         let currentMonth = today.getMonth() + 1;
         let currentYear = today.getFullYear();
 
@@ -132,7 +130,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 currentYear++;
             }
             
-            // Ajusta para o último dia do mês se o dia escolhido não existir (ex: 30 de Fev)
             const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
             const day = Math.min(selectedDay, maxDay);
             
@@ -173,9 +170,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { error } = await supabase.from('invoices').insert(newInvoices);
         if (error) throw error;
 
-        // Cria contrato se for crediário
         if (saleType === 'crediario') {
-            // Salva a preferência de dia no perfil se for a primeira compra ou se mudou
             await supabase.from('profiles').update({ preferred_due_day: selectedDay }).eq('id', userId);
 
             const { error: contractError } = await supabase.from('contracts').insert({
@@ -210,13 +205,80 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- Handler para Due Date Requests ---
+async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body;
+
+        if (!userId || !invoiceIds || invoiceIds.length === 0 || !totalAmount || !installments) {
+            return res.status(400).json({ error: "Dados incompletos para negociação." });
+        }
+
+        // 1. Cancelar faturas antigas
+        const { error: cancelError } = await supabase
+            .from('invoices')
+            .update({ 
+                status: 'Cancelado', 
+                notes: 'Renegociado em ' + new Date().toLocaleDateString('pt-BR') 
+            })
+            .in('id', invoiceIds)
+            .eq('user_id', userId); // Garante segurança
+
+        if (cancelError) throw cancelError;
+
+        // 2. Criar novas faturas do acordo
+        const newInvoices = [];
+        let currentMonth = new Date(firstDueDate).getMonth();
+        let currentYear = new Date(firstDueDate).getFullYear();
+        const dueDay = new Date(firstDueDate).getDate();
+        const installmentVal = totalAmount / installments;
+
+        for (let i = 1; i <= installments; i++) {
+            const dueDate = new Date(currentYear, currentMonth, dueDay);
+            
+            newInvoices.push({
+                user_id: userId,
+                month: `Acordo de Renegociação (${i}/${installments})`,
+                due_date: dueDate.toISOString().split('T')[0],
+                amount: installmentVal,
+                status: 'Em aberto',
+                notes: `Refinanciamento de débitos anteriores. ${notes || ''}`,
+                created_at: new Date().toISOString()
+            });
+
+            currentMonth++;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+        }
+
+        const { error: insertError } = await supabase.from('invoices').insert(newInvoices);
+        if (insertError) throw insertError;
+
+        // 3. Notificar e Logar
+        await supabase.from('notifications').insert({
+            user_id: userId,
+            title: 'Acordo Realizado',
+            message: 'Sua renegociação foi concluída com sucesso. Novas faturas geradas.',
+            type: 'success'
+        });
+
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Negociação realizada para user ${userId}. ${invoiceIds.length} faturas canceladas. Novo total: ${totalAmount}.`);
+
+        return res.status(200).json({ message: "Negociação realizada com sucesso." });
+
+    } catch (error: any) {
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'FAILURE', 'Erro na negociação.', { error: error.message });
+        return res.status(500).json({ error: error.message });
+    }
+}
+
 async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     
     if (req.method === 'GET') {
         try {
-            // Retorna solicitações pendentes com dados do perfil
             const { data, error } = await supabase
                 .from('due_date_requests')
                 .select('*, profiles(first_name, last_name, email)')
@@ -232,10 +294,9 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'PUT') {
         try {
-            const { id, status, adminNotes } = req.body; // id da request
+            const { id, status, adminNotes } = req.body;
             if (!id || !status) return res.status(400).json({ error: "ID e Status são obrigatórios." });
 
-            // 1. Atualiza o status da solicitação
             const { data: request, error: reqError } = await supabase
                 .from('due_date_requests')
                 .update({ status, admin_notes: adminNotes, updated_at: new Date().toISOString() })
@@ -245,15 +306,12 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
 
             if (reqError) throw reqError;
 
-            // 2. Se aprovado, atualiza as faturas em aberto
             if (status === 'approved' && request) {
                 const newDay = request.requested_day;
                 const userId = request.user_id;
 
-                // Atualiza preferência no perfil
                 await supabase.from('profiles').update({ preferred_due_day: newDay }).eq('id', userId);
 
-                // Busca faturas em aberto
                 const { data: invoices } = await supabase
                     .from('invoices')
                     .select('*')
@@ -263,14 +321,11 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
                 if (invoices) {
                     for (const inv of invoices) {
                         const oldDate = new Date(inv.due_date);
-                        // Mantém mês e ano, muda o dia
-                        // Cuidado: se o dia não existe no mês (ex: 30 fev), JS ajusta para março. Precisamos travar no último dia.
                         const year = oldDate.getFullYear();
                         const month = oldDate.getMonth();
                         const maxDay = new Date(year, month + 1, 0).getDate();
                         const safeDay = Math.min(newDay, maxDay);
                         
-                        // Nova data mantendo o fuso (UTC split fix)
                         const newDateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(safeDay).padStart(2,'0')}`;
 
                         await supabase
@@ -280,7 +335,6 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
                     }
                 }
 
-                // Notifica usuário
                 await supabase.from('notifications').insert({
                     user_id: userId,
                     title: 'Data de Vencimento Alterada',
@@ -304,8 +358,7 @@ async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (other handlers remain unchanged to preserve functionality)
-// Simplified definitions for context
+// ... (other handlers remain unchanged)
 async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleGenerateMercadoPagoToken(req: VercelRequest, res: VercelResponse) { const { code, redirectUri, codeVerifier } = req.body; try { const response = await fetch('https://api.mercadopago.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: process.env.ML_CLIENT_ID, client_secret: process.env.ML_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: codeVerifier }) }); const data = await response.json(); if(!response.ok) throw new Error(data.message || 'Failed to generate token'); res.status(200).json({ accessToken: data.access_token, refreshToken: data.refresh_token }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
@@ -361,6 +414,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/analyze-credit': return await handleAnalyzeCredit(req, res);
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res); 
+                case '/api/admin/negotiate-debt': return await handleNegotiateDebt(req, res); // New Endpoint
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
