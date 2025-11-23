@@ -1,12 +1,17 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Invoice, Profile, Contract } from '../types';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import Modal from './Modal';
 import InputField from './InputField';
 
-// Tipos Estendidos
+interface ClientsTabProps {
+    isLoading?: boolean;
+    errorInfo?: { message: string } | null;
+    allInvoices: Invoice[];
+}
+
 interface EnhancedProfile extends Profile {
     ltv: number;
     totalDebt: number;
@@ -14,789 +19,565 @@ interface EnhancedProfile extends Profile {
     invoiceCount: number;
     riskLevel: 'Baixo' | 'Médio' | 'Alto';
     utilizationRate: number;
-    isBlocked: boolean;
-    ticketAverage: number;
-    riskFactors: string[];
-    tags?: string[];
-    internalNotes?: string;
+    isBlocked?: boolean; 
+    internalNotes?: string; 
 }
 
-interface DocumentItem extends Contract {
-    isManual?: boolean;
-}
+// --- Componentes Visuais ---
 
-// --- Componentes de UI ---
-
-const TabButton: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode; count?: number }> = ({ active, onClick, children, count }) => (
-    <button
-        onClick={onClick}
-        className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-            active 
-            ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/20' 
-            : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-        }`}
-    >
-        {children}
-        {count !== undefined && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
-                {count}
-            </span>
-        )}
-    </button>
+const StatCard: React.FC<{ title: string; value: string | number; icon: any; color: string; trend?: string }> = ({ title, value, icon, color, trend }) => (
+    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-start justify-between transition-transform hover:scale-[1.02]">
+        <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white">{value}</h3>
+            {trend && <p className="text-[10px] text-slate-400 mt-1">{trend}</p>}
+        </div>
+        <div className={`p-3 rounded-xl ${color} text-white shadow-lg shadow-black/10`}>
+            {icon}
+        </div>
+    </div>
 );
 
-const ActionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void; colorClass?: string; disabled?: boolean }> = ({ icon, label, onClick, colorClass = "bg-slate-100 text-slate-600", disabled }) => (
-    <button 
-        onClick={onClick}
-        disabled={disabled}
-        className={`flex flex-col items-center justify-center p-3 rounded-xl gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md ${colorClass}`}
-    >
-        <div className="text-xl">{icon}</div>
-        <span className="text-xs font-bold">{label}</span>
-    </button>
-);
+const RiskBadge: React.FC<{ level: 'Baixo' | 'Médio' | 'Alto' }> = ({ level }) => {
+    const colors = {
+        'Baixo': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        'Médio': 'bg-amber-100 text-amber-700 border-amber-200',
+        'Alto': 'bg-red-100 text-red-700 border-red-200'
+    };
+    return (
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${colors[level]}`}>
+            Risco {level}
+        </span>
+    );
+};
 
-// --- Modal de Negociação Avançada ---
+// --- Modals ---
+
+const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void }> = ({ invoice, onClose }) => {
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Detalhes da Fatura</h3>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                    invoice.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                    invoice.status === 'Cancelado' ? 'bg-slate-100 text-slate-500' :
+                    invoice.status === 'Aguardando Assinatura' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700'
+                }`}>
+                    {invoice.status}
+                </span>
+            </div>
+
+            {/* INFO PRINCIPAL: O QUE COMPROU */}
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                <p className="text-xs text-indigo-500 dark:text-indigo-300 uppercase font-bold mb-1">Descrição / Produto</p>
+                <p className="text-sm text-slate-800 dark:text-white font-medium leading-relaxed">
+                    {invoice.notes || invoice.month}
+                </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 border border-slate-100 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+                    <p className="text-xs text-slate-500 uppercase font-bold">Valor</p>
+                    <p className="text-lg font-black text-slate-900 dark:text-white">
+                        {invoice.amount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}
+                    </p>
+                </div>
+                <div className="p-3 border border-slate-100 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+                    <p className="text-xs text-slate-500 uppercase font-bold">Vencimento</p>
+                    <p className="text-lg font-black text-slate-900 dark:text-white">
+                        {new Date(invoice.due_date).toLocaleDateString('pt-BR')}
+                    </p>
+                </div>
+            </div>
+
+            <div className="space-y-2 text-xs text-slate-500 pt-2">
+                <p><strong>ID da Fatura:</strong> <span className="font-mono">{invoice.id}</span></p>
+                <p><strong>Criada em:</strong> {new Date(invoice.created_at).toLocaleString('pt-BR')}</p>
+                {invoice.payment_date && <p><strong>Pago em:</strong> {new Date(invoice.payment_date).toLocaleString('pt-BR')}</p>}
+                {invoice.payment_method && <p><strong>Método:</strong> {invoice.payment_method}</p>}
+            </div>
+
+            <div className="flex justify-end pt-4">
+                <button onClick={onClose} className="px-6 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors">
+                    Fechar
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const NegotiationModal: React.FC<{ 
-    invoices: Invoice[]; 
+    selectedInvoices: Invoice[]; 
     onClose: () => void; 
-    onConfirm: (config: any) => void; 
-    isLoading: boolean;
-}> = ({ invoices, onClose, onConfirm, isLoading }) => {
-    const [installments, setInstallments] = useState(1);
-    const [interestRate, setInterestRate] = useState(5); // Default 5%
-    const [preview, setPreview] = useState<any[]>([]);
-
-    const totalOriginal = invoices.reduce((acc, i) => acc + i.amount, 0);
+    onConfirm: (data: any) => Promise<void>;
+}> = ({ selectedInvoices, onClose, onConfirm }) => {
+    const totalOriginal = selectedInvoices.reduce((acc, i) => acc + i.amount, 0);
     
-    // Cálculo simples de juros compostos para renegociação
-    const totalWithInterest = useMemo(() => {
-        if (installments === 1) return totalOriginal;
-        const rate = interestRate / 100;
-        return totalOriginal * Math.pow(1 + rate, 1); // Juros simples sobre o total para simplificar UX, ou composto por mês
-        // Vamos usar juros simples sobre o montante total para a negociação padrão
-        return totalOriginal * (1 + (interestRate / 100)); 
-    }, [totalOriginal, interestRate, installments]);
-
-    const installmentValue = totalWithInterest / installments;
+    const [installments, setInstallments] = useState(1);
+    const [interestType, setInterestType] = useState<'none' | 'fixed' | 'percent'>('percent');
+    const [interestValue, setInterestValue] = useState(0);
+    const [newTotal, setNewTotal] = useState(totalOriginal);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [firstDueDate, setFirstDueDate] = useState(new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0]); // Default 5 days from now
 
     useEffect(() => {
-        const sched = [];
-        const date = new Date();
-        for(let i=1; i<=installments; i++) {
-            date.setMonth(date.getMonth() + 1);
-            sched.push({
-                num: i,
-                date: date.toLocaleDateString(),
-                val: installmentValue
-            });
+        let calculated = totalOriginal;
+        if (interestType === 'percent') {
+            calculated = totalOriginal * (1 + (interestValue / 100));
+        } else if (interestType === 'fixed') {
+            calculated = totalOriginal + interestValue;
         }
-        setPreview(sched);
-    }, [installments, installmentValue]);
+        // Se for desconto (valor negativo), pode reduzir. Mas garantimos min 0.
+        setNewTotal(Math.max(0, calculated));
+    }, [totalOriginal, interestType, interestValue]);
+
+    const handleConfirm = async () => {
+        setIsSubmitting(true);
+        try {
+            await onConfirm({
+                invoiceIds: selectedInvoices.map(i => i.id),
+                totalAmount: newTotal,
+                installments,
+                firstDueDate,
+                notes: `Renegociação de ${selectedInvoices.length} faturas (Original: R$ ${totalOriginal.toFixed(2)}).`
+            });
+            onClose();
+        } catch (e) {
+            console.error(e);
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="space-y-5">
             <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-4">
-                <h3 className="font-bold text-xl text-slate-900 dark:text-white">Nova Negociação</h3>
-                <p className="text-sm text-slate-500">{invoices.length} faturas selecionadas</p>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Negociar Dívida</h3>
+                <p className="text-sm text-slate-500">Você selecionou <strong>{selectedInvoices.length}</strong> faturas.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl">
-                <div>
-                    <p className="text-xs text-slate-500 uppercase font-bold">Dívida Original</p>
-                    <p className="text-lg font-bold text-slate-700 dark:text-slate-300">R$ {totalOriginal.toFixed(2)}</p>
+            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between mb-2">
+                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Total Original</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">R$ {totalOriginal.toFixed(2)}</span>
                 </div>
-                <div>
-                    <p className="text-xs text-slate-500 uppercase font-bold">Novo Total</p>
-                    <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {totalWithInterest.toFixed(2)}</p>
+                
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Tipo de Ajuste</label>
+                        <select 
+                            value={interestType} 
+                            onChange={(e) => setInterestType(e.target.value as any)}
+                            className="w-full text-sm p-2 rounded border dark:bg-slate-700 dark:border-slate-600"
+                        >
+                            <option value="none">Sem Ajuste</option>
+                            <option value="percent">Juros/Desconto (%)</option>
+                            <option value="fixed">Valor Fixo (R$)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Valor Ajuste</label>
+                        <input 
+                            type="number" 
+                            value={interestValue} 
+                            onChange={e => setInterestValue(parseFloat(e.target.value))}
+                            disabled={interestType === 'none'}
+                            className="w-full text-sm p-2 rounded border dark:bg-slate-700 dark:border-slate-600"
+                            placeholder="0"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex justify-between pt-2 border-t border-slate-200 dark:border-slate-600">
+                    <span className="text-base font-bold text-indigo-600 dark:text-indigo-400">Novo Total</span>
+                    <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">R$ {newTotal.toFixed(2)}</span>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Parcelas</label>
-                    <select 
-                        value={installments} 
-                        onChange={e => setInstallments(Number(e.target.value))}
-                        className="w-full p-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600 text-sm"
-                    >
-                        {[1,2,3,4,5,6,10,12].map(n => <option key={n} value={n}>{n}x</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-xs font-bold text-slate-500 mb-1">Juros (%)</label>
-                    <input 
-                        type="number" 
-                        value={interestRate} 
-                        onChange={e => setInterestRate(Number(e.target.value))}
-                        className="w-full p-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600 text-sm"
-                    />
-                </div>
+                <InputField 
+                    label="Parcelas" 
+                    name="installments" 
+                    type="number" 
+                    value={installments} 
+                    onChange={(e) => setInstallments(parseInt(e.target.value))} 
+                    min={1} 
+                    max={24}
+                />
+                <InputField 
+                    label="1ª Vencimento" 
+                    name="dueDate" 
+                    type="date" 
+                    value={firstDueDate} 
+                    onChange={(e) => setFirstDueDate(e.target.value)} 
+                />
             </div>
 
-            <div className="max-h-32 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-lg p-2 text-xs">
-                <p className="font-bold mb-2 sticky top-0 bg-white dark:bg-slate-800 pb-1">Previsão de Parcelas:</p>
-                {preview.map(p => (
-                    <div key={p.num} className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                        <span>{p.num}ª - {p.date}</span>
-                        <span className="font-mono font-bold">R$ {p.val.toFixed(2)}</span>
-                    </div>
-                ))}
+            <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+                <span className="text-sm text-blue-800 dark:text-blue-200">Valor da Parcela:</span>
+                <span className="text-lg font-bold text-blue-800 dark:text-blue-200">
+                    {installments}x de R$ {(newTotal / installments).toFixed(2)}
+                </span>
             </div>
 
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-100 dark:border-yellow-800 text-xs text-yellow-800 dark:text-yellow-200">
-                <strong>Atenção:</strong> Ao confirmar, será gerado um contrato jurídico. O cliente receberá um alerta no app e deverá assinar digitalmente para validar o acordo.
-            </div>
-
-            <div className="flex gap-3 pt-2">
-                <button onClick={onClose} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl font-bold text-slate-600 dark:text-slate-300 text-sm">Cancelar</button>
-                <button 
-                    onClick={() => onConfirm({ totalAmount: totalWithInterest, installments, interestRate })}
-                    disabled={isLoading}
-                    className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700"
-                >
-                    {isLoading ? 'Processando...' : 'Gerar Proposta'}
-                </button>
-            </div>
+            <button 
+                onClick={handleConfirm}
+                disabled={isSubmitting}
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 shadow-lg transition-all flex justify-center items-center gap-2"
+            >
+                {isSubmitting ? <LoadingSpinner /> : 'Confirmar Acordo'}
+            </button>
         </div>
     );
 };
 
-const RiskFactorsModal: React.FC<{ factors: string[]; score: number; level: string; onClose: () => void }> = ({ factors, score, level, onClose }) => (
-    <div className="space-y-4">
-        <div className={`p-4 rounded-xl border-l-4 ${level === 'Alto' ? 'bg-red-50 border-red-500 text-red-800' : level === 'Médio' ? 'bg-amber-50 border-amber-500 text-amber-800' : 'bg-emerald-50 border-emerald-500 text-emerald-800'}`}>
-            <h3 className="font-bold text-lg">Risco {level} (Score: {score})</h3>
-            <p className="text-sm opacity-90">Análise baseada no comportamento de pagamento e perfil.</p>
-        </div>
-        
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
-            <h4 className="px-4 py-2 bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-700">Fatores Identificados</h4>
-            <ul className="divide-y divide-slate-100 dark:divide-slate-700">
-                {factors.length > 0 ? factors.map((factor, i) => (
-                    <li key={i} className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 flex items-start gap-2">
-                        <span className="text-red-500 mt-0.5">⚠️</span>
-                        {factor}
-                    </li>
-                )) : (
-                    <li className="px-4 py-3 text-sm text-slate-500 italic">Nenhum fator de risco crítico identificado.</li>
-                )}
-            </ul>
-        </div>
-        
-        <button onClick={onClose} className="w-full py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold">Fechar</button>
-    </div>
-);
-
-// --- Drawer Tabs Content ---
-
-const OverviewContent: React.FC<{ client: EnhancedProfile }> = ({ client }) => (
-    <div className="space-y-6 animate-fade-in">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                <p className="text-xs text-slate-500 uppercase font-bold mb-1">Ticket Médio</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white">R$ {client.ticketAverage.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-            </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                <p className="text-xs text-slate-500 uppercase font-bold">LTV (Total Gasto)</p>
-                <p className="text-xl font-black text-indigo-600 dark:text-indigo-400">R$ {client.ltv.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-            </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                <p className="text-xs text-slate-500 uppercase font-bold">Limite Disponível</p>
-                <p className="text-xl font-black text-green-600 dark:text-green-400">
-                    R$ {Math.max(0, (client.credit_limit || 0) - client.totalDebt).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                </p>
-            </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-                <p className="text-xs text-slate-500 uppercase font-bold">Dívida Atual</p>
-                <p className="text-xl font-black text-red-600 dark:text-red-400">R$ {client.totalDebt.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-            </div>
-        </div>
-
-        {/* Tags */}
-        <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Tags do Cliente</h4>
-            <div className="flex flex-wrap gap-2">
-                {client.tags && client.tags.length > 0 ? client.tags.map(tag => (
-                    <span key={tag} className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800">
-                        {tag}
-                    </span>
-                )) : (
-                    <span className="text-xs text-slate-400">Nenhuma tag atribuída.</span>
-                )}
-                <button className="px-2 py-1 rounded-md border border-dashed border-slate-300 text-slate-400 text-xs hover:border-indigo-400 hover:text-indigo-500 transition-colors">
-                    + Adicionar
-                </button>
-            </div>
-        </div>
-    </div>
-);
-
-const DocumentsContent: React.FC<{ userId: string; documents: DocumentItem[]; onUpload: () => void }> = ({ userId, documents, onUpload }) => {
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [uploading, setUploading] = useState(false);
-
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            setUploading(true);
-            const reader = new FileReader();
-            reader.onloadend = async () => {
-                try {
-                    const base64 = reader.result as string;
-                    await fetch('/api/admin/upload-document', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, title: file.name, base64 })
-                    });
-                    onUpload(); // Refresh parent
-                } catch (err) {
-                    alert("Erro no upload");
-                } finally {
-                    setUploading(false);
-                }
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    return (
-        <div className="space-y-4 animate-fade-in">
-            <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-900 dark:text-white">Arquivos do Cliente</h3>
-                <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 flex items-center gap-1"
-                >
-                    {uploading ? <LoadingSpinner /> : (
-                        <>
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                            Upload Manual
-                        </>
-                    )}
-                </button>
-                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} accept="image/*,.pdf" />
-            </div>
-
-            {documents.length === 0 ? (
-                <div className="text-center py-8 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-                    <p className="text-slate-400 text-sm">Nenhum documento encontrado.</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 gap-2">
-                    {documents.map((doc) => (
-                        <div key={doc.id} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg hover:shadow-sm transition-shadow">
-                            <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${doc.status === 'Assinado' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-slate-800 dark:text-white">{doc.title}</p>
-                                    <p className="text-xs text-slate-500">{new Date(doc.created_at).toLocaleDateString()} • {doc.status}</p>
-                                </div>
-                            </div>
-                            <button className="text-indigo-600 text-xs font-bold hover:underline">Ver</button>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-const ToolsContent: React.FC<{ client: EnhancedProfile; onUpdate: () => void }> = ({ client, onUpdate }) => {
-    const [notes, setNotes] = useState(client.internalNotes || '');
-    const [isSaving, setIsSaving] = useState(false);
-
-    const handleSaveNotes = async () => {
-        setIsSaving(true);
-        try {
-            await fetch('/api/admin/manage-profile', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: client.id, internal_notes: notes })
-            });
-            onUpdate();
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleBlockToggle = async () => {
-        if (!confirm(`Deseja ${client.isBlocked ? 'desbloquear' : 'bloquear'} este cliente?`)) return;
-        try {
-            await fetch('/api/admin/manage-profile', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: client.id, credit_status: client.isBlocked ? 'Ativo' : 'Bloqueado' })
-            });
-            onUpdate();
-        } catch (e) { console.error(e); }
-    };
-
-    const handleResetPassword = async () => {
-        if (!confirm("Enviar email de redefinição de senha para o cliente?")) return;
-        try {
-            await fetch('/api/admin/manage-profile', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: client.id, resetPassword: true })
-            });
-            alert("Email enviado!");
-        } catch (e) { console.error(e); }
-    };
-
-    const openWhatsapp = () => {
-        const phone = client.phone?.replace(/\D/g, '');
-        if (phone) window.open(`https://wa.me/55${phone}`, '_blank');
-        else alert("Telefone não cadastrado.");
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            {/* Ações Rápidas Grid */}
-            <div className="grid grid-cols-3 gap-3">
-                <ActionButton 
-                    label="WhatsApp" 
-                    icon={<svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>}
-                    onClick={openWhatsapp}
-                    colorClass="bg-green-100 text-green-700"
-                />
-                <ActionButton 
-                    label={client.isBlocked ? 'Desbloquear' : 'Bloquear'} 
-                    icon={client.isBlocked ? <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
-                    onClick={handleBlockToggle}
-                    colorClass={client.isBlocked ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}
-                />
-                <ActionButton 
-                    label="Reset Senha" 
-                    icon={<svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>}
-                    onClick={handleResetPassword}
-                    colorClass="bg-orange-100 text-orange-700"
-                />
-            </div>
-
-            {/* Anotações Internas */}
-            <div>
-                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
-                    Anotações Internas (Privado)
-                </label>
-                <textarea 
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    rows={4}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                    placeholder="Escreva observações sobre o cliente aqui..."
-                />
-                <div className="flex justify-end mt-2">
-                    <button 
-                        onClick={handleSaveNotes}
-                        disabled={isSaving || notes === client.internalNotes}
-                        className="px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold rounded-lg disabled:opacity-50"
-                    >
-                        {isSaving ? 'Salvando...' : 'Salvar Nota'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- ClientsTab Principal ---
-
-const ClientsTab: React.FC = () => {
+const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
-    const [invoices, setInvoices] = useState<Invoice[]>([]);
-    const [documents, setDocuments] = useState<DocumentItem[]>([]);
+    const [invoices, setInvoices] = useState<Invoice[]>([]); 
     const [isDataLoading, setIsDataLoading] = useState(true);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
     
-    // UI State
-    const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-    const [drawerTab, setDrawerTab] = useState<'overview' | 'invoices' | 'docs' | 'tools'>('overview');
+    // UI States
     const [searchTerm, setSearchTerm] = useState('');
-    const [showRiskModal, setShowRiskModal] = useState(false);
-    const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null);
+    const [filterStatus, setFilterStatus] = useState<'todos' | 'inadimplentes' | 'vip'>('todos');
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
     
-    // Bulk Selection & Negotiation
+    const [selectedClientId, setSelectedClientId] = useState<string | null>(null); 
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+    const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
+    
+    // Negotiation States
+    const [isNegotiationMode, setIsNegotiationMode] = useState(false);
     const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
     const [showNegotiationModal, setShowNegotiationModal] = useState(false);
-    const [isNegotiating, setIsNegotiating] = useState(false);
 
-    // Dados para modais
-    const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
-    
-    // Carregamento
+    // Fetch Data via Admin API to bypass RLS issues
     const fetchData = useCallback(async () => {
+        setIsDataLoading(true);
+        setErrorMsg(null);
         try {
-            const [profRes, invRes] = await Promise.all([
+            const [profilesRes, invoicesRes] = await Promise.all([
                 fetch('/api/admin/profiles'),
                 fetch('/api/admin/invoices')
             ]);
-            
-            if (profRes.ok) setProfiles(await profRes.json());
-            if (invRes.ok) setInvoices(await invRes.json());
-        } catch (e) {
-            console.error(e);
+
+            if (!profilesRes.ok) throw new Error('Falha ao carregar perfis');
+            if (!invoicesRes.ok) throw new Error('Falha ao carregar faturas');
+
+            setProfiles(await profilesRes.json());
+            setInvoices(await invoicesRes.json());
+        } catch (e: any) {
+            console.error("Failed to load CRM data", e);
+            setErrorMsg(e.message);
         } finally {
             setIsDataLoading(false);
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
-
     useEffect(() => {
-        // Reset selection when client changes
-        setSelectedInvoiceIds(new Set());
-    }, [selectedClientId]);
+        fetchData();
+    }, [fetchData]);
 
-    // Processamento de Perfis
+    // Lógica de CRM
     const enhancedProfiles: EnhancedProfile[] = useMemo(() => {
         return profiles.map(profile => {
             const userInvoices = invoices.filter(inv => inv.user_id === profile.id);
-            const paidInvoices = userInvoices.filter(i => i.status === 'Paga');
-            const openInvoices = userInvoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado');
             
-            const totalPaid = paidInvoices.reduce((acc, i) => acc + i.amount, 0);
-            const totalDebt = openInvoices.reduce((acc, i) => acc + i.amount, 0);
-            const ticketAvg = paidInvoices.length > 0 ? totalPaid / paidInvoices.length : 0;
+            const totalPaid = userInvoices
+                .filter(inv => inv.status === 'Paga')
+                .reduce((sum, inv) => sum + inv.amount, 0);
             
-            const limit = profile.credit_limit || 1;
-            const utilization = (totalDebt / limit) * 100;
-            
-            const riskFactors = [];
-            if (openInvoices.some(i => new Date(i.due_date) < new Date())) riskFactors.push("Faturas em atraso");
-            if (utilization > 90) riskFactors.push("Uso de limite acima de 90%");
-            if ((profile.credit_score || 0) < 400) riskFactors.push("Score de crédito baixo");
-            if (profile.credit_status === 'Bloqueado') riskFactors.push("Cliente bloqueado manualmente");
+            const totalDebt = userInvoices
+                .filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado')
+                .reduce((sum, inv) => sum + inv.amount, 0);
+
+            const lastPurchase = userInvoices.length > 0 
+                ? userInvoices.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0].created_at 
+                : null;
+
+            const limit = profile.credit_limit || 1; 
+            const utilizationRate = Math.min(100, (totalDebt / limit) * 100);
 
             let riskLevel: 'Baixo' | 'Médio' | 'Alto' = 'Baixo';
-            if (riskFactors.length >= 2 || riskFactors.includes("Faturas em atraso")) riskLevel = 'Alto';
-            else if (riskFactors.length === 1) riskLevel = 'Médio';
+            const hasLateInvoices = userInvoices.some(inv => 
+                (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado') && 
+                new Date(inv.due_date) < new Date()
+            );
+
+            if (hasLateInvoices || utilizationRate > 90 || profile.credit_status === 'Bloqueado') riskLevel = 'Alto';
+            else if (utilizationRate > 70 || (profile.credit_score || 0) < 500) riskLevel = 'Médio';
 
             return {
                 ...profile,
                 ltv: totalPaid,
                 totalDebt,
-                lastPurchaseDate: null,
+                lastPurchaseDate: lastPurchase,
                 invoiceCount: userInvoices.length,
                 riskLevel,
-                utilizationRate: utilization,
-                isBlocked: profile.credit_status === 'Bloqueado',
-                ticketAverage: ticketAvg,
-                riskFactors
+                utilizationRate,
+                isBlocked: profile.credit_status === 'Bloqueado'
             };
         });
     }, [profiles, invoices]);
 
-    const filtered = useMemo(() => {
-        const lower = searchTerm.toLowerCase();
-        return enhancedProfiles.filter(p => 
-            p.first_name?.toLowerCase().includes(lower) || 
-            p.email?.toLowerCase().includes(lower) ||
-            p.identification_number?.includes(lower)
-        );
-    }, [enhancedProfiles, searchTerm]);
+    const filteredProfiles = useMemo(() => {
+        return enhancedProfiles.filter(p => {
+            const searchLower = searchTerm.toLowerCase();
+            const matchesSearch = 
+                p.first_name?.toLowerCase().includes(searchLower) || 
+                p.last_name?.toLowerCase().includes(searchLower) ||
+                p.email?.toLowerCase().includes(searchLower) ||
+                p.identification_number?.includes(searchLower);
 
-    const selectedClient = enhancedProfiles.find(p => p.id === selectedClientId);
-    const clientInvoices = invoices.filter(i => i.user_id === selectedClientId);
+            if (!matchesSearch) return false;
+            if (filterStatus === 'inadimplentes') return p.riskLevel === 'Alto';
+            if (filterStatus === 'vip') return (p.credit_score || 0) > 800;
+            return true;
+        });
+    }, [enhancedProfiles, searchTerm, filterStatus]);
 
-    // Actions
-    const handleInvoiceAction = async (id: string, action: 'pay' | 'cancel' | 'delete') => {
-        if (!confirm(`Tem certeza?`)) return;
-        setInvoiceActionLoading(id);
-        try {
-            const method = action === 'delete' ? 'DELETE' : 'PUT';
-            const body = action === 'delete' ? { id } : { id, action };
-            await fetch('/api/admin/manage-invoices', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            fetchData();
-        } catch (e) { alert("Erro ao processar ação."); } 
-        finally { setInvoiceActionLoading(null); }
+    const handleOpenDrawer = (clientId: string) => {
+        setSelectedClientId(clientId);
+        setIsDrawerOpen(true);
+        // Resetar estados ao abrir novo cliente
+        setIsNegotiationMode(false);
+        setSelectedInvoiceIds(new Set());
     };
 
-    const handleBulkDelete = async () => {
-        if (selectedInvoiceIds.size === 0) return;
-        if (!confirm(`Excluir ${selectedInvoiceIds.size} faturas permanentemente?`)) return;
-        
-        try {
-            await fetch('/api/admin/manage-invoices', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ids: Array.from(selectedInvoiceIds) })
-            });
-            fetchData();
-            setSelectedInvoiceIds(new Set());
-        } catch (e) { alert("Erro ao excluir."); }
-    };
-
-    const handleNegotiation = async (config: { totalAmount: number, installments: number, interestRate: number }) => {
-        setIsNegotiating(true);
-        try {
-            const firstInvoiceId = Array.from(selectedInvoiceIds)[0];
-            const firstInvoice = clientInvoices.find(i => i.id === firstInvoiceId);
-            const firstDueDate = firstInvoice?.due_date || new Date().toISOString();
-
-            const res = await fetch('/api/admin/negotiate-debt', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: selectedClientId,
-                    invoiceIds: Array.from(selectedInvoiceIds),
-                    totalAmount: config.totalAmount,
-                    installments: config.installments,
-                    firstDueDate: firstDueDate,
-                    interestRate: config.interestRate
-                })
-            });
-            
-            if (!res.ok) throw new Error("Falha na negociação");
-            
-            alert("Negociação criada! O contrato foi gerado e aguarda assinatura do cliente.");
-            setShowNegotiationModal(false);
-            setSelectedInvoiceIds(new Set());
-            fetchData();
-        } catch (e) {
-            alert("Erro ao criar negociação.");
-        } finally {
-            setIsNegotiating(false);
-        }
-    };
-
-    const toggleSelectInvoice = (id: string) => {
+    const toggleInvoiceSelection = (id: string) => {
         const newSet = new Set(selectedInvoiceIds);
         if (newSet.has(id)) newSet.delete(id);
         else newSet.add(id);
         setSelectedInvoiceIds(newSet);
     };
 
-    const toggleSelectAll = () => {
-        if (selectedInvoiceIds.size === clientInvoices.filter(i => i.status !== 'Paga').length) {
-            setSelectedInvoiceIds(new Set());
-        } else {
-            const allIds = clientInvoices.filter(i => i.status !== 'Paga').map(i => i.id);
-            setSelectedInvoiceIds(new Set(allIds));
+    const handleNegotiationSubmit = async (data: any) => {
+        try {
+            const res = await fetch('/api/admin/negotiate-debt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: selectedClientId,
+                    ...data
+                })
+            });
+            
+            if (!res.ok) throw new Error('Erro ao processar negociação');
+            
+            setSuccessMessage('Acordo realizado com sucesso!');
+            setTimeout(() => setSuccessMessage(null), 3000);
+            
+            setIsDrawerOpen(false);
+            fetchData(); // Recarrega dados
+        } catch (e: any) {
+            setErrorMsg(e.message);
         }
     };
 
     if (isDataLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
+    if (errorMsg) return <div className="p-8"><Alert message={`Erro ao carregar dados: ${errorMsg}`} type="error" /></div>;
+
+    const selectedClient = enhancedProfiles.find(p => p.id === selectedClientId);
+    // Filtrar apenas faturas não pagas para negociação, ou todas para histórico
+    const selectedClientInvoices = invoices.filter(inv => inv.user_id === selectedClientId);
+    const negotiationInvoices = selectedClientInvoices.filter(inv => selectedInvoiceIds.has(inv.id));
 
     return (
         <div className="p-4 space-y-6 bg-slate-50 dark:bg-slate-900/50 min-h-screen">
-            
-            {/* Search Bar */}
-            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                <input 
-                    type="text" 
-                    placeholder="Buscar cliente por nome, CPF ou email..." 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-100 dark:bg-slate-900 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+            {/* Success Toast */}
+            {successMessage && (
+                <div className="fixed top-4 right-4 z-[100] animate-fade-in">
+                    <Alert message={successMessage} type="success" />
+                </div>
+            )}
+
+            {/* Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard title="Total Clientes" value={enhancedProfiles.length} icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>} color="bg-indigo-600" />
+                <StatCard title="Em Aberto" value={enhancedProfiles.reduce((acc, p) => acc + p.totalDebt, 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'})} icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} color="bg-amber-500" />
             </div>
 
-            {/* Client List */}
+            {/* Toolbar */}
+            <div className="flex flex-col md:flex-row justify-between gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex flex-1 gap-2">
+                    <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-4 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none" />
+                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as any)} className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none">
+                        <option value="todos">Todos</option>
+                        <option value="inadimplentes">Inadimplentes</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Lista */}
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                    <thead className="bg-slate-50 dark:bg-slate-900/50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Risco</th>
-                            <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase">Dívida</th>
-                            <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase">Ação</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                        {filtered.map(client => (
-                            <tr key={client.id} onClick={() => { setSelectedClientId(client.id); setDrawerTab('overview'); }} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer transition-colors">
-                                <td className="px-6 py-4">
-                                    <p className="font-bold text-slate-900 dark:text-white text-sm">{client.first_name} {client.last_name}</p>
-                                    <p className="text-xs text-slate-500">{client.email}</p>
-                                </td>
-                                <td className="px-6 py-4">
-                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${client.riskLevel === 'Alto' ? 'bg-red-100 text-red-700 border-red-200' : client.riskLevel === 'Médio' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                                        {client.riskLevel}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 font-mono text-sm font-bold text-slate-700 dark:text-slate-300">
-                                    R$ {client.totalDebt.toLocaleString('pt-BR')}
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <button className="text-indigo-600 font-bold text-xs hover:underline">Gerenciar</button>
-                                </td>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                        <thead className="bg-slate-50 dark:bg-slate-900/50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Cliente</th>
+                                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Risco</th>
+                                <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Dívida</th>
+                                <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Ações</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                            {filteredProfiles.map((client) => (
+                                <tr key={client.id} onClick={() => handleOpenDrawer(client.id)} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer">
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm font-bold text-slate-900 dark:text-white">{client.first_name} {client.last_name}</div>
+                                        <div className="text-xs text-slate-500">{client.email}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap"><RiskBadge level={client.riskLevel} /></td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-700 dark:text-slate-300">R$ {client.totalDebt.toLocaleString('pt-BR')}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 font-bold">Detalhes</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
-            {/* Drawer */}
-            {selectedClientId && selectedClient && (
+            {/* Drawer Detalhes & Negociação */}
+            {isDrawerOpen && selectedClient && (
                 <div className="fixed inset-0 z-50 flex justify-end">
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedClientId(null)}></div>
-                    <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-right">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setIsDrawerOpen(false)}></div>
+                    <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-right overflow-hidden">
                         
-                        {/* Drawer Header */}
-                        <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center shrink-0">
+                        {/* Header Drawer */}
+                        <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
                             <div>
-                                <h2 className="text-2xl font-black text-slate-900 dark:text-white">{selectedClient.first_name}</h2>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className={`w-2 h-2 rounded-full ${selectedClient.isBlocked ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                                    <span className="text-xs text-slate-500">{selectedClient.isBlocked ? 'Bloqueado' : 'Ativo'} • Score: {selectedClient.credit_score}</span>
-                                    <button onClick={() => setShowRiskModal(true)} className="ml-2 text-[10px] font-bold text-red-500 border border-red-200 bg-red-50 px-1.5 rounded hover:bg-red-100">
-                                        Ver Risco
-                                    </button>
+                                <h2 className="text-2xl font-black text-slate-900 dark:text-white">{selectedClient.first_name} {selectedClient.last_name}</h2>
+                                <p className="text-sm text-slate-500 flex gap-2 items-center">
+                                    {selectedClient.identification_number}
+                                    <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                                    Score: {selectedClient.credit_score}
+                                </p>
+                            </div>
+                            <button onClick={() => setIsDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            {/* Resumo Financeiro */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <p className="text-xs text-slate-500 uppercase font-bold">Limite Total</p>
+                                    <p className="text-xl font-black text-slate-900 dark:text-white">R$ {selectedClient.credit_limit}</p>
+                                </div>
+                                <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800/30">
+                                    <p className="text-xs text-red-600 uppercase font-bold">Dívida Ativa</p>
+                                    <p className="text-xl font-black text-red-600 dark:text-red-400">R$ {selectedClient.totalDebt}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setSelectedClientId(null)} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300">✕</button>
-                        </div>
-
-                        {/* Drawer Tabs */}
-                        <div className="flex border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-900 overflow-x-auto">
-                            <TabButton active={drawerTab === 'overview'} onClick={() => setDrawerTab('overview')}>Resumo</TabButton>
-                            <TabButton active={drawerTab === 'invoices'} onClick={() => setDrawerTab('invoices')} count={clientInvoices.filter(i=>i.status==='Em aberto').length}>Faturas</TabButton>
-                            <TabButton active={drawerTab === 'docs'} onClick={() => setDrawerTab('docs')}>Documentos</TabButton>
-                            <TabButton active={drawerTab === 'tools'} onClick={() => setDrawerTab('tools')}>Ferramentas</TabButton>
-                        </div>
-
-                        {/* Drawer Content */}
-                        <div className="flex-1 overflow-y-auto p-6 bg-white dark:bg-slate-900">
-                            {drawerTab === 'overview' && <OverviewContent client={selectedClient} />}
                             
-                            {drawerTab === 'invoices' && (
-                                <div className="space-y-3 relative pb-20">
-                                    <div className="flex justify-between items-center mb-2 px-1">
-                                        <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">
-                                            <input type="checkbox" checked={selectedInvoiceIds.size > 0 && selectedInvoiceIds.size === clientInvoices.filter(i => i.status !== 'Paga').length} onChange={toggleSelectAll} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                                            Selecionar Todos
-                                        </label>
-                                        <span className="text-xs text-slate-400">{selectedInvoiceIds.size} selecionados</span>
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Histórico de Faturas</h3>
+                                {isNegotiationMode ? (
+                                    <div className="flex gap-2">
+                                        <span className="text-xs font-bold text-indigo-600 self-center mr-2">
+                                            {selectedInvoiceIds.size} selecionadas
+                                        </span>
+                                        <button 
+                                            onClick={() => { setIsNegotiationMode(false); setSelectedInvoiceIds(new Set()); }}
+                                            className="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowNegotiationModal(true)}
+                                            disabled={selectedInvoiceIds.size === 0}
+                                            className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 shadow-lg"
+                                        >
+                                            Negociar Seleção
+                                        </button>
                                     </div>
+                                ) : (
+                                    <button 
+                                        onClick={() => setIsNegotiationMode(true)}
+                                        className="px-4 py-2 text-xs font-bold text-white bg-slate-900 dark:bg-white dark:text-slate-900 rounded-lg hover:opacity-90 transition-opacity"
+                                    >
+                                        Iniciar Negociação
+                                    </button>
+                                )}
+                            </div>
 
-                                    {clientInvoices.map(inv => (
-                                        <div key={inv.id} className={`p-4 border rounded-xl flex flex-col gap-3 transition-colors ${selectedInvoiceIds.has(inv.id) ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/30'}`}>
-                                            <div className="flex justify-between items-start">
+                            {/* Lista de Faturas com Checkbox para Negociação */}
+                            <div className="space-y-2">
+                                {selectedClientInvoices.length === 0 ? (
+                                    <p className="text-center text-slate-400 py-4">Nenhuma fatura encontrada.</p>
+                                ) : (
+                                    selectedClientInvoices.map(inv => {
+                                        const isSelectable = (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado');
+                                        const isSelected = selectedInvoiceIds.has(inv.id);
+                                        const isLate = new Date(inv.due_date) < new Date();
+
+                                        return (
+                                            <div 
+                                                key={inv.id} 
+                                                onClick={() => isNegotiationMode && isSelectable ? toggleInvoiceSelection(inv.id) : null}
+                                                className={`flex justify-between items-center p-3 border rounded-lg transition-all ${
+                                                    isSelected 
+                                                    ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 dark:bg-indigo-900/30' 
+                                                    : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700'
+                                                } ${isNegotiationMode && isSelectable ? 'cursor-pointer hover:shadow-md' : ''}`}
+                                            >
                                                 <div className="flex items-center gap-3">
-                                                    {inv.status !== 'Paga' && (
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={selectedInvoiceIds.has(inv.id)} 
-                                                            onChange={() => toggleSelectInvoice(inv.id)}
-                                                            className="rounded text-indigo-600 w-4 h-4 cursor-pointer"
-                                                        />
+                                                    {isNegotiationMode && (
+                                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 bg-white'}`}>
+                                                            {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                                                        </div>
                                                     )}
                                                     <div>
-                                                        <p className="font-bold text-slate-900 dark:text-white text-sm">{inv.month}</p>
-                                                        <p className="text-xs text-slate-500">Vence: {new Date(inv.due_date).toLocaleDateString()}</p>
+                                                        <p className="font-bold text-sm text-slate-800 dark:text-white">{inv.month}</p>
+                                                        <p className={`text-xs ${isLate ? 'text-red-500 font-bold' : 'text-slate-500'}`}>
+                                                            {new Date(inv.due_date).toLocaleDateString()} 
+                                                            {isLate && ' (Atrasada)'}
+                                                        </p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="font-bold text-slate-900 dark:text-white">R$ {inv.amount.toFixed(2)}</p>
-                                                    <span className={`text-[10px] font-bold uppercase ${inv.status === 'Paga' ? 'text-green-600' : inv.status === 'Aguardando Assinatura' ? 'text-yellow-600' : 'text-red-600'}`}>{inv.status}</span>
+                                                
+                                                <div className="flex items-center gap-3">
+                                                    <div className="text-right">
+                                                        <p className="font-bold text-sm">R$ {inv.amount.toFixed(2)}</p>
+                                                        <p className={`text-[10px] uppercase font-bold ${inv.status === 'Paga' ? 'text-green-600' : 'text-red-600'}`}>{inv.status}</p>
+                                                    </div>
+                                                    {/* Botão Ver Detalhes (Olho) */}
+                                                    {!isNegotiationMode && (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setViewingInvoice(inv); }}
+                                                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors"
+                                                            title="Ver Detalhes da Fatura"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
-                                            
-                                            {/* Action Buttons Row */}
-                                            <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 pl-7">
-                                                <button onClick={() => setViewInvoice(inv)} className="flex-1 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded">
-                                                    Detalhes
-                                                </button>
-                                                {inv.status !== 'Paga' && inv.status !== 'Aguardando Assinatura' && (
-                                                    <>
-                                                        <button 
-                                                            onClick={() => handleInvoiceAction(inv.id, 'pay')}
-                                                            disabled={!!invoiceActionLoading}
-                                                            className="flex-1 py-1.5 text-xs font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded"
-                                                        >
-                                                            Pagar
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleInvoiceAction(inv.id, 'delete')}
-                                                            disabled={!!invoiceActionLoading}
-                                                            className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded"
-                                                        >
-                                                            Excluir
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-
-                                    {/* Action Bar Flutuante */}
-                                    {selectedInvoiceIds.size > 0 && (
-                                        <div className="absolute bottom-4 left-0 right-0 mx-4 bg-slate-800 text-white p-3 rounded-xl shadow-xl flex items-center justify-between animate-fade-in-up z-10">
-                                            <span className="text-xs font-bold pl-2">{selectedInvoiceIds.size} Selecionados</span>
-                                            <div className="flex gap-2">
-                                                <button 
-                                                    onClick={handleBulkDelete}
-                                                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors"
-                                                >
-                                                    Excluir Tudo
-                                                </button>
-                                                <button 
-                                                    onClick={() => setShowNegotiationModal(true)}
-                                                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors"
-                                                >
-                                                    Negociar Dívida
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {drawerTab === 'docs' && (
-                                <DocumentsContent 
-                                    userId={selectedClient.id} 
-                                    documents={documents} 
-                                    onUpload={() => fetchData()} 
-                                />
-                            )}
-
-                            {drawerTab === 'tools' && (
-                                <ToolsContent client={selectedClient} onUpdate={fetchData} />
-                            )}
+                                        );
+                                    })
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modals */}
-            {showRiskModal && selectedClient && (
-                <Modal isOpen={true} onClose={() => setShowRiskModal(false)}>
-                    <RiskFactorsModal 
-                        factors={selectedClient.riskFactors} 
-                        score={selectedClient.credit_score || 0} 
-                        level={selectedClient.riskLevel}
-                        onClose={() => setShowRiskModal(false)} 
-                    />
-                </Modal>
-            )}
+            {/* Modal de Detalhes */}
+            <Modal isOpen={!!viewingInvoice} onClose={() => setViewingInvoice(null)}>
+                {viewingInvoice && <InvoiceDetailModal invoice={viewingInvoice} onClose={() => setViewingInvoice(null)} />}
+            </Modal>
 
-            {viewInvoice && (
-                <Modal isOpen={true} onClose={() => setViewInvoice(null)}>
-                    <div className="space-y-4">
-                        <h3 className="font-bold text-lg">Detalhes da Fatura</h3>
-                        <p className="text-sm"><strong>Descrição:</strong> {viewInvoice.notes || viewInvoice.month}</p>
-                        <p className="text-sm"><strong>ID:</strong> {viewInvoice.id}</p>
-                        <p className="text-sm"><strong>Criado em:</strong> {new Date(viewInvoice.created_at).toLocaleString()}</p>
-                        <button onClick={() => setViewInvoice(null)} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold">Fechar</button>
-                    </div>
-                </Modal>
-            )}
-
-            {showNegotiationModal && (
-                <Modal isOpen={true} onClose={() => setShowNegotiationModal(false)}>
-                    <NegotiationModal 
-                        invoices={clientInvoices.filter(i => selectedInvoiceIds.has(i.id))} 
-                        onClose={() => setShowNegotiationModal(false)}
-                        onConfirm={handleNegotiation}
-                        isLoading={isNegotiating}
-                    />
-                </Modal>
-            )}
+            {/* Modal de Negociação */}
+            <Modal isOpen={showNegotiationModal} onClose={() => setShowNegotiationModal(false)}>
+                <NegotiationModal 
+                    selectedInvoices={negotiationInvoices} 
+                    onClose={() => setShowNegotiationModal(false)} 
+                    onConfirm={handleNegotiationSubmit}
+                />
+            </Modal>
         </div>
     );
 };
