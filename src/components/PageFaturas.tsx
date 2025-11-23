@@ -556,7 +556,30 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const activeGroups = groupedInvoices.filter(g => g.status !== 'completed');
     const completedGroups = groupedInvoices.filter(g => g.status === 'completed');
     const totalDue = activeGroups.reduce((acc, g) => acc + g.remainingAmount, 0);
-    const overdueInvoices = invoices.filter(i => (i.status === 'Em aberto' || i.status === 'Boleto Gerado') && new Date(i.due_date) < new Date());
+    
+    // Filtra faturas elegíveis para renegociação
+    const overdueInvoices = useMemo(() => {
+        return invoices.filter(i => {
+            const isPending = i.status === 'Em aberto' || i.status === 'Boleto Gerado';
+            if (!isPending) return false;
+
+            // Regra 1: Ignorar Entrada (Notas contêm 'ENTRADA' ou nome da fatura)
+            if (i.notes?.includes('ENTRADA') || i.month.toLowerCase().includes('entrada')) return false;
+
+            // Regra 2: Ignorar Venda Direta / À Vista (Notas contêm 'Compra direta')
+            if (i.notes?.includes('Compra direta')) return false;
+
+            // Regra 3: Atraso > 1 dia
+            // Vencimento é até o final do dia (23:59:59)
+            const dueDate = new Date(i.due_date + 'T23:59:59'); 
+            const toleranceDate = new Date(dueDate);
+            toleranceDate.setDate(toleranceDate.getDate() + 1); // Adiciona 1 dia de tolerância
+            
+            // Se hoje for maior que a data de tolerância, está elegível
+            return new Date() > toleranceDate;
+        });
+    }, [invoices]);
+
     const lateCount = overdueInvoices.length;
 
     // Calculate Limits based on Monthly Margin
@@ -757,7 +780,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         <div className="w-full max-w-md space-y-6 animate-fade-in pb-safe relative">
             {showConfetti && <Confetti />}
             
-            {/* Banner de Renegociação se houver atrasos */}
+            {/* Banner de Renegociação se houver atrasos (Elegíveis) */}
             {lateCount > 0 && activeTab === 'active' && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-center justify-between shadow-sm animate-pulse">
                     <div className="flex items-center gap-3">
@@ -869,7 +892,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 </div>
             )}
 
-            {/* Modal de Renegociação */}
+            {/* Modal de Renegociação (Passando apenas as vencidas elegíveis) */}
             <Modal isOpen={isRenegotiating} onClose={() => setIsRenegotiating(false)}>
                 <RenegotiationModal 
                     overdueInvoices={overdueInvoices} 
