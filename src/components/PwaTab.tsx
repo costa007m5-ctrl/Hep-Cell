@@ -32,12 +32,16 @@ interface Manifest {
     categories?: string[];
 }
 
+// Ícone SVG Oficial (O mesmo do index.html)
+const APP_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><defs><linearGradient id="grad" x1="0" y1="0" x2="200" y2="200"><stop offset="0%" stop-color="#4f46e5"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient></defs><rect width="200" height="200" rx="40" fill="url(#grad)"/><rect x="55" y="45" width="90" height="70" rx="8" fill="white" fill-opacity="0.15"/><path d="M75 135 V 65 H 105 C 125 65, 125 85, 105 85 H 75 M 105 85 L 125 135" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M135 40 A 20 20 0 0 1 155 60" stroke="#4ade80" stroke-width="8" stroke-linecap="round" fill="none"/><path d="M145 30 A 35 35 0 0 1 170 65" stroke="#4ade80" stroke-width="8" stroke-linecap="round" fill="none"/><circle cx="100" cy="160" r="8" fill="white" fill-opacity="0.8"/></svg>`;
+
 const PwaTab: React.FC = () => {
     const [manifest, setManifest] = useState<Manifest | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [swStatus, setSwStatus] = useState<{ active: boolean; state: string }>({ active: false, state: 'unknown' });
     const [isHttps, setIsHttps] = useState(false);
+    const [isDownloading, setIsDownloading] = useState<string | null>(null);
 
     useEffect(() => {
         const checkPwaHealth = async () => {
@@ -74,6 +78,51 @@ const PwaTab: React.FC = () => {
         checkPwaHealth();
     }, []);
 
+    // Funções de Download
+    const downloadBlob = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleDownloadSVG = () => {
+        const blob = new Blob([APP_ICON_SVG], { type: 'image/svg+xml;charset=utf-8' });
+        downloadBlob(blob, 'relp-cell-icon.svg');
+    };
+
+    const handleDownloadPNG = async (size: number) => {
+        setIsDownloading(`${size}px`);
+        try {
+            const img = new Image();
+            const svgBlob = new Blob([APP_ICON_SVG], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+            
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0, size, size);
+                    canvas.toBlob((blob) => {
+                        if (blob) downloadBlob(blob, `relp-cell-icon-${size}x${size}.png`);
+                        URL.revokeObjectURL(url);
+                        setIsDownloading(null);
+                    }, 'image/png');
+                }
+            };
+            img.src = url;
+        } catch (e) {
+            console.error(e);
+            setIsDownloading(null);
+        }
+    };
+
     const StatusBadge: React.FC<{ label: string; success: boolean; errorText?: string }> = ({ label, success, errorText }) => (
         <div className={`flex items-center justify-between p-3 rounded-lg border ${success ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'}`}>
             <div className="flex items-center gap-3">
@@ -101,7 +150,7 @@ const PwaTab: React.FC = () => {
                 <div>
                     <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Auditoria PWA Builder</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        Verifique se seu app está pronto para publicação nas lojas (Google Play, App Store).
+                        Verifique se seu app está pronto para publicação e baixe os ativos oficiais.
                     </p>
                 </div>
                 <a 
@@ -117,9 +166,37 @@ const PwaTab: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* Coluna 1: Status Check */}
+                {/* Coluna 1: Downloads */}
                 <div className="space-y-4">
-                    <h3 className="font-bold text-slate-800 dark:text-white text-lg">Requisitos Técnicos</h3>
+                    <h3 className="font-bold text-slate-800 dark:text-white text-lg">Downloads de Ativos</h3>
+                    <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col items-center">
+                        <div className="w-32 h-32 mb-4 drop-shadow-xl" dangerouslySetInnerHTML={{ __html: APP_ICON_SVG }} />
+                        <p className="text-sm font-bold text-slate-700 dark:text-white mb-4">Ícone Oficial Relp Cell</p>
+                        
+                        <div className="w-full space-y-2">
+                            <button onClick={handleDownloadSVG} className="w-full py-2 px-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors flex items-center justify-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Baixar Vetor (SVG)
+                            </button>
+                            <button onClick={() => handleDownloadPNG(512)} disabled={!!isDownloading} className="w-full py-2 px-4 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors flex items-center justify-center gap-2">
+                                {isDownloading === '512px' ? <LoadingSpinner /> : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        Baixar PNG (512px)
+                                    </>
+                                )}
+                            </button>
+                            <button onClick={() => handleDownloadPNG(192)} disabled={!!isDownloading} className="w-full py-2 px-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors flex items-center justify-center gap-2">
+                                {isDownloading === '192px' ? <LoadingSpinner /> : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        Baixar PNG (192px)
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-3">
                         <StatusBadge 
                             label="Arquivo Manifest" 
@@ -135,21 +212,6 @@ const PwaTab: React.FC = () => {
                             label="Protocolo Seguro (HTTPS)" 
                             success={isHttps} 
                             errorText="PWAs exigem certificado SSL (https://) para funcionar."
-                        />
-                        <StatusBadge 
-                            label="Ícones Maskable" 
-                            success={manifest?.icons?.some(i => i.purpose === 'maskable') || false} 
-                            errorText="Necessário ícone com purpose: 'maskable' para Android."
-                        />
-                        <StatusBadge 
-                            label="Screenshots Mobile" 
-                            success={manifest?.screenshots?.some(s => s.form_factor === 'narrow') || false} 
-                            errorText="Adicione screenshots com form_factor: 'narrow'."
-                        />
-                        <StatusBadge 
-                            label="Screenshots Desktop" 
-                            success={manifest?.screenshots?.some(s => s.form_factor === 'wide') || false} 
-                            errorText="Adicione screenshots com form_factor: 'wide'."
                         />
                     </div>
                 </div>
@@ -175,20 +237,6 @@ const PwaTab: React.FC = () => {
                                     Nenhum screenshot definido no manifesto.
                                 </div>
                             )}
-                        </div>
-                    </div>
-
-                    {/* Icons Gallery */}
-                    <div>
-                        <h3 className="font-bold text-slate-800 dark:text-white text-lg mb-4">Ícones do App</h3>
-                        <div className="flex flex-wrap gap-4">
-                            {manifest?.icons?.map((icon, idx) => (
-                                <div key={idx} className="flex flex-col items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                                    <img src={icon.src} alt="Icon" className="w-16 h-16 object-contain mb-2" />
-                                    <span className="text-xs font-mono text-slate-500 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">{icon.sizes}</span>
-                                    <span className="text-[10px] text-slate-400 mt-1">{icon.purpose || 'any'}</span>
-                                </div>
-                            ))}
                         </div>
                     </div>
 
