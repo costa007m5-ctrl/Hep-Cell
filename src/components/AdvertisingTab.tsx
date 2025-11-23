@@ -10,6 +10,7 @@ interface Banner {
     cta_text: string;
     link: string;
     segment: string;
+    location: 'store' | 'home';
     active: boolean;
     start_date: string;
     end_date: string;
@@ -33,6 +34,8 @@ const StatCard: React.FC<{ title: string; value: string; subtext: string; trend:
 );
 
 const PhonePreview: React.FC<{ banner: Partial<Banner>; backgroundImage: string | null }> = ({ banner, backgroundImage }) => {
+    const isHome = banner.location === 'home';
+
     return (
         <div className="relative w-[300px] h-[600px] bg-black rounded-[3rem] border-[8px] border-slate-800 shadow-2xl overflow-hidden mx-auto transform scale-90 lg:scale-100 transition-transform">
             {/* Notch */}
@@ -48,7 +51,7 @@ const PhonePreview: React.FC<{ banner: Partial<Banner>; backgroundImage: string 
                 </div>
 
                 {/* The Banner Preview */}
-                <div className="mt-4 mx-4 relative aspect-[4/5] rounded-2xl overflow-hidden shadow-lg group cursor-pointer">
+                <div className={`mt-4 mx-4 relative rounded-2xl overflow-hidden shadow-lg group cursor-pointer ${isHome ? 'aspect-[3/2]' : 'aspect-[4/5]'}`}>
                     {backgroundImage ? (
                         <img src={backgroundImage} className="w-full h-full object-cover" alt="Preview" />
                     ) : (
@@ -62,14 +65,22 @@ const PhonePreview: React.FC<{ banner: Partial<Banner>; backgroundImage: string 
                         {banner.subtitle && (
                             <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider mb-1 bg-black/30 w-fit px-1 rounded backdrop-blur-sm">{banner.subtitle}</span>
                         )}
-                        <h2 className="text-2xl font-black text-white leading-none mb-2 drop-shadow-md">
+                        <h2 className="text-xl font-black text-white leading-none mb-2 drop-shadow-md line-clamp-2">
                             {banner.title || 'Título do Banner'}
                         </h2>
-                        <button className="mt-2 w-fit bg-white text-black text-xs font-bold px-4 py-2 rounded-full shadow-lg hover:bg-slate-100 transition-colors">
-                            {banner.cta_text || 'Ver Oferta'}
-                        </button>
+                        {!isHome && (
+                            <button className="mt-2 w-fit bg-white text-black text-xs font-bold px-4 py-2 rounded-full shadow-lg hover:bg-slate-100 transition-colors">
+                                {banner.cta_text || 'Ver Oferta'}
+                            </button>
+                        )}
                     </div>
                 </div>
+                
+                {isHome && (
+                    <div className="px-4 mt-2 text-center">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-widest mb-2">Exibição: Tela Inicial</p>
+                    </div>
+                )}
 
                 {/* Fake App Content Below */}
                 <div className="mt-6 px-4 space-y-3 opacity-30">
@@ -100,6 +111,7 @@ const AdvertisingTab: React.FC = () => {
         cta: 'Ver Agora',
         link: 'category:Ofertas',
         segment: 'all',
+        location: 'store' as 'store' | 'home',
         startDate: new Date().toISOString().split('T')[0],
         endDate: '',
         sendNotification: false
@@ -198,6 +210,7 @@ const AdvertisingTab: React.FC = () => {
                     cta_text: studioForm.cta,
                     link: studioForm.link,
                     segment: studioForm.segment,
+                    location: studioForm.location,
                     start_date: studioForm.startDate,
                     end_date: studioForm.endDate,
                     prompt: prompt,
@@ -210,7 +223,7 @@ const AdvertisingTab: React.FC = () => {
                 fetchBanners();
                 setActiveTab('campaigns');
                 // Reset form
-                setStudioForm({ title: '', subtitle: '', cta: 'Ver Agora', link: 'category:Ofertas', segment: 'all', startDate: new Date().toISOString().split('T')[0], endDate: '', sendNotification: false });
+                setStudioForm({ title: '', subtitle: '', cta: 'Ver Agora', link: 'category:Ofertas', segment: 'all', location: 'store', startDate: new Date().toISOString().split('T')[0], endDate: '', sendNotification: false });
                 setGeneratedImage(null);
                 setPrompt('');
             } else {
@@ -337,7 +350,7 @@ const AdvertisingTab: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Seção 2: Detalhes */}
+                            {/* Seção 2: Conteúdo e Destino */}
                             <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">2. Conteúdo & Destino</h3>
                                 <div className="space-y-4">
@@ -351,6 +364,26 @@ const AdvertisingTab: React.FC = () => {
                                             <input type="text" value={studioForm.subtitle} onChange={e => setStudioForm({...studioForm, subtitle: e.target.value})} className="w-full p-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Ex: -50%" />
                                         </div>
                                     </div>
+                                    
+                                    {/* Local de Exibição Selector */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">Local de Exibição</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                onClick={() => setStudioForm({ ...studioForm, location: 'store' })}
+                                                className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${studioForm.location === 'store' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}
+                                            >
+                                                🏪 Loja (Carrossel)
+                                            </button>
+                                            <button
+                                                onClick={() => setStudioForm({ ...studioForm, location: 'home' })}
+                                                className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${studioForm.location === 'home' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}
+                                            >
+                                                🏠 Início (Destaque)
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-xs font-bold text-slate-500 mb-1">Botão (CTA)</label>
@@ -364,7 +397,7 @@ const AdvertisingTab: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Seção 3: Configurações Finais */}
+                            {/* Seção 3: Audiência e Disparo */}
                             <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
                                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-4">3. Audiência & Disparo</h3>
                                 <div className="space-y-4">
@@ -421,6 +454,7 @@ const AdvertisingTab: React.FC = () => {
                                     <tr>
                                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Banner</th>
                                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Detalhes</th>
+                                        <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Local</th>
                                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Métricas</th>
                                         <th className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                                         <th className="px-6 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Ações</th>
@@ -435,6 +469,11 @@ const AdvertisingTab: React.FC = () => {
                                             <td className="px-6 py-4">
                                                 <p className="font-bold text-sm text-slate-900 dark:text-white mb-1">{banner.title}</p>
                                                 <p className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded w-fit font-mono">{banner.link}</p>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${banner.location === 'home' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                    {banner.location === 'home' ? 'Início' : 'Loja'}
+                                                </span>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex gap-4 text-xs">

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
@@ -89,6 +88,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [homeBanner, setHomeBanner] = useState<any>(null); // Novo estado para o banner dinâmico
   
   // UI States
   const [showValues, setShowValues] = useState(true);
@@ -148,6 +148,18 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
               setPendingContract(contractsData.data[0]);
           }
         }
+
+        // Fetch Home Banner
+        const bannersRes = await fetch('/api/admin/banners');
+        if (bannersRes.ok) {
+            const banners = await bannersRes.json();
+            // Encontra o banner ativo marcado para 'home' mais recente
+            const activeHomeBanner = banners.find((b: any) => b.location === 'home' && b.active);
+            if (activeHomeBanner) {
+                setHomeBanner(activeHomeBanner);
+            }
+        }
+
       } catch (error) {
         console.error("Erro ao buscar dados:", error);
       } finally {
@@ -349,25 +361,33 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             />
              <ActionButton 
                 label="Hub de Score" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
                 onClick={() => { setModalView('score'); setIsModalOpen(true); }}
             />
         </div>
 
-        {/* Featured Offer Banner */}
+        {/* Featured Offer Banner (Dynamic or Fallback) */}
         <div 
             onClick={() => setActiveTab(Tab.LOJA)}
             className="mx-2 relative h-32 rounded-2xl overflow-hidden cursor-pointer group"
         >
             <img 
-                src="https://images.unsplash.com/photo-1605236453806-67791431f370?w=600&auto=format&fit=crop&q=60" 
+                src={homeBanner ? homeBanner.image_url : "https://images.unsplash.com/photo-1605236453806-67791431f370?w=600&auto=format&fit=crop&q=60"} 
                 alt="Offer" 
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
             />
             <div className="absolute inset-0 bg-black/40 flex flex-col justify-center px-6">
-                <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded w-fit mb-2">OFERTA RELÂMPAGO</span>
-                <h3 className="text-white font-bold text-xl">iPhone 15 Pro</h3>
-                <p className="text-white/90 text-sm">A partir de R$ 299/mês</p>
+                {homeBanner && homeBanner.subtitle && (
+                    <span className="bg-indigo-500 text-white text-[10px] font-bold px-2 py-1 rounded w-fit mb-2">
+                        {homeBanner.subtitle}
+                    </span>
+                )}
+                {!homeBanner && (
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded w-fit mb-2">OFERTA RELÂMPAGO</span>
+                )}
+                
+                <h3 className="text-white font-bold text-xl">{homeBanner ? homeBanner.title : 'iPhone 15 Pro'}</h3>
+                <p className="text-white/90 text-sm">{homeBanner ? homeBanner.cta_text : 'A partir de R$ 299/mês'}</p>
             </div>
         </div>
 

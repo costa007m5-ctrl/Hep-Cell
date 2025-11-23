@@ -149,14 +149,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         }
 
         // 1. Criar Faturas (se for crediário ou cartão parcelado no sistema)
-        // Se for venda direta (cartão/pix/dinheiro), pode criar já paga ou criar para registro
         let status = 'Em aberto';
         if (saleType === 'direct' && paymentMethod !== 'credit_card') {
-             // Pix/Dinheiro geralmente é baixa imediata, mas aqui vamos deixar em aberto para o caixa confirmar ou criar como pago se for integrado
-             // Se for Pix integrado, o webhook que dá baixa. Se for dinheiro, admin dá baixa.
-             // Vamos assumir que venda direta já cria como "Paga" se for dinheiro ou deixa em aberto para pagamento no app (Pix/Boleto)
-             // Se o frontend mandou "direct", vamos ver o paymentMethod.
-             // Se for 'cash', marca como paga.
              if (paymentMethod === 'cash') status = 'Paga';
         }
 
@@ -168,7 +162,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         // Se tiver entrada, cria fatura de entrada
         if (downPayment > 0) {
-             // Entrada geralmente é à vista
              newInvoices.push({
                 user_id: userId,
                 month: `Entrada - ${productName}`,
@@ -198,8 +191,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             const finalDay = Math.min(day, maxDay);
             const dueDate = new Date(currentYear, currentMonth, finalDay);
 
-            // Para venda direta, se for cartão, a fatura é apenas registro, já nasce paga ou pendente de gateway
-            // Se for crediário, nasce 'Aguardando Assinatura' se não tiver assinado ainda
             let invStatus = status;
             if (saleType === 'crediario') {
                 invStatus = signature ? 'Em aberto' : 'Aguardando Assinatura';
@@ -237,9 +228,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             });
             if (contractError) console.error("Erro ao criar contrato", contractError);
         }
-
-        // 3. Atualizar Limite Usado (Não precisa, calculado dinamicamente, mas pode registrar histórico)
-        // ...
 
         return res.status(200).json({ success: true, status: signature ? 'Ativo' : 'Aguardando Assinatura' });
 
@@ -397,7 +385,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-        const { image_base64, title, subtitle, cta_text, link, segment, start_date, end_date, prompt, sendNotification } = req.body;
+        const { image_base64, title, subtitle, cta_text, link, segment, start_date, end_date, prompt, sendNotification, location } = req.body;
         
         const { data: banner, error: insertError } = await supabase.from('banners').insert({
             image_url: image_base64,
@@ -406,6 +394,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
             cta_text: cta_text || 'Ver Mais',
             link,
             segment: segment || 'all',
+            location: location || 'store', // Padrão para Loja se não especificado
             start_date: start_date || new Date().toISOString(),
             end_date: end_date,
             active: true,
@@ -419,8 +408,6 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
         }
 
         if (sendNotification && banner) {
-            // Envio de Notificação em Massa (Limitado a 50 para demo/segurança)
-            // Em produção, isso deveria ser um job em background ou usar uma tabela de broadcast
             const { data: users } = await supabase.from('profiles').select('id').limit(50);
             if (users) {
                 const notifications = users.map(u => ({
@@ -457,7 +444,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
 async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
     // SQL Completo para garantir todas as tabelas necessárias
     const SQL = `
-    -- Tabela de Banners
+    -- Tabela de Banners (Com coluna location adicionada)
     CREATE TABLE IF NOT EXISTS "public"."banners" (
         "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
         "image_url" "text" NOT NULL,
@@ -467,6 +454,7 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
         "link" "text",
         "prompt" "text",
         "segment" "text" DEFAULT 'all',
+        "location" "text" DEFAULT 'store', -- 'store' or 'home'
         "active" boolean DEFAULT true,
         "start_date" timestamp with time zone DEFAULT "now"(),
         "end_date" timestamp with time zone,
@@ -475,6 +463,15 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
         "created_at" timestamp with time zone DEFAULT "now"(),
         CONSTRAINT "banners_pkey" PRIMARY KEY ("id")
     );
+    
+    -- Add column if not exists (Migration)
+    DO $$ 
+    BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='banners' AND column_name='location') THEN 
+            ALTER TABLE "public"."banners" ADD COLUMN "location" "text" DEFAULT 'store'; 
+        END IF; 
+    END $$;
+
     ALTER TABLE "public"."banners" ENABLE ROW LEVEL SECURITY;
     DROP POLICY IF EXISTS "Public Read Banners" ON "public"."banners";
     CREATE POLICY "Public Read Banners" ON "public"."banners" FOR SELECT USING (true);
