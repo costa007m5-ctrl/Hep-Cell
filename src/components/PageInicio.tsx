@@ -208,25 +208,35 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       setIsSigning(true);
       try {
           // 1. Atualiza Contrato
-          await supabase.from('contracts').update({ 
+          const { error: contractError } = await supabase.from('contracts').update({ 
               status: 'Ativo', 
               signature_data: signature, 
               terms_accepted: true 
           }).eq('id', pendingContract.id);
 
+          if (contractError) throw contractError;
+
           // 2. Ativa as Faturas (usando lógica de tempo/user pois não temos FK direta)
           // Simplificação: Ativa todas 'Aguardando Assinatura' deste usuário
           await supabase.from('invoices').update({ status: 'Em aberto' }).eq('user_id', pendingContract.user_id).eq('status', 'Aguardando Assinatura');
 
-          setPendingContract(null);
+          // Limpa o estado imediatamente para remover o alerta da UI
+          setPendingContract(null); 
           setIsModalOpen(false);
-          // Recarrega faturas
+          
+          // Recarrega faturas para mostrar atualizadas
           const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
           setInvoices(data || []);
 
+          // Opcional: Busca por mais contratos pendentes se houver
+          const { data: nextContract } = await supabase.from('contracts').select('*').eq('user_id', pendingContract.user_id).eq('status', 'pending_signature').limit(1);
+          if (nextContract && nextContract.length > 0) {
+              setPendingContract(nextContract[0]);
+          }
+
       } catch (e) {
           console.error(e);
-          alert("Erro ao assinar contrato.");
+          alert("Erro ao assinar contrato. Tente novamente.");
       } finally {
           setIsSigning(false);
       }

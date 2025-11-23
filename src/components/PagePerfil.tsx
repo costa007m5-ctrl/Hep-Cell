@@ -3,13 +3,14 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
-import { Profile, Invoice } from '../types';
+import { Profile, Invoice, Contract } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
 import ReceiptDetails from './ReceiptDetails';
 import Modal from './Modal';
-import jsPDF from 'jspdf'; // Import jsPDF
+import jsPDF from 'jspdf';
+import SignaturePad from './SignaturePad'; // Importe o SignaturePad
 
 interface PagePerfilProps {
     session: Session;
@@ -76,138 +77,182 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
-// --- SERVICE STATUS REAL ---
-interface SystemHealth {
-    app: 'online' | 'offline';
-    pix: 'online' | 'degraded' | 'offline';
-    card: 'online' | 'degraded' | 'offline';
-    store: 'online' | 'offline';
-    latency?: number;
-}
+// --- Views Implementadas ---
 
-const ServiceStatus: React.FC = () => {
-    const [health, setHealth] = useState<SystemHealth>({ app: 'online', pix: 'online', card: 'online', store: 'online' });
-    const [isChecking, setIsChecking] = useState(false);
-    const [lastCheck, setLastCheck] = useState<Date | null>(null);
-    const [showDetails, setShowDetails] = useState(false);
+// --- ContractsView Atualizada ---
+const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
+    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [signingContract, setSigningContract] = useState<Contract | null>(null);
+    const [signature, setSignature] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { addToast } = useToast();
 
-    const checkSystem = async () => {
-        setIsChecking(true);
-        const start = Date.now();
-        
-        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-        
-        let storeStatus: 'online' | 'offline' = 'offline';
+    const fetchContracts = async () => {
+        setLoading(true);
         try {
-            const { error } = await supabase.from('products').select('id').limit(1);
-            storeStatus = error ? 'offline' : 'online';
+            const { data, error } = await supabase
+                .from('contracts')
+                .select('*')
+                .eq('user_id', profile.id)
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            setContracts(data || []);
         } catch (e) {
-            storeStatus = 'offline';
+            console.error("Erro ao buscar contratos:", e);
+        } finally {
+            setLoading(false);
         }
-
-        let apiStatus: 'online' | 'degraded' | 'offline' = 'offline';
-        let latency = 0;
-
-        if (isOnline) {
-            try {
-                const res = await fetch('/api/products?limit=1');
-                const end = Date.now();
-                latency = end - start;
-                
-                if (res.ok) {
-                    if (latency < 800) apiStatus = 'online';
-                    else apiStatus = 'degraded';
-                } else {
-                    apiStatus = 'offline';
-                }
-            } catch (e) {
-                apiStatus = 'offline';
-            }
-        }
-
-        setHealth({
-            app: isOnline ? 'online' : 'offline',
-            store: storeStatus,
-            pix: apiStatus, 
-            card: apiStatus, 
-            latency: latency
-        });
-        setLastCheck(new Date());
-        setIsChecking(false);
     };
 
     useEffect(() => {
-        checkSystem();
-        const interval = setInterval(checkSystem, 60000);
-        return () => clearInterval(interval);
-    }, []);
+        fetchContracts();
+    }, [profile.id]);
 
-    const getStatusColor = (status: string) => {
-        if (status === 'online') return 'bg-green-500';
-        if (status === 'degraded') return 'bg-yellow-500';
-        return 'bg-red-500';
+    const handleDownloadPDF = (contract: Contract) => {
+        const doc = new jsPDF();
+        
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(contract.title || "CONTRATO", 105, 20, { align: 'center' });
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        
+        const splitText = doc.splitTextToSize(contract.items || "", 180);
+        doc.text(splitText, 15, 40);
+        
+        let yPos = 40 + (splitText.length * 5) + 20;
+
+        doc.text(`Data de Criação: ${new Date(contract.created_at).toLocaleDateString('pt-BR')}`, 15, yPos);
+        yPos += 10;
+        doc.text(`Valor Total: R$ ${contract.total_value?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 15, yPos);
+        yPos += 10;
+        doc.text(`Status: ${contract.status.toUpperCase()}`, 15, yPos);
+        
+        if (contract.status === 'Ativo' && contract.signature_data) {
+            yPos += 20;
+            doc.text("Assinatura Digital:", 15, yPos);
+            // Adiciona a imagem da assinatura se existir (assumindo que é base64)
+            if (contract.signature_data.startsWith('data:image')) {
+                doc.addImage(contract.signature_data, 'PNG', 15, yPos + 5, 60, 30);
+            }
+        }
+
+        doc.save(`Contrato_${contract.id.slice(0,8)}.pdf`);
+        addToast("Download iniciado!", "success");
     };
 
-    const getStatusText = (status: string) => {
-        if (status === 'online') return 'Operacional';
-        if (status === 'degraded') return 'Lentidão';
-        return 'Indisponível';
-    }
+    const handleSignSubmit = async () => {
+        if (!signingContract || !signature) return;
+        setIsSubmitting(true);
+        try {
+            const { error } = await supabase
+                .from('contracts')
+                .update({ 
+                    status: 'Ativo', 
+                    signature_data: signature, 
+                    terms_accepted: true 
+                })
+                .eq('id', signingContract.id);
+
+            if (error) throw error;
+
+            // Ativa faturas relacionadas
+            await supabase
+                .from('invoices')
+                .update({ status: 'Em aberto' })
+                .eq('user_id', profile.id)
+                .eq('status', 'Aguardando Assinatura');
+
+            addToast("Contrato assinado com sucesso!", "success");
+            setSigningContract(null);
+            setSignature(null);
+            fetchContracts(); // Atualiza lista
+        } catch (e) {
+            console.error(e);
+            addToast("Erro ao assinar contrato.", "error");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
     return (
-        <>
-            <div 
-                className="flex gap-2 overflow-x-auto py-3 scrollbar-hide mb-2 cursor-pointer active:opacity-80"
-                onClick={() => setShowDetails(true)}
-            >
-                {[
-                    { n: 'App', s: health.app }, 
-                    { n: 'Pix', s: health.pix }, 
-                    { n: 'Cartão', s: health.card }, 
-                    { n: 'Loja', s: health.store }
-                ].map((sys, i) => (
-                    <div key={i} className={`flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 rounded-full border border-slate-100 dark:border-slate-700 shrink-0 transition-all ${isChecking ? 'opacity-70' : ''}`}>
-                        <span className={`w-2 h-2 rounded-full ${getStatusColor(sys.s)} ${isChecking ? 'animate-pulse' : ''}`}></span>
-                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase">{sys.n}</span>
-                    </div>
-                ))}
-                {isChecking && <span className="text-[10px] text-slate-400 self-center animate-pulse">Verificando...</span>}
-            </div>
-
-            <Modal isOpen={showDetails} onClose={() => setShowDetails(false)}>
-                <div className="text-center">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Status do Sistema</h3>
-                    <p className="text-xs text-slate-500 mb-6">Última verificação: {lastCheck?.toLocaleTimeString()}</p>
-
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Aplicativo (Você)</span>
-                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.app === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.app)}</span>
+        <div className="space-y-4 animate-fade-in">
+            {contracts.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                    <p>Você não possui contratos no momento.</p>
+                </div>
+            ) : (
+                contracts.map(contract => (
+                    <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h4 className="font-bold text-slate-900 dark:text-white text-sm">{contract.title}</h4>
+                                <p className="text-xs text-slate-500">{new Date(contract.created_at).toLocaleDateString('pt-BR')}</p>
+                            </div>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                contract.status === 'Ativo' ? 'bg-green-100 text-green-700' : 
+                                contract.status === 'Cancelado' ? 'bg-red-100 text-red-700' : 
+                                'bg-yellow-100 text-yellow-700'
+                            }`}>
+                                {contract.status === 'pending_signature' ? 'Pendente' : contract.status}
+                            </span>
                         </div>
-                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Banco de Dados</span>
-                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.store === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.store)}</span>
+                        
+                        <div className="text-xs text-slate-600 dark:text-slate-400 mb-3 bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                            Valor: R$ {contract.total_value?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                         </div>
-                        <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Gateway Pagamento</span>
-                            <span className={`text-xs font-bold px-2 py-1 rounded ${health.pix === 'online' ? 'bg-green-100 text-green-700' : health.pix === 'degraded' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{getStatusText(health.pix)}</span>
+
+                        <div className="flex gap-2">
+                            {contract.status === 'pending_signature' ? (
+                                <button 
+                                    onClick={() => setSigningContract(contract)}
+                                    className="flex-1 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
+                                >
+                                    Assinar Agora
+                                </button>
+                            ) : (
+                                <button 
+                                    onClick={() => handleDownloadPDF(contract)}
+                                    className="flex-1 py-2 border border-indigo-200 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center justify-center gap-1"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    Baixar PDF
+                                </button>
+                            )}
                         </div>
                     </div>
+                ))
+            )}
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
-                        <p className="text-xs text-slate-400">Latência da Rede: <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">{health.latency || 0}ms</span></p>
+            {/* Modal de Assinatura */}
+            <Modal isOpen={!!signingContract} onClose={() => setSigningContract(null)}>
+                <div className="space-y-4">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Assinar Contrato</h3>
+                    <div className="p-3 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap">
+                        {signingContract?.items}
                     </div>
-
-                    <button onClick={checkSystem} className="mt-4 w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">
-                        {isChecking ? 'Verificando...' : 'Atualizar Status'}
-                    </button>
+                    <label className="block text-sm font-medium mb-2">Sua Assinatura:</label>
+                    <SignaturePad onEnd={setSignature} />
+                    <div className="flex gap-2 mt-4">
+                        <button onClick={() => setSigningContract(null)} className="flex-1 py-2 border border-slate-300 rounded-lg text-slate-600 text-sm font-bold">Cancelar</button>
+                        <button 
+                            onClick={handleSignSubmit} 
+                            disabled={!signature || isSubmitting}
+                            className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 disabled:opacity-50 flex justify-center"
+                        >
+                            {isSubmitting ? <LoadingSpinner /> : 'Confirmar Assinatura'}
+                        </button>
+                    </div>
                 </div>
             </Modal>
-        </>
+        </div>
     );
-}
-
-// --- Views Implementadas ---
+};
 
 const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
     const [orders, setOrders] = useState<any[]>([]);
@@ -800,12 +845,6 @@ const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
     );
 };
 
-const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => (
-    <div className="space-y-4 animate-fade-in text-center py-10 text-slate-500">
-        <p>Contratos disponíveis para download em breve.</p>
-    </div>
-);
-
 const FiscalNotesView: React.FC<{ userId: string }> = ({ userId }) => {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1385,7 +1424,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                             {activeView === 'orders' && 'Meus Pedidos'}
                             {activeView === 'wallet' && 'Carteira'}
                             {activeView === 'addresses' && 'Endereços'}
-                            {activeView === 'contracts' && 'Contratos'}
+                            {activeView === 'contracts' && 'Meus Contratos'}
                             {activeView === 'fiscal_notes' && 'Notas Fiscais'}
                             {activeView === 'receipts' && 'Comprovantes'}
                             {activeView === 'settings' && 'Configurações'}
