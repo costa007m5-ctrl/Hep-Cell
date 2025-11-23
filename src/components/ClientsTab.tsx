@@ -56,6 +56,112 @@ const ActionButton: React.FC<{ icon: React.ReactNode; label: string; onClick: ()
     </button>
 );
 
+// --- Modal de Negociação Avançada ---
+const NegotiationModal: React.FC<{ 
+    invoices: Invoice[]; 
+    onClose: () => void; 
+    onConfirm: (config: any) => void; 
+    isLoading: boolean;
+}> = ({ invoices, onClose, onConfirm, isLoading }) => {
+    const [installments, setInstallments] = useState(1);
+    const [interestRate, setInterestRate] = useState(5); // Default 5%
+    const [preview, setPreview] = useState<any[]>([]);
+
+    const totalOriginal = invoices.reduce((acc, i) => acc + i.amount, 0);
+    
+    // Cálculo simples de juros compostos para renegociação
+    const totalWithInterest = useMemo(() => {
+        if (installments === 1) return totalOriginal;
+        const rate = interestRate / 100;
+        return totalOriginal * Math.pow(1 + rate, 1); // Juros simples sobre o total para simplificar UX, ou composto por mês
+        // Vamos usar juros simples sobre o montante total para a negociação padrão
+        return totalOriginal * (1 + (interestRate / 100)); 
+    }, [totalOriginal, interestRate, installments]);
+
+    const installmentValue = totalWithInterest / installments;
+
+    useEffect(() => {
+        const sched = [];
+        const date = new Date();
+        for(let i=1; i<=installments; i++) {
+            date.setMonth(date.getMonth() + 1);
+            sched.push({
+                num: i,
+                date: date.toLocaleDateString(),
+                val: installmentValue
+            });
+        }
+        setPreview(sched);
+    }, [installments, installmentValue]);
+
+    return (
+        <div className="space-y-5">
+            <div className="text-center border-b border-slate-100 dark:border-slate-700 pb-4">
+                <h3 className="font-bold text-xl text-slate-900 dark:text-white">Nova Negociação</h3>
+                <p className="text-sm text-slate-500">{invoices.length} faturas selecionadas</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl">
+                <div>
+                    <p className="text-xs text-slate-500 uppercase font-bold">Dívida Original</p>
+                    <p className="text-lg font-bold text-slate-700 dark:text-slate-300">R$ {totalOriginal.toFixed(2)}</p>
+                </div>
+                <div>
+                    <p className="text-xs text-slate-500 uppercase font-bold">Novo Total</p>
+                    <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">R$ {totalWithInterest.toFixed(2)}</p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Parcelas</label>
+                    <select 
+                        value={installments} 
+                        onChange={e => setInstallments(Number(e.target.value))}
+                        className="w-full p-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600 text-sm"
+                    >
+                        {[1,2,3,4,5,6,10,12].map(n => <option key={n} value={n}>{n}x</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">Juros (%)</label>
+                    <input 
+                        type="number" 
+                        value={interestRate} 
+                        onChange={e => setInterestRate(Number(e.target.value))}
+                        className="w-full p-2 border rounded-lg bg-white dark:bg-slate-700 dark:border-slate-600 text-sm"
+                    />
+                </div>
+            </div>
+
+            <div className="max-h-32 overflow-y-auto border border-slate-100 dark:border-slate-700 rounded-lg p-2 text-xs">
+                <p className="font-bold mb-2 sticky top-0 bg-white dark:bg-slate-800 pb-1">Previsão de Parcelas:</p>
+                {preview.map(p => (
+                    <div key={p.num} className="flex justify-between py-1 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <span>{p.num}ª - {p.date}</span>
+                        <span className="font-mono font-bold">R$ {p.val.toFixed(2)}</span>
+                    </div>
+                ))}
+            </div>
+
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-100 dark:border-yellow-800 text-xs text-yellow-800 dark:text-yellow-200">
+                <strong>Atenção:</strong> Ao confirmar, será gerado um contrato jurídico. O cliente receberá um alerta no app e deverá assinar digitalmente para validar o acordo.
+            </div>
+
+            <div className="flex gap-3 pt-2">
+                <button onClick={onClose} className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl font-bold text-slate-600 dark:text-slate-300 text-sm">Cancelar</button>
+                <button 
+                    onClick={() => onConfirm({ totalAmount: totalWithInterest, installments, interestRate })}
+                    disabled={isLoading}
+                    className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700"
+                >
+                    {isLoading ? 'Processando...' : 'Gerar Proposta'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
 const RiskFactorsModal: React.FC<{ factors: string[]; score: number; level: string; onClose: () => void }> = ({ factors, score, level, onClose }) => (
     <div className="space-y-4">
         <div className={`p-4 rounded-xl border-l-4 ${level === 'Alto' ? 'bg-red-50 border-red-500 text-red-800' : level === 'Médio' ? 'bg-amber-50 border-amber-500 text-amber-800' : 'bg-emerald-50 border-emerald-500 text-emerald-800'}`}>
@@ -261,7 +367,7 @@ const ToolsContent: React.FC<{ client: EnhancedProfile; onUpdate: () => void }> 
                 />
                 <ActionButton 
                     label={client.isBlocked ? 'Desbloquear' : 'Bloquear'} 
-                    icon={client.isBlocked ? <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
+                    icon={client.isBlocked ? <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg> : <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
                     onClick={handleBlockToggle}
                     colorClass={client.isBlocked ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}
                 />
@@ -313,6 +419,11 @@ const ClientsTab: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showRiskModal, setShowRiskModal] = useState(false);
     const [invoiceActionLoading, setInvoiceActionLoading] = useState<string | null>(null);
+    
+    // Bulk Selection & Negotiation
+    const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
+    const [showNegotiationModal, setShowNegotiationModal] = useState(false);
+    const [isNegotiating, setIsNegotiating] = useState(false);
 
     // Dados para modais
     const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
@@ -336,14 +447,9 @@ const ClientsTab: React.FC = () => {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Carregar documentos do cliente selecionado
     useEffect(() => {
-        if (selectedClientId) {
-            // Simulação de contratos para demo ou dados reais se contracts existir nos profiles
-            // Em um app real faríamos um fetch específico.
-            // Vamos mockar ou tentar filtrar de um estado global se existisse.
-            setDocuments([]); // Reset
-        }
+        // Reset selection when client changes
+        setSelectedInvoiceIds(new Set());
     }, [selectedClientId]);
 
     // Processamento de Perfis
@@ -360,7 +466,6 @@ const ClientsTab: React.FC = () => {
             const limit = profile.credit_limit || 1;
             const utilization = (totalDebt / limit) * 100;
             
-            // Risk Logic
             const riskFactors = [];
             if (openInvoices.some(i => new Date(i.due_date) < new Date())) riskFactors.push("Faturas em atraso");
             if (utilization > 90) riskFactors.push("Uso de limite acima de 90%");
@@ -375,7 +480,7 @@ const ClientsTab: React.FC = () => {
                 ...profile,
                 ltv: totalPaid,
                 totalDebt,
-                lastPurchaseDate: null, // Simplificado
+                lastPurchaseDate: null,
                 invoiceCount: userInvoices.length,
                 riskLevel,
                 utilizationRate: utilization,
@@ -386,7 +491,6 @@ const ClientsTab: React.FC = () => {
         });
     }, [profiles, invoices]);
 
-    // Filtragem
     const filtered = useMemo(() => {
         const lower = searchTerm.toLowerCase();
         return enhancedProfiles.filter(p => 
@@ -401,26 +505,78 @@ const ClientsTab: React.FC = () => {
 
     // Actions
     const handleInvoiceAction = async (id: string, action: 'pay' | 'cancel' | 'delete') => {
-        if (!confirm(`Tem certeza que deseja ${action === 'delete' ? 'excluir' : action === 'pay' ? 'pagar' : 'cancelar'} esta fatura?`)) return;
-        
+        if (!confirm(`Tem certeza?`)) return;
         setInvoiceActionLoading(id);
         try {
             const method = action === 'delete' ? 'DELETE' : 'PUT';
             const body = action === 'delete' ? { id } : { id, action };
-            
-            const res = await fetch('/api/admin/manage-invoices', {
-                method,
+            await fetch('/api/admin/manage-invoices', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            fetchData();
+        } catch (e) { alert("Erro ao processar ação."); } 
+        finally { setInvoiceActionLoading(null); }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedInvoiceIds.size === 0) return;
+        if (!confirm(`Excluir ${selectedInvoiceIds.size} faturas permanentemente?`)) return;
+        
+        try {
+            await fetch('/api/admin/manage-invoices', {
+                method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                body: JSON.stringify({ ids: Array.from(selectedInvoiceIds) })
+            });
+            fetchData();
+            setSelectedInvoiceIds(new Set());
+        } catch (e) { alert("Erro ao excluir."); }
+    };
+
+    const handleNegotiation = async (config: { totalAmount: number, installments: number, interestRate: number }) => {
+        setIsNegotiating(true);
+        try {
+            const firstInvoiceId = Array.from(selectedInvoiceIds)[0];
+            const firstInvoice = clientInvoices.find(i => i.id === firstInvoiceId);
+            const firstDueDate = firstInvoice?.due_date || new Date().toISOString();
+
+            const res = await fetch('/api/admin/negotiate-debt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: selectedClientId,
+                    invoiceIds: Array.from(selectedInvoiceIds),
+                    totalAmount: config.totalAmount,
+                    installments: config.installments,
+                    firstDueDate: firstDueDate,
+                    interestRate: config.interestRate
+                })
             });
             
-            if (!res.ok) throw new Error('Erro na operação');
+            if (!res.ok) throw new Error("Falha na negociação");
             
-            fetchData(); // Refresh
+            alert("Negociação criada! O contrato foi gerado e aguarda assinatura do cliente.");
+            setShowNegotiationModal(false);
+            setSelectedInvoiceIds(new Set());
+            fetchData();
         } catch (e) {
-            alert("Erro ao processar ação.");
+            alert("Erro ao criar negociação.");
         } finally {
-            setInvoiceActionLoading(null);
+            setIsNegotiating(false);
+        }
+    };
+
+    const toggleSelectInvoice = (id: string) => {
+        const newSet = new Set(selectedInvoiceIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedInvoiceIds(newSet);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedInvoiceIds.size === clientInvoices.filter(i => i.status !== 'Paga').length) {
+            setSelectedInvoiceIds(new Set());
+        } else {
+            const allIds = clientInvoices.filter(i => i.status !== 'Paga').map(i => i.id);
+            setSelectedInvoiceIds(new Set(allIds));
         }
     };
 
@@ -509,60 +665,92 @@ const ClientsTab: React.FC = () => {
                             {drawerTab === 'overview' && <OverviewContent client={selectedClient} />}
                             
                             {drawerTab === 'invoices' && (
-                                <div className="space-y-3">
+                                <div className="space-y-3 relative pb-20">
+                                    <div className="flex justify-between items-center mb-2 px-1">
+                                        <label className="flex items-center gap-2 text-sm font-bold text-slate-600 cursor-pointer">
+                                            <input type="checkbox" checked={selectedInvoiceIds.size > 0 && selectedInvoiceIds.size === clientInvoices.filter(i => i.status !== 'Paga').length} onChange={toggleSelectAll} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                                            Selecionar Todos
+                                        </label>
+                                        <span className="text-xs text-slate-400">{selectedInvoiceIds.size} selecionados</span>
+                                    </div>
+
                                     {clientInvoices.map(inv => (
-                                        <div key={inv.id} className="p-4 border border-slate-100 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800/30 flex flex-col gap-3">
+                                        <div key={inv.id} className={`p-4 border rounded-xl flex flex-col gap-3 transition-colors ${selectedInvoiceIds.has(inv.id) ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/30'}`}>
                                             <div className="flex justify-between items-start">
-                                                <div>
-                                                    <p className="font-bold text-slate-900 dark:text-white text-sm">{inv.month}</p>
-                                                    <p className="text-xs text-slate-500">Vence: {new Date(inv.due_date).toLocaleDateString()}</p>
+                                                <div className="flex items-center gap-3">
+                                                    {inv.status !== 'Paga' && (
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedInvoiceIds.has(inv.id)} 
+                                                            onChange={() => toggleSelectInvoice(inv.id)}
+                                                            className="rounded text-indigo-600 w-4 h-4 cursor-pointer"
+                                                        />
+                                                    )}
+                                                    <div>
+                                                        <p className="font-bold text-slate-900 dark:text-white text-sm">{inv.month}</p>
+                                                        <p className="text-xs text-slate-500">Vence: {new Date(inv.due_date).toLocaleDateString()}</p>
+                                                    </div>
                                                 </div>
                                                 <div className="text-right">
                                                     <p className="font-bold text-slate-900 dark:text-white">R$ {inv.amount.toFixed(2)}</p>
-                                                    <span className={`text-[10px] font-bold uppercase ${inv.status === 'Paga' ? 'text-green-600' : 'text-red-600'}`}>{inv.status}</span>
+                                                    <span className={`text-[10px] font-bold uppercase ${inv.status === 'Paga' ? 'text-green-600' : inv.status === 'Aguardando Assinatura' ? 'text-yellow-600' : 'text-red-600'}`}>{inv.status}</span>
                                                 </div>
                                             </div>
                                             
                                             {/* Action Buttons Row */}
-                                            <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                            <div className="flex gap-2 pt-2 border-t border-slate-200 dark:border-slate-700 pl-7">
                                                 <button onClick={() => setViewInvoice(inv)} className="flex-1 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded">
-                                                    Detalhes (Olho)
+                                                    Detalhes
                                                 </button>
-                                                {inv.status !== 'Paga' && (
+                                                {inv.status !== 'Paga' && inv.status !== 'Aguardando Assinatura' && (
                                                     <>
                                                         <button 
                                                             onClick={() => handleInvoiceAction(inv.id, 'pay')}
                                                             disabled={!!invoiceActionLoading}
                                                             className="flex-1 py-1.5 text-xs font-bold text-green-600 bg-green-50 hover:bg-green-100 rounded"
                                                         >
-                                                            {invoiceActionLoading === inv.id ? '...' : 'Pagar Manual'}
+                                                            Pagar
                                                         </button>
                                                         <button 
-                                                            onClick={() => handleInvoiceAction(inv.id, 'cancel')}
+                                                            onClick={() => handleInvoiceAction(inv.id, 'delete')}
                                                             disabled={!!invoiceActionLoading}
-                                                            className="flex-1 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded"
+                                                            className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded"
                                                         >
-                                                            Cancelar
+                                                            Excluir
                                                         </button>
                                                     </>
                                                 )}
-                                                <button 
-                                                    onClick={() => handleInvoiceAction(inv.id, 'delete')}
-                                                    disabled={!!invoiceActionLoading}
-                                                    className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded"
-                                                >
-                                                    Excluir
-                                                </button>
                                             </div>
                                         </div>
                                     ))}
+
+                                    {/* Action Bar Flutuante */}
+                                    {selectedInvoiceIds.size > 0 && (
+                                        <div className="absolute bottom-4 left-0 right-0 mx-4 bg-slate-800 text-white p-3 rounded-xl shadow-xl flex items-center justify-between animate-fade-in-up z-10">
+                                            <span className="text-xs font-bold pl-2">{selectedInvoiceIds.size} Selecionados</span>
+                                            <div className="flex gap-2">
+                                                <button 
+                                                    onClick={handleBulkDelete}
+                                                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors"
+                                                >
+                                                    Excluir Tudo
+                                                </button>
+                                                <button 
+                                                    onClick={() => setShowNegotiationModal(true)}
+                                                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors"
+                                                >
+                                                    Negociar Dívida
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
                             {drawerTab === 'docs' && (
                                 <DocumentsContent 
                                     userId={selectedClient.id} 
-                                    documents={documents} // Deveria vir do fetch real, mockado por enquanto
+                                    documents={documents} 
                                     onUpload={() => fetchData()} 
                                 />
                             )}
@@ -575,7 +763,7 @@ const ClientsTab: React.FC = () => {
                 </div>
             )}
 
-            {/* Risk Modal */}
+            {/* Modals */}
             {showRiskModal && selectedClient && (
                 <Modal isOpen={true} onClose={() => setShowRiskModal(false)}>
                     <RiskFactorsModal 
@@ -587,7 +775,6 @@ const ClientsTab: React.FC = () => {
                 </Modal>
             )}
 
-            {/* Invoice Detail Modal (Reused from existing if available or simple impl) */}
             {viewInvoice && (
                 <Modal isOpen={true} onClose={() => setViewInvoice(null)}>
                     <div className="space-y-4">
@@ -597,6 +784,17 @@ const ClientsTab: React.FC = () => {
                         <p className="text-sm"><strong>Criado em:</strong> {new Date(viewInvoice.created_at).toLocaleString()}</p>
                         <button onClick={() => setViewInvoice(null)} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold">Fechar</button>
                     </div>
+                </Modal>
+            )}
+
+            {showNegotiationModal && (
+                <Modal isOpen={true} onClose={() => setShowNegotiationModal(false)}>
+                    <NegotiationModal 
+                        invoices={clientInvoices.filter(i => selectedInvoiceIds.has(i.id))} 
+                        onClose={() => setShowNegotiationModal(false)}
+                        onConfirm={handleNegotiation}
+                        isLoading={isNegotiating}
+                    />
                 </Modal>
             )}
         </div>
