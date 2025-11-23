@@ -247,10 +247,13 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             profile = data;
         }
 
+        // Sanitização do Valor (2 casas decimais)
+        const transactionAmount = Number(Number(amount).toFixed(2));
+
         const payment = new Payment(client);
         const result = await payment.create({
             body: {
-                transaction_amount: amount,
+                transaction_amount: transactionAmount,
                 description: description,
                 payment_method_id: 'pix',
                 external_reference: invoiceId,
@@ -275,8 +278,8 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             payment_id: String(result.id), 
             status: 'Em aberto',
             payment_method: 'pix',
-            payment_code: qrCode, // Novo campo
-            payment_expiration: expirationDate // Novo campo
+            payment_code: qrCode,
+            payment_expiration: expirationDate
         }).eq('id', invoiceId);
 
         await logAction(supabase, 'PIX_CREATED', 'SUCCESS', `PIX gerado para fatura ${invoiceId}.`);

@@ -62,13 +62,14 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
           throw new Error(data.message || data.error || 'Falha ao gerar o código PIX.');
         }
       } else {
-        // Validação extra no frontend para garantir que os dados do PIX foram recebidos
-        if (data && data.qrCode && data.qrCodeBase64) {
+        // Validação mais flexível: Se tem o código "copia e cola" (qrCode), já podemos exibir.
+        // A imagem base64 (qrCodeBase64) é opcional, se faltar usamos o fallback.
+        if (data && data.qrCode) {
           setPixData(data);
           setStep('display_pix');
         } else {
-          console.error("Resposta da API bem-sucedida, mas sem dados do PIX:", data);
-          throw new Error("O servidor respondeu com sucesso, mas não retornou os dados do PIX. Tente novamente.");
+          console.error("Resposta da API bem-sucedida, mas sem código PIX:", data);
+          throw new Error("O servidor respondeu, mas não retornou o código do PIX. Tente novamente.");
         }
       }
     } catch (err: any) {
@@ -146,6 +147,12 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
     await generatePix(profileData);
   };
 
+  const handleRetry = () => {
+      setError(null);
+      setStep('loading');
+      generatePix();
+  }
+
   const renderLoading = () => (
     <div className="flex flex-col items-center justify-center p-8 space-y-4">
       <LoadingSpinner />
@@ -156,7 +163,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
   const renderError = () => (
     <div className="p-4 w-full text-center">
         <Alert message={error!} type="error" />
-        <button onClick={() => generatePix()} className="mt-4 text-sm font-bold text-indigo-600 hover:underline">Tentar Novamente</button>
+        <button onClick={handleRetry} className="mt-4 text-sm font-bold text-indigo-600 hover:underline">Tentar Novamente</button>
     </div>
   );
 
