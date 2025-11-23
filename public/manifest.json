@@ -1,18 +1,19 @@
 {
+  "id": "com.relpcell.app",
   "name": "Relp Cell Pagamentos",
   "short_name": "Relp Cell",
-  "description": "Gerencie suas faturas, faça compras e acompanhe seu limite na Relp Cell com facilidade e segurança.",
-  "id": "relp-cell-pagamentos-v1",
+  "description": "Gerencie suas faturas, faça compras e acompanhe seu limite de crédito.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["tabbed", "window-controls-overlay", "minimal-ui"],
-  "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
+  "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
   "lang": "pt-BR",
   "dir": "ltr",
-  "categories": ["finance", "shopping", "productivity", "utilities"],
+  "categories": ["finance", "shopping"],
+  "iarc_rating_id": "e84b072d-71b3-4d3c-86ae-31a8ceec6d60",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -41,25 +42,16 @@
   ],
   "screenshots": [
     {
-      "src": "https://placehold.co/750x1334/4f46e5/ffffff.png?text=Inicio+Relp+Cell",
+      "src": "https://placehold.co/750x1334/4f46e5/ffffff?text=Relp+Cell",
       "sizes": "750x1334",
       "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Tela Inicial"
+      "form_factor": "narrow"
     },
     {
-      "src": "https://placehold.co/750x1334/ffffff/4f46e5.png?text=Faturas",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Minhas Faturas"
-    },
-    {
-      "src": "https://placehold.co/1280x800/4f46e5/ffffff.png?text=Relp+Cell+Desktop",
+      "src": "https://placehold.co/1280x800/4f46e5/ffffff?text=Relp+Cell",
       "sizes": "1280x800",
       "type": "image/png",
-      "form_factor": "wide",
-      "label": "Versão Desktop"
+      "form_factor": "wide"
     }
   ],
   "shortcuts": [
@@ -68,56 +60,81 @@
       "short_name": "Faturas",
       "description": "Visualize e pague suas faturas",
       "url": "/?tab=faturas",
-      "icons": [{"src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png"}]
-    },
-    {
-      "name": "Loja Online",
-      "short_name": "Loja",
-      "description": "Confira as ofertas",
-      "url": "/?tab=loja",
-      "icons": [{"src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png"}]
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
+        }
+      ]
     }
   ],
   "share_target": {
     "action": "/?share=true",
     "method": "GET",
     "enctype": "application/x-www-form-urlencoded",
-    "params": {"title": "title", "text": "text", "url": "url"}
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
   },
-  "launch_handler": {"client_mode": "focus-existing"},
-  "protocol_handlers": [{"protocol": "web+relp", "url": "/?type=%s"}],
-  "scope_extensions": [
-    {"origin": "*.relpcell.com.br"},
-    {"origin": "*.vercel.app"}
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "protocol_handlers": [
+    {
+      "protocol": "web+relp",
+      "url": "/?type=%s"
+    }
   ],
+  "scope_extensions": [
+    {"origin": "https://relpcell.com.br"},
+    {"origin": "https://www.relpcell.com.br"}
+  ],
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
   "file_handlers": [
     {
       "action": "/?open-file",
       "accept": {
         "application/pdf": [".pdf"],
-        "text/csv": [".csv"],
-        "application/vnd.ms-excel": [".xls", ".xlsx"]
+        "text/csv": [".csv"]
       }
     }
   ],
   "widgets": [
     {
-      "name": "Resumo Financeiro",
-      "short_name": "Resumo",
-      "description": "Veja seu saldo",
-      "tag": "financial-summary",
-      "template": "financial-summary",
-      "data": "/?widget=summary",
+      "name": "Saldo",
+      "short_name": "Saldo",
+      "description": "Veja seu saldo disponível",
+      "tag": "balance-widget",
+      "template": "balance-widget",
+      "data": "/?widget=balance",
       "type": "application/json",
       "screenshots": [
         {
           "src": "/icons/icon-192x192.png",
-          "sizes": "192x192",
-          "label": "Widget"
+          "sizes": "192x192"
         }
       ]
     }
   ],
-  "note_taking": {"new_note_url": "/?note=new"},
+  "note_taking": {
+    "new_note_url": "/?note=new"
+  },
+  "related_applications": [
+    {
+      "platform": "play",
+      "url": "https://play.google.com/store/apps/details?id=com.relpcell.app",
+      "id": "com.relpcell.app"
+    },
+    {
+      "platform": "itunes",
+      "url": "https://apps.apple.com/br/app/relp-cell/id6737894582"
+    }
+  ],
   "prefer_related_applications": false
 }
