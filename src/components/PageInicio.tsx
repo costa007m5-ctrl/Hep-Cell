@@ -9,6 +9,7 @@ import Modal from './Modal';
 import { Profile, Invoice, Tab, Contract } from '../types';
 import SignaturePad from './SignaturePad';
 import LoadingSpinner from './LoadingSpinner';
+import { useToast } from './Toast';
 
 interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
@@ -129,6 +130,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
+  const { addToast } = useToast();
 
   // Mock Data for Stories
   const stories = [
@@ -184,7 +186,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           if (requestsData.data && requestsData.data.length > 0) {
               const lastReq = requestsData.data[0];
               // Só mostra se foi atualizado recentemente (ex: 7 dias) ou se é a primeira vez vendo
-              // Para simplificar, se o status não for 'pending', mostramos.
               if (lastReq.status !== 'pending') {
                   const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
                   // Mostra por 7 dias após atualização
@@ -207,36 +208,49 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       if (!signature || !pendingContract) return;
       setIsSigning(true);
       try {
-          // 1. Atualiza Contrato
+          // 1. Atualiza Contrato para 'Assinado' (status consistente com Perfil)
           const { error: contractError } = await supabase.from('contracts').update({ 
-              status: 'Ativo', 
+              status: 'Assinado', 
               signature_data: signature, 
               terms_accepted: true 
           }).eq('id', pendingContract.id);
 
-          if (contractError) throw contractError;
+          if (contractError) {
+              console.error("Erro ao salvar contrato:", contractError);
+              throw new Error("Falha ao salvar assinatura. Verifique sua conexão.");
+          }
 
           // 2. Ativa as Faturas (usando lógica de tempo/user pois não temos FK direta)
-          // Simplificação: Ativa todas 'Aguardando Assinatura' deste usuário
-          await supabase.from('invoices').update({ status: 'Em aberto' }).eq('user_id', pendingContract.user_id).eq('status', 'Aguardando Assinatura');
+          await supabase.from('invoices')
+            .update({ status: 'Em aberto' })
+            .eq('user_id', pendingContract.user_id)
+            .eq('status', 'Aguardando Assinatura');
 
-          // Limpa o estado imediatamente para remover o alerta da UI
+          // 3. Limpa o estado imediatamente para remover o alerta da UI
           setPendingContract(null); 
           setIsModalOpen(false);
+          setSignature(null); // Limpa assinatura para próxima vez
+          addToast("Contrato assinado com sucesso!", "success");
           
-          // Recarrega faturas para mostrar atualizadas
+          // 4. Recarrega faturas para mostrar atualizadas
           const { data } = await supabase.from('invoices').select('*').eq('user_id', pendingContract.user_id);
           setInvoices(data || []);
 
-          // Opcional: Busca por mais contratos pendentes se houver
-          const { data: nextContract } = await supabase.from('contracts').select('*').eq('user_id', pendingContract.user_id).eq('status', 'pending_signature').limit(1);
+          // 5. Busca por MAIS contratos pendentes (fila)
+          const { data: nextContract } = await supabase.from('contracts')
+            .select('*')
+            .eq('user_id', pendingContract.user_id)
+            .eq('status', 'pending_signature')
+            .neq('id', pendingContract.id) // Garante que não pega o mesmo se o update falhou silenciosamente (fallback)
+            .limit(1);
+            
           if (nextContract && nextContract.length > 0) {
               setPendingContract(nextContract[0]);
           }
 
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
-          alert("Erro ao assinar contrato. Tente novamente.");
+          addToast(e.message || "Erro ao assinar contrato. Tente novamente.", "error");
       } finally {
           setIsSigning(false);
       }

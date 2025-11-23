@@ -131,10 +131,10 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         yPos += 10;
         doc.text(`Status: ${contract.status.toUpperCase()}`, 15, yPos);
         
-        if (contract.status === 'Ativo' && contract.signature_data) {
+        // Tenta exibir assinatura se estiver disponível
+        if ((contract.status === 'Ativo' || contract.status === 'Assinado') && contract.signature_data) {
             yPos += 20;
             doc.text("Assinatura Digital:", 15, yPos);
-            // Adiciona a imagem da assinatura se existir (assumindo que é base64)
             if (contract.signature_data.startsWith('data:image')) {
                 doc.addImage(contract.signature_data, 'PNG', 15, yPos + 5, 60, 30);
             }
@@ -148,10 +148,11 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         if (!signingContract || !signature) return;
         setIsSubmitting(true);
         try {
+            // Usa 'Assinado' para consistência
             const { error } = await supabase
                 .from('contracts')
                 .update({ 
-                    status: 'Ativo', 
+                    status: 'Assinado', 
                     signature_data: signature, 
                     terms_accepted: true 
                 })
@@ -180,54 +181,85 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
 
     if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
-    return (
-        <div className="space-y-4 animate-fade-in">
-            {contracts.length === 0 ? (
-                <div className="text-center py-10 text-slate-500 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                    <p>Você não possui contratos no momento.</p>
-                </div>
-            ) : (
-                contracts.map(contract => (
-                    <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <h4 className="font-bold text-slate-900 dark:text-white text-sm">{contract.title}</h4>
-                                <p className="text-xs text-slate-500">{new Date(contract.created_at).toLocaleDateString('pt-BR')}</p>
-                            </div>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                contract.status === 'Ativo' ? 'bg-green-100 text-green-700' : 
-                                contract.status === 'Cancelado' ? 'bg-red-100 text-red-700' : 
-                                'bg-yellow-100 text-yellow-700'
-                            }`}>
-                                {contract.status === 'pending_signature' ? 'Pendente' : contract.status}
-                            </span>
-                        </div>
-                        
-                        <div className="text-xs text-slate-600 dark:text-slate-400 mb-3 bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                            Valor: R$ {contract.total_value?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                        </div>
+    const pendingContracts = contracts.filter(c => c.status === 'pending_signature');
+    const historyContracts = contracts.filter(c => c.status !== 'pending_signature');
 
-                        <div className="flex gap-2">
-                            {contract.status === 'pending_signature' ? (
+    return (
+        <div className="space-y-6 animate-fade-in">
+            
+            {/* Seção de Pendentes */}
+            <div>
+                <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Aguardando Assinatura</h3>
+                {pendingContracts.length === 0 ? (
+                    <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 text-center text-sm text-slate-400">
+                        Nenhum contrato pendente.
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {pendingContracts.map(contract => (
+                            <div key={contract.id} className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-xl border border-yellow-200 dark:border-yellow-800 shadow-sm">
+                                <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                        <h4 className="font-bold text-yellow-800 dark:text-yellow-100 text-sm">{contract.title}</h4>
+                                        <p className="text-xs text-yellow-700 dark:text-yellow-200 mt-1">Criado em: {new Date(contract.created_at).toLocaleDateString('pt-BR')}</p>
+                                    </div>
+                                    <span className="text-[10px] bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-bold uppercase">Pendente</span>
+                                </div>
+                                <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
+                                    Valor: R$ {contract.total_value?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                </div>
                                 <button 
                                     onClick={() => setSigningContract(contract)}
-                                    className="flex-1 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
+                                    className="w-full py-2.5 bg-yellow-600 text-white text-xs font-bold rounded-lg hover:bg-yellow-700 transition-colors shadow-sm"
                                 >
-                                    Assinar Agora
+                                    Ler e Assinar
                                 </button>
-                            ) : (
-                                <button 
-                                    onClick={() => handleDownloadPDF(contract)}
-                                    className="flex-1 py-2 border border-indigo-200 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors flex items-center justify-center gap-1"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                    Baixar PDF
-                                </button>
-                            )}
-                        </div>
+                            </div>
+                        ))}
                     </div>
-                ))
-            )}
+                )}
+            </div>
+
+            {/* Seção de Histórico */}
+            <div>
+                <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Histórico de Contratos</h3>
+                {historyContracts.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-sm">
+                        Você ainda não possui contratos finalizados.
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {historyContracts.map(contract => (
+                            <div key={contract.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col gap-3">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">{contract.title}</h4>
+                                        <p className="text-xs text-slate-500">Assinado em: {new Date(contract.created_at).toLocaleDateString('pt-BR')}</p>
+                                    </div>
+                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                        contract.status === 'Cancelado' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                    }`}>
+                                        {contract.status === 'Ativo' ? 'Assinado' : contract.status}
+                                    </span>
+                                </div>
+                                
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-50 dark:border-slate-700/50">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                        R$ {contract.total_value?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                    </span>
+                                    <button 
+                                        onClick={() => handleDownloadPDF(contract)}
+                                        className="text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:underline flex items-center gap-1"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        Baixar Cópia
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
 
             {/* Modal de Assinatura */}
             <Modal isOpen={!!signingContract} onClose={() => setSigningContract(null)}>
