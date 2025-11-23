@@ -115,7 +115,6 @@ async function handleManageProfile(req: VercelRequest, res: VercelResponse) {
             if (resetPassword) {
                 const { data: user } = await supabase.from('profiles').select('email').eq('id', id).single();
                 if (user?.email) {
-                    // Fix: use auth.resetPasswordForEmail instead of admin.resetPasswordForEmail
                     await supabase.auth.resetPasswordForEmail(user.email);
                     await logAction(supabase, 'PASSWORD_RESET', 'SUCCESS', `Reset de senha enviado para ${user.email}`);
                 }
@@ -309,7 +308,6 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         if (imageBase64) {
             return res.status(200).json({ image: `data:image/png;base64,${imageBase64}` });
         } else {
-            // Fallback se o modelo não retornar imagem diretamente (alguns modelos retornam texto explicando que não podem gerar)
             return res.status(500).json({ error: 'O modelo não gerou uma imagem. Tente detalhar mais o prompt.' });
         }
     } catch (e: any) {
@@ -325,7 +323,6 @@ async function handleEditImage(req: VercelRequest, res: VercelResponse) {
         const ai = getGeminiClient();
         if (!ai) return res.status(500).json({ error: 'API Key do Gemini não configurada.' });
 
-        // Remove header data:image/... se existir
         const base64Data = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
 
         const response = await ai.models.generateContent({
@@ -370,7 +367,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST') {
         const { image_base64, prompt, link } = req.body;
         const { data, error } = await supabase.from('banners').insert({
-            image_url: image_base64, // Em produção, idealmente upload para Storage e salvar URL
+            image_url: image_base64,
             prompt,
             link,
             active: true
@@ -395,7 +392,6 @@ async function handleAdminChat(req: VercelRequest, res: VercelResponse) {
     
     try {
         const { message, context } = req.body;
-        // Recuperar modelo salvo nas configs ou usar default
         const supabase = getSupabaseAdminClient();
         const { data: settings } = await supabase.from('system_settings').select('value').eq('key', 'chat_model').single();
         const modelName = settings?.value || 'gemini-2.5-flash';
@@ -425,13 +421,13 @@ async function handleProducts(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleProfiles(req: VercelRequest, res: VercelResponse) { 
+async function handleProfiles(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('profiles').select('*');
     return res.status(200).json(data);
 }
 
-async function handleInvoices(req: VercelRequest, res: VercelResponse) { 
+async function handleInvoices(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('invoices').select('*').order('created_at');
     return res.status(200).json(data);
@@ -457,7 +453,6 @@ async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
     }
     if (req.method === 'POST') {
         const { userId, subject, category, priority, message } = req.body;
-        // Create ticket
         const { data: ticket, error } = await supabase.from('support_tickets').insert({
             user_id: userId,
             subject,
@@ -468,7 +463,6 @@ async function handleSupportTickets(req: VercelRequest, res: VercelResponse) {
         
         if (error) return res.status(500).json({ error: error.message });
 
-        // Create initial message
         await supabase.from('support_messages').insert({
             ticket_id: ticket.id,
             sender_type: 'user',
@@ -500,7 +494,6 @@ async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
             is_internal: isInternal
         }).select();
         
-        // Update ticket updated_at
         await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId);
         
         return res.status(200).json(data);
@@ -508,15 +501,13 @@ async function handleSupportMessages(req: VercelRequest, res: VercelResponse) {
     return res.status(405).end();
 }
 
-async function handleLogs(req: VercelRequest, res: VercelResponse) { 
+async function handleLogs(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const {data} = await supabase.from('action_logs').select('*').order('created_at', {ascending:false}).limit(50);
     return res.status(200).json(data);
 }
 
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
-    // This route is used to create tables if they don't exist via SQL Editor in dashboard
-    // But we can use it to verify connection
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { error } = await supabase.from('profiles').select('count').limit(1);
     if (error) return res.status(500).json({ message: 'Database connection failed', error });
