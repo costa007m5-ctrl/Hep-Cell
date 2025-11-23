@@ -13,7 +13,7 @@ export enum Tab {
   FATURAS,
   LOJA,
   PERFIL,
-  NOTIFICATIONS, // Nova aba
+  NOTIFICATIONS,
 }
 
 export interface Invoice {
@@ -22,7 +22,7 @@ export interface Invoice {
   month: string;
   due_date: string;
   amount: number;
-  status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado' | 'Aguardando Assinatura'; // Novo Status
+  status: 'Paga' | 'Em aberto' | 'Boleto Gerado' | 'Expirado' | 'Cancelado' | 'Aguardando Assinatura';
   payment_method?: string | null;
   payment_date?: string | null;
   payment_id?: string | null;
@@ -33,6 +33,18 @@ export interface Invoice {
   notes?: string | null;
   discountValue?: number; 
   created_at: string;
+}
+
+export interface DueDateRequest {
+  id: string;
+  user_id: string;
+  current_day: number;
+  requested_day: number;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_notes?: string;
+  created_at: string;
+  profiles?: Profile; // Join
 }
 
 export interface AppNotification {
@@ -67,6 +79,7 @@ export interface Profile {
   notify_new_invoice?: boolean;
   notify_promotions?: boolean;
   avatar_url?: string | null;
+  preferred_due_day?: number;
 }
 
 export interface Product {
@@ -82,12 +95,12 @@ export interface Product {
   reviews_count?: number; 
   is_new?: boolean; 
   created_at: string;
-  barcode?: string; // Novo campo para PDV
+  barcode?: string;
 }
 
 export interface CartItem extends Product {
     quantity: number;
-    discount?: number; // Desconto individual
+    discount?: number;
 }
 
 export interface Address {

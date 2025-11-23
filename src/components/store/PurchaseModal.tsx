@@ -19,9 +19,9 @@ type SaleType = 'crediario' | 'direct';
 type PaymentMethod = 'pix' | 'boleto' | 'credit_card';
 
 const COMPANY_DATA = {
-    razaoSocial: "RELP CELL ELETRONICOS",
+    razaoSocial: "RELP CELL ELETRONICOS LTDA",
     cnpj: "43.735.304/0001-00",
-    endereco: "Endereço Comercial, Estado do Amapá",
+    endereco: "Avenida Principal, 123, Centro, Macapá - AP",
     telefone: "(96) 99171-8167"
 };
 
@@ -32,6 +32,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     
     const [downPayment, setDownPayment] = useState<string>('');
     const [installments, setInstallments] = useState<number>(1);
+    const [selectedDueDay, setSelectedDueDay] = useState<number>(10); // Default 10
+    
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [interestRate, setInterestRate] = useState(0);
@@ -95,12 +97,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         
         if (saleType === 'direct') {
             if (paymentMethod === 'credit_card') {
-                // Regra Diamante: Até 4x sem juros. Normal: 1x sem juros (ou taxa padrão a partir de 2x)
                 const interestFreeLimit = isDiamond ? 4 : 1;
                 if (installments <= interestFreeLimit) return 0;
-                return interestRate; // Aplica taxa padrão após o limite sem juros
+                return interestRate; 
             }
-            return 0; // Pix e Boleto à vista (ou com desconto se implementado) sem juros
+            return 0; 
         }
         return 0;
     }, [saleType, paymentMethod, installments, interestRate, isDiamond]);
@@ -113,28 +114,21 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const installmentValue = totalFinancedWithInterest / installments;
     
-    // Validações de Crediário
     const isLimitExceeded = saleType === 'crediario' && totalFinancedWithInterest > availableLimit;
     
-    // Cálculo da Sugestão de Entrada (Mínimo Obrigatório + Ajuste de Limite)
     const validationStatus = useMemo(() => {
         if (saleType !== 'crediario') return { isValid: true, message: null, type: 'success' };
 
-        // 1. Regra Obrigatória: Mínimo 15%
         const mandatoryEntry = product.price * MIN_ENTRY_PERCENTAGE;
-
-        // 2. Regra de Limite: Quanto precisa dar de entrada para o saldo financiado caber no limite
         let limitGapEntry = 0;
         if (installments > 1 && interestRate > 0) {
              const factor = Math.pow(1 + (interestRate/100), installments);
-             // Fórmula reversa do juros composto para achar o principal máximo
              const maxPrincipal = availableLimit / factor;
              limitGapEntry = product.price - maxPrincipal;
         } else {
              limitGapEntry = product.price - availableLimit;
         }
 
-        // A entrada necessária é o MAIOR valor entre a regra de % e a regra de limite
         const requiredEntry = Math.max(mandatoryEntry, limitGapEntry);
 
         if (downPaymentValue < requiredEntry) {
@@ -150,6 +144,38 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         return { isValid: true, message: 'Entrada aprovada.', type: 'success' };
 
     }, [saleType, product.price, availableLimit, installments, interestRate, downPaymentValue]);
+
+    // Generate Installment Schedule for Contract
+    const installmentSchedule = useMemo(() => {
+        const schedule = [];
+        let currentDate = new Date();
+        let currentMonth = currentDate.getMonth();
+        let currentYear = currentDate.getFullYear();
+
+        // Start next month
+        currentMonth++;
+        
+        for (let i = 1; i <= installments; i++) {
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
+            
+            // Validar dia (ex: 30 de fev não existe)
+            const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const day = Math.min(selectedDueDay, maxDay);
+            
+            const date = new Date(currentYear, currentMonth, day);
+            schedule.push({
+                number: i,
+                date: date,
+                value: installmentValue
+            });
+            
+            currentMonth++;
+        }
+        return schedule;
+    }, [installments, selectedDueDay, installmentValue]);
 
     const handleNextStep = () => {
         if (saleType === 'crediario' && !validationStatus.isValid) return;
@@ -182,7 +208,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     signature: signature,
                     saleType: saleType,
                     paymentMethod: paymentMethod,
-                    downPayment: downPaymentValue 
+                    downPayment: downPaymentValue,
+                    dueDay: selectedDueDay
                 }),
             });
             const result = await response.json();
@@ -262,13 +289,31 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             </div>
             
             {saleType === 'crediario' && (
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Valor da Entrada (R$)</label>
-                    <div className="relative">
-                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
-                        <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" />
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Valor da Entrada (R$)</label>
+                        <div className="relative">
+                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
+                            <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" />
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Dia de Vencimento</label>
+                        <div className="flex gap-2">
+                            {[5, 15, 25].map(day => (
+                                <button 
+                                    key={day}
+                                    onClick={() => setSelectedDueDay(day)}
+                                    className={`flex-1 py-2 border rounded-lg text-sm font-bold transition-colors ${selectedDueDay === day ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                                >
+                                    Dia {day}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">Selecione o melhor dia para pagar suas parcelas.</p>
+                    </div>
                 </div>
             )}
 
@@ -332,27 +377,66 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const renderContractStep = () => (
         <div className="space-y-6 flex-1 overflow-y-auto">
-            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 h-64 overflow-y-auto text-xs text-slate-600 dark:text-slate-300 text-justify leading-relaxed font-serif">
-                <h4 className="text-center font-bold text-sm mb-2 uppercase text-slate-900 dark:text-white">Contrato de Confissão de Dívida</h4>
-                <p className="mb-2">
-                    <strong>CREDORA:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}.
-                </p>
-                <p className="mb-2">
+            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 h-96 overflow-y-auto text-xs text-slate-600 dark:text-slate-300 text-justify leading-relaxed font-serif">
+                <h4 className="text-center font-bold text-sm mb-4 uppercase text-slate-900 dark:text-white">INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA</h4>
+                
+                <p className="mb-3">
+                    <strong>CREDORA:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}, com sede em {COMPANY_DATA.endereco}.<br/>
                     <strong>DEVEDOR(A):</strong> {profile.first_name} {profile.last_name}, CPF {profile.identification_number}.
                 </p>
-                <p className="mb-2">
-                    <strong>CLÁUSULA 1:</strong> Aquisição do produto <strong>{product.name}</strong>, valor total {totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA PRIMEIRA - DO OBJETO:</strong> O presente contrato tem por objeto a confissão de dívida oriunda da compra do produto: <strong>{product.name}</strong>.
                 </p>
-                <p className="mb-2">
-                    <strong>CLÁUSULA 2:</strong> Pagamento em {installments} parcelas de {installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA SEGUNDA - DO VALOR E PAGAMENTO:</strong> O DEVEDOR confessa dever à CREDORA a importância líquida e certa de <strong>{totalFinancedWithInterest.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>, a ser paga em {installments} parcelas conforme tabela abaixo:
                 </p>
-                <p>
-                    <strong>CLÁUSULA 3:</strong> O atraso acarretará multa de 2% e juros de 1% a.m.
+
+                <div className="mb-3 border border-slate-300 dark:border-slate-600 rounded overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-slate-200 dark:bg-slate-700">
+                                <th className="p-2 border-b border-slate-300 dark:border-slate-600">Nº</th>
+                                <th className="p-2 border-b border-slate-300 dark:border-slate-600">Vencimento</th>
+                                <th className="p-2 border-b border-slate-300 dark:border-slate-600">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {installmentSchedule.map((inst) => (
+                                <tr key={inst.number} className="border-b border-slate-200 dark:border-slate-700 last:border-0">
+                                    <td className="p-2">{inst.number}</td>
+                                    <td className="p-2">{inst.date.toLocaleDateString('pt-BR')}</td>
+                                    <td className="p-2">{inst.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA TERCEIRA - DO INADIMPLEMENTO:</strong> O não pagamento de qualquer parcela na data de seu vencimento implicará na incidência de multa moratória de 2% (dois por cento) sobre o valor do débito e juros de mora de 1% (um por cento) ao mês, <em>pro rata die</em>.
+                </p>
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA QUARTA - DO VENCIMENTO ANTECIPADO:</strong> A falta de pagamento de qualquer parcela poderá acarretar o vencimento antecipado de toda a dívida, facultando à CREDORA a cobrança integral do saldo devedor.
+                </p>
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA QUINTA - DA PROTEÇÃO AO CRÉDITO:</strong> O atraso superior a 10 (dez) dias autoriza a CREDORA a incluir o nome do DEVEDOR nos órgãos de proteção ao crédito (SPC/SERASA), bem como a protestar o título.
+                </p>
+
+                <p className="mb-3">
+                    <strong>CLÁUSULA SEXTA - DO FORO:</strong> Fica eleito o foro da comarca de Macapá/AP para dirimir quaisquer dúvidas oriundas deste contrato.
+                </p>
+                
+                <p className="mt-6 text-center">
+                    Macapá, {new Date().toLocaleDateString('pt-BR')}
                 </p>
             </div>
 
             <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Assine Abaixo:</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Assinatura Digital do Devedor:</label>
                 <SignaturePad onEnd={setSignature} />
             </div>
 
@@ -365,7 +449,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
                 />
                 <label htmlFor="terms" className="text-xs text-slate-600 dark:text-slate-400">
-                    Li e concordo com os termos do contrato de Crediário.
+                    Li, compreendi e concordo com todas as cláusulas do Contrato de Confissão de Dívida acima.
                 </label>
             </div>
         </div>

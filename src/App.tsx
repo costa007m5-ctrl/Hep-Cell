@@ -20,20 +20,6 @@ import SupportChat from './components/SupportChat';
 // A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
-// Registrar Service Worker para PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(
-      (registration) => {
-        console.log('[PWA] Service Worker registrado com sucesso:', registration);
-      },
-      (error) => {
-        console.warn('[PWA] Erro ao registrar Service Worker:', error);
-      }
-    );
-  });
-}
-
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
 
 const AppContent: React.FC = () => {
@@ -120,7 +106,9 @@ const AppContent: React.FC = () => {
        if (event === 'SIGNED_OUT') {
          setSession(null);
          setAuthLoading(false);
-       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+       } else if (event === 'TOKEN_REFRESH_ROUTED' || event === 'PASSWORD_RECOVERY') {
+         // Eventos específicos que não necessariamente mudam a sessão imediatamente
+       } else {
          if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
             setSession(session);
          }

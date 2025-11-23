@@ -107,7 +107,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName } = req.body;
+        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName, dueDay } = req.body;
         
         if (!userId || !totalAmount || !installments || !productName) {
             return res.status(400).json({ error: 'Missing required sale data.' });
@@ -116,17 +116,28 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const installmentAmount = Math.round((totalAmount / installments) * 100) / 100;
         const newInvoices = [];
         const today = new Date();
-        // Importante: Fixar o timestamp de criação para agrupar corretamente as parcelas da MESMA venda
         const purchaseTimestamp = new Date().toISOString();
-
-        // Regra de Negócio: Se for Crediário, o status inicial é 'Aguardando Assinatura'
         const initialStatus = saleType === 'crediario' ? 'Aguardando Assinatura' : 'Em aberto';
 
+        // Definir datas de vencimento com base no dueDay escolhido (default 10 se não vier)
+        const selectedDay = dueDay || 10;
+        
+        // Começa no próximo mês
+        let currentMonth = today.getMonth() + 1;
+        let currentYear = today.getFullYear();
+
         for (let i = 1; i <= installments; i++) {
-            const dueDate = new Date(today);
-            dueDate.setMonth(today.getMonth() + i);
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            }
             
-            // Se for venda direta (1x), não precisa de "(1/1)" no nome
+            // Ajusta para o último dia do mês se o dia escolhido não existir (ex: 30 de Fev)
+            const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const day = Math.min(selectedDay, maxDay);
+            
+            const dueDate = new Date(currentYear, currentMonth, day);
+            
             const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`;
             
             let notes = saleType === 'direct' 
@@ -152,9 +163,11 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 amount: installmentAmount,
                 status: initialStatus,
                 notes: notes,
-                created_at: purchaseTimestamp, // Agrupador crítico
+                created_at: purchaseTimestamp, 
                 payment_method: paymentMethod || null
             });
+            
+            currentMonth++;
         }
 
         const { error } = await supabase.from('invoices').insert(newInvoices);
@@ -162,20 +175,22 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         // Cria contrato se for crediário
         if (saleType === 'crediario') {
+            // Salva a preferência de dia no perfil se for a primeira compra ou se mudou
+            await supabase.from('profiles').update({ preferred_due_day: selectedDay }).eq('id', userId);
+
             const { error: contractError } = await supabase.from('contracts').insert({
                 user_id: userId,
                 title: 'Contrato de Crediário (CDCI) - Relp Cell',
                 items: productName,
                 total_value: totalAmount,
                 installments: installments,
-                status: 'pending_signature', // AGUARDANDO ACEITE DO CLIENTE NO APP
-                signature_data: null, // Assinatura será feita pelo cliente no app
+                status: 'pending_signature', 
+                signature_data: null, 
                 terms_accepted: false,
                 created_at: purchaseTimestamp
             });
             if (contractError) console.error("Erro ao salvar contrato:", contractError);
             
-            // Envia notificação para o cliente
             await supabase.from('notifications').insert({
                 user_id: userId,
                 title: 'Aprovação Necessária',
@@ -192,6 +207,100 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     } catch (error: any) {
         await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body });
         res.status(500).json({ error: error.message });
+    }
+}
+
+// --- Handler para Due Date Requests ---
+async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    
+    if (req.method === 'GET') {
+        try {
+            // Retorna solicitações pendentes com dados do perfil
+            const { data, error } = await supabase
+                .from('due_date_requests')
+                .select('*, profiles(first_name, last_name, email)')
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            return res.status(200).json(data);
+        } catch (e: any) {
+            return res.status(500).json({ error: e.message });
+        }
+    }
+
+    if (req.method === 'PUT') {
+        try {
+            const { id, status, adminNotes } = req.body; // id da request
+            if (!id || !status) return res.status(400).json({ error: "ID e Status são obrigatórios." });
+
+            // 1. Atualiza o status da solicitação
+            const { data: request, error: reqError } = await supabase
+                .from('due_date_requests')
+                .update({ status, admin_notes: adminNotes, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (reqError) throw reqError;
+
+            // 2. Se aprovado, atualiza as faturas em aberto
+            if (status === 'approved' && request) {
+                const newDay = request.requested_day;
+                const userId = request.user_id;
+
+                // Atualiza preferência no perfil
+                await supabase.from('profiles').update({ preferred_due_day: newDay }).eq('id', userId);
+
+                // Busca faturas em aberto
+                const { data: invoices } = await supabase
+                    .from('invoices')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .or('status.eq.Em aberto,status.eq.Boleto Gerado');
+
+                if (invoices) {
+                    for (const inv of invoices) {
+                        const oldDate = new Date(inv.due_date);
+                        // Mantém mês e ano, muda o dia
+                        // Cuidado: se o dia não existe no mês (ex: 30 fev), JS ajusta para março. Precisamos travar no último dia.
+                        const year = oldDate.getFullYear();
+                        const month = oldDate.getMonth();
+                        const maxDay = new Date(year, month + 1, 0).getDate();
+                        const safeDay = Math.min(newDay, maxDay);
+                        
+                        // Nova data mantendo o fuso (UTC split fix)
+                        const newDateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(safeDay).padStart(2,'0')}`;
+
+                        await supabase
+                            .from('invoices')
+                            .update({ due_date: newDateStr, notes: (inv.notes || '') + ` [Vencimento alterado de dia ${oldDate.getDate()} para ${safeDay}]` })
+                            .eq('id', inv.id);
+                    }
+                }
+
+                // Notifica usuário
+                await supabase.from('notifications').insert({
+                    user_id: userId,
+                    title: 'Data de Vencimento Alterada',
+                    message: `Sua solicitação foi aprovada. Suas faturas agora vencem no dia ${newDay}.`,
+                    type: 'success'
+                });
+            } else if (status === 'rejected' && request) {
+                 await supabase.from('notifications').insert({
+                    user_id: request.user_id,
+                    title: 'Solicitação Recusada',
+                    message: `Sua solicitação de mudança de data foi recusada. Motivo: ${adminNotes || 'Política interna'}.`,
+                    type: 'warning'
+                });
+            }
+
+            return res.status(200).json({ message: "Solicitação processada com sucesso." });
+
+        } catch (e: any) {
+            return res.status(500).json({ error: e.message });
+        }
     }
 }
 
@@ -235,7 +344,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/banners': return await handleBanners(req, res);
                 case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
                 case '/api/admin/support-messages': return await handleSupportMessages(req, res);
-                case '/api/admin/invoices': return await handleGetAllInvoices(req, res); // Novo endpoint para CRM
+                case '/api/admin/invoices': return await handleGetAllInvoices(req, res);
+                case '/api/admin/due-date-requests': return await handleDueDateRequests(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -268,6 +378,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             switch (path) {
                 case '/api/admin/products': return await handleProducts(req, res);
                 case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
+                case '/api/admin/due-date-requests': return await handleDueDateRequests(req, res);
                 default: return res.status(404).json({ error: 'Admin PUT route not found' });
             }
         }

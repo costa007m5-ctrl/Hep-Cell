@@ -3,12 +3,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
-import { Profile } from '../types';
+import { Profile, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import InputField from './InputField';
 import { useToast } from './Toast';
 import ReceiptDetails from './ReceiptDetails';
 import Modal from './Modal';
+import jsPDF from 'jspdf'; // Import jsPDF
 
 interface PagePerfilProps {
     session: Session;
@@ -94,26 +95,21 @@ const ServiceStatus: React.FC = () => {
         setIsChecking(true);
         const start = Date.now();
         
-        // 1. App (Internet)
         const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
         
-        // 2. Loja (Banco de Dados)
         let storeStatus: 'online' | 'offline' = 'offline';
         try {
-            // Tenta uma query leve no Supabase
             const { error } = await supabase.from('products').select('id').limit(1);
             storeStatus = error ? 'offline' : 'online';
         } catch (e) {
             storeStatus = 'offline';
         }
 
-        // 3. API (Gateway Pagamento e Backend)
         let apiStatus: 'online' | 'degraded' | 'offline' = 'offline';
         let latency = 0;
 
         if (isOnline) {
             try {
-                // Faz um fetch real para a API para medir latência
                 const res = await fetch('/api/products?limit=1');
                 const end = Date.now();
                 latency = end - start;
@@ -125,7 +121,6 @@ const ServiceStatus: React.FC = () => {
                     apiStatus = 'offline';
                 }
             } catch (e) {
-                // Capture fetch errors (e.g. network failure) gracefully
                 apiStatus = 'offline';
             }
         }
@@ -133,8 +128,8 @@ const ServiceStatus: React.FC = () => {
         setHealth({
             app: isOnline ? 'online' : 'offline',
             store: storeStatus,
-            pix: apiStatus, // Pix depende da API/Backend
-            card: apiStatus, // Cartão depende da API/Backend
+            pix: apiStatus, 
+            card: apiStatus, 
             latency: latency
         });
         setLastCheck(new Date());
@@ -143,7 +138,6 @@ const ServiceStatus: React.FC = () => {
 
     useEffect(() => {
         checkSystem();
-        // Auto-check a cada 60s
         const interval = setInterval(checkSystem, 60000);
         return () => clearInterval(interval);
     }, []);
@@ -180,7 +174,6 @@ const ServiceStatus: React.FC = () => {
                 {isChecking && <span className="text-[10px] text-slate-400 self-center animate-pulse">Verificando...</span>}
             </div>
 
-            {/* Modal de Detalhes do Sistema */}
             <Modal isOpen={showDetails} onClose={() => setShowDetails(false)}>
                 <div className="text-center">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Status do Sistema</h3>
@@ -484,13 +477,19 @@ const AddressView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }
     );
 };
 
-const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }> = ({ toggleTheme, isDarkMode }) => {
+const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; userId: string }> = ({ toggleTheme, isDarkMode, userId }) => {
     const [notifs, setNotifs] = useState({ push: true, email: true, whatsapp: false });
     const [biometrics, setBiometrics] = useState(false);
     const [privacyCredit, setPrivacyCredit] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isClearing, setIsClearing] = useState(false);
     const [legalModalContent, setLegalModalContent] = useState<'terms' | 'privacy' | null>(null);
+    const [showChangeDateModal, setShowChangeDateModal] = useState(false);
+    
+    const [newDueDay, setNewDueDay] = useState(10);
+    const [reason, setReason] = useState('');
+    const [isSubmittingDate, setIsSubmittingDate] = useState(false);
+
     const { addToast } = useToast();
 
     useEffect(() => {
@@ -502,7 +501,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
     const handleBiometricToggle = (value: boolean) => {
         if (value) {
             if (window.PublicKeyCredential) {
-                // Simulando ativação bem sucedida
                 localStorage.setItem('relp_biometrics', 'true');
                 setBiometrics(true);
                 addToast('Login biométrico ativado!', 'success');
@@ -517,9 +515,8 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
 
     const handleClearCache = () => {
         setIsClearing(true);
-        // Simula limpeza
         setTimeout(() => {
-            localStorage.clear(); // Cuidado: Limpa tudo
+            localStorage.clear(); 
             sessionStorage.clear();
             caches.keys().then((names) => {
                 names.forEach((name) => {
@@ -546,9 +543,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
             try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user) {
-                    // Em um app real, chamaria uma Edge Function para deletar do Auth e do DB
-                    // Aqui simulamos com um toast e logout
-                    // await supabase.rpc('delete_user_account'); // Exemplo
                     addToast('Solicitação enviada. Sua conta será excluída em 24h.', 'info');
                     setTimeout(async () => {
                         await supabase.auth.signOut();
@@ -561,6 +555,33 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
             }
         } else if (confirmText !== null) {
             addToast('Texto de confirmação incorreto.', 'error');
+        }
+    };
+
+    const handleChangeDateRequest = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+            addToast('Por favor, informe o motivo.', 'error');
+            return;
+        }
+        setIsSubmittingDate(true);
+        try {
+            const { error } = await supabase.from('due_date_requests').insert({
+                user_id: userId,
+                current_day: 10, // Default or fetch from profile
+                requested_day: newDueDay,
+                reason: reason,
+                status: 'pending'
+            });
+
+            if (error) throw error;
+            addToast('Solicitação enviada! Aguarde aprovação.', 'success');
+            setShowChangeDateModal(false);
+            setReason('');
+        } catch (err) {
+            addToast('Erro ao enviar solicitação.', 'error');
+        } finally {
+            setIsSubmittingDate(false);
         }
     };
 
@@ -590,11 +611,18 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
                     checked={notifs.push} 
                     onChange={v => setNotifs({...notifs, push: v})} 
                 />
-                <ToggleSwitch 
-                    label="Avisos por Email" 
-                    checked={notifs.email} 
-                    onChange={v => setNotifs({...notifs, email: v})} 
-                />
+                
+                {/* Novo Botão para Alterar Data de Vencimento */}
+                <button 
+                    onClick={() => setShowChangeDateModal(true)}
+                    className="w-full text-left py-3 text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex justify-between items-center border-b border-slate-100 dark:border-slate-700 last:border-0 mt-2"
+                >
+                    <div>
+                        <span className="block font-medium">Alterar Data de Vencimento</span>
+                        <span className="text-xs text-slate-500">Mude o dia de pagamento das faturas</span>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </button>
             </div>
 
             {/* Segurança e Login */}
@@ -624,7 +652,7 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
                 />
             </div>
 
-            {/* Legal & Sobre (Organizado) */}
+            {/* Legal & Sobre */}
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -644,10 +672,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
                     onClick={() => setLegalModalContent('privacy')}
                     colorClass="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                 />
-                
-                <div className="pt-2 text-center">
-                    <p className="text-[10px] text-slate-400">Versão do App: 2.5.0 (Build 2024)</p>
-                </div>
             </div>
 
             {/* Manutenção */}
@@ -665,8 +689,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
                     {isClearing ? 'Limpando...' : 'Limpar Cache & Otimizar App'}
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
-                
-                <p className="text-xs text-slate-400 mt-2">Se o app estiver lento ou com erros, tente limpar o cache.</p>
             </div>
 
             {/* Zona de Perigo */}
@@ -696,6 +718,51 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean }>
                     <button onClick={() => setLegalModalContent(null)} className="w-full mt-6 py-3 bg-indigo-600 text-white rounded-xl font-bold">
                         Entendi
                     </button>
+                </div>
+            </Modal>
+
+            {/* Modal Alteração de Data */}
+            <Modal isOpen={showChangeDateModal} onClose={() => setShowChangeDateModal(false)}>
+                <div className="text-slate-900 dark:text-white space-y-4">
+                    <h3 className="text-xl font-bold">Alterar Data de Vencimento</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Escolha o melhor dia para o vencimento das suas faturas. A mudança será analisada e aplicada nas faturas em aberto com possível reajuste proporcional de juros.
+                    </p>
+                    
+                    <form onSubmit={handleChangeDateRequest}>
+                        <div className="grid grid-cols-3 gap-2 mb-4">
+                            {[5, 15, 25].map(day => (
+                                <button 
+                                    key={day}
+                                    type="button"
+                                    onClick={() => setNewDueDay(day)}
+                                    className={`py-3 rounded-lg text-sm font-bold border transition-colors ${newDueDay === day ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600'}`}
+                                >
+                                    Dia {day}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-bold mb-2">Motivo da alteração:</label>
+                            <textarea 
+                                value={reason}
+                                onChange={e => setReason(e.target.value)}
+                                className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                placeholder="Ex: Recebo meu salário dia 05..."
+                                rows={3}
+                                required
+                            ></textarea>
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            disabled={isSubmittingDate}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex justify-center items-center"
+                        >
+                            {isSubmittingDate ? <LoadingSpinner /> : 'Solicitar Alteração'}
+                        </button>
+                    </form>
                 </div>
             </Modal>
         </div>
@@ -739,11 +806,131 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => (
     </div>
 );
 
-const FiscalNotesView: React.FC<{ profile: Profile }> = ({ profile }) => (
-    <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <p>Nenhuma nota fiscal encontrada.</p>
-    </div>
-);
+const FiscalNotesView: React.FC<{ userId: string }> = ({ userId }) => {
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchInvoices = async () => {
+            setLoading(true);
+            try {
+                // Busca faturas pagas
+                const { data, error } = await supabase
+                    .from('invoices')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .eq('status', 'Paga')
+                    .order('payment_date', { ascending: false });
+                
+                if (!error && data) setInvoices(data);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchInvoices();
+    }, [userId]);
+
+    const handleDownloadNFe = async (invoice: Invoice) => {
+        const doc = new jsPDF();
+        
+        // Cabeçalho da DANFE
+        doc.setFontSize(10);
+        doc.text("DANFE - Documento Auxiliar da Nota Fiscal Eletrônica", 105, 20, { align: 'center' });
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text("RELP CELL ELETRÔNICOS LTDA", 20, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.text("Avenida Principal, 123 - Centro, Macapá - AP", 20, 35);
+        doc.text("CNPJ: 43.735.304/0001-00  |  IE: Isento", 20, 40);
+        
+        // Chave de Acesso (Simulada)
+        const accessKey = `1624${invoice.id.replace(/-/g, '').substring(0, 36)}55001000001234100001234`; 
+        doc.rect(120, 25, 80, 20); 
+        doc.setFontSize(8);
+        doc.text("Chave de Acesso", 122, 29);
+        doc.setFontSize(7);
+        doc.text(accessKey, 122, 35);
+        
+        // Código de Barras (Simulado)
+        doc.setLineWidth(0.5);
+        for(let i=0; i<40; i++) {
+            const w = Math.random() * 1.5 + 0.5;
+            doc.rect(125 + (i*1.8), 38, w, 5, 'F');
+        }
+
+        // Destinatário
+        doc.rect(10, 50, 190, 25);
+        doc.setFontSize(8);
+        doc.text("DESTINATÁRIO / REMETENTE", 12, 54);
+        doc.text(`Nome/Razão Social: CONSUMIDOR FINAL`, 15, 60);
+        doc.text(`Endereço: -`, 15, 65);
+        doc.text(`Data Emissão: ${new Date(invoice.payment_date || new Date()).toLocaleDateString('pt-BR')}`, 150, 60);
+
+        // Dados do Produto
+        doc.rect(10, 80, 190, 60);
+        doc.text("DADOS DO PRODUTO / SERVIÇO", 12, 84);
+        
+        // Tabela
+        let y = 95;
+        doc.setFont('helvetica', 'bold');
+        doc.text("Descrição", 15, 90);
+        doc.text("Qtd", 120, 90);
+        doc.text("V. Unit", 140, 90);
+        doc.text("V. Total", 170, 90);
+        doc.line(10, 92, 200, 92);
+        
+        doc.setFont('helvetica', 'normal');
+        // Item
+        const desc = invoice.month || invoice.notes || "Produto Diversos";
+        const valor = invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        doc.text(desc.substring(0, 50), 15, y);
+        doc.text("1", 120, y);
+        doc.text(valor, 140, y);
+        doc.text(valor, 170, y);
+
+        // Totais
+        doc.rect(10, 145, 190, 15);
+        doc.text("CÁLCULO DO IMPOSTO", 12, 149);
+        doc.text(`Valor Total dos Produtos: R$ ${valor}`, 15, 155);
+        doc.text(`Valor Total da Nota: R$ ${valor}`, 120, 155);
+
+        doc.save(`NFe_${invoice.id}.pdf`);
+    };
+
+    if (loading) return <div className="flex justify-center py-10"><LoadingSpinner /></div>;
+
+    if (invoices.length === 0) {
+        return (
+            <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <p>Nenhuma nota fiscal disponível.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3 animate-fade-in">
+            {invoices.map(invoice => (
+                <div key={invoice.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">NFe #{invoice.id.substring(0, 8).toUpperCase()}</p>
+                        <p className="text-xs text-slate-500">Emissão: {new Date(invoice.payment_date!).toLocaleDateString('pt-BR')}</p>
+                        <p className="text-xs text-slate-500 mt-1 truncate w-48">{invoice.month}</p>
+                    </div>
+                    <button 
+                        onClick={() => handleDownloadNFe(invoice)}
+                        className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors"
+                        title="Baixar DANFE (PDF)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    </button>
+                </div>
+            ))}
+        </div>
+    );
+};
 
 const PaymentReceiptsView: React.FC<{ userId: string; profile: Profile }> = ({ userId, profile }) => (
     <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -850,453 +1037,154 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
     );
 };
 
-// --- NOVA HELP VIEW ROBUSTA E EXPANDIDA ---
-
-const FAQItem: React.FC<{ question: string; answer: string; isExpanded: boolean; onClick: () => void }> = ({ question, answer, isExpanded, onClick }) => (
-    <div className="border-b border-slate-100 dark:border-slate-800 last:border-0">
-        <button onClick={onClick} className="w-full py-4 flex justify-between items-center text-left focus:outline-none group">
-            <span className={`font-medium text-sm transition-colors ${isExpanded ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300 group-hover:text-indigo-500'}`}>
-                {question}
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-500' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-        </button>
-        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100 pb-4' : 'max-h-0 opacity-0'}`}>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed px-2 border-l-2 border-indigo-100 dark:border-slate-700 ml-1">
-                {answer}
-            </p>
-            <div className="mt-3 flex items-center gap-2 px-2">
-                <span className="text-[10px] text-slate-400">Isso foi útil?</span>
-                <button className="p-1 hover:bg-green-50 dark:hover:bg-green-900/30 rounded text-slate-400 hover:text-green-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg></button>
-                <button className="p-1 hover:bg-red-50 dark:hover:bg-red-900/30 rounded text-slate-400 hover:text-red-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211 1.412.608-2.006L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" /></svg></button>
-            </div>
-        </div>
-    </div>
-);
-
 const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
-    const [view, setView] = useState<'home' | 'faq' | 'tickets' | 'create' | 'chat'>('home');
     const [tickets, setTickets] = useState<any[]>([]);
-    const [selectedTicket, setSelectedTicket] = useState<any>(null);
-    const [messages, setMessages] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [newMessage, setNewMessage] = useState('');
-    const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
-    const [ticketFilter, setTicketFilter] = useState<'all' | 'open' | 'closed'>('open');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [rating, setRating] = useState(0);
-    
-    // New Ticket Form
-    const [newTicket, setNewTicket] = useState({ subject: '', category: 'Financeiro', priority: 'Normal', message: '' });
-    
+    const [loading, setLoading] = useState(true);
+    const [showNewTicket, setShowNewTicket] = useState(false);
+    const [newTicket, setNewTicket] = useState({ subject: '', message: '', category: 'Geral' });
+    const [submitting, setSubmitting] = useState(false);
     const { addToast } = useToast();
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const faqs = [
-        // Financeiro
-        { q: "Como pago minha fatura?", a: "Você pode pagar via Pix (Copia e Cola ou QR Code), Boleto Bancário ou Cartão de Crédito diretamente no app na aba 'Faturas'." },
-        { q: "Onde vejo o código de barras?", a: "Na aba 'Faturas', clique em 'Ver Boleto'. O código de barras estará disponível para cópia." },
-        { q: "O pagamento via Pix é instantâneo?", a: "Sim! O pagamento via Pix é processado na hora e seu limite é liberado em poucos minutos." },
-        { q: "Posso parcelar a fatura?", a: "O parcelamento de faturas já vencidas pode ser negociado. Entre em contato pelo chat." },
-        { q: "Quais os juros por atraso?", a: "Em caso de atraso, é cobrada uma multa de 2% mais juros de 1% ao mês pro rata die." },
-        { q: "Meu pagamento não baixou, e agora?", a: "Pagamentos via boleto podem levar até 2 dias úteis. Se foi Pix, envie o comprovante no chat." },
-        { q: "Onde consigo o comprovante?", a: "Acesse 'Meus Documentos' > 'Comprovantes' no seu perfil para ver e baixar todos os recibos." },
-        { q: "Meu boleto venceu, como atualizar?", a: "Você pode gerar um novo boleto atualizado diretamente no app ou pagar via Pix com o valor corrigido." },
-        { q: "Posso antecipar parcelas?", a: "Sim, ao antecipar parcelas você ganha desconto nos juros. Solicite o boleto de quitação no chat." },
-        { q: "Aceitam cartão de terceiros?", a: "Por segurança, recomendamos usar cartão próprio. Cartões de terceiros passam por análise rigorosa." },
-        { q: "O que é o CVV do cartão?", a: "É o código de segurança de 3 ou 4 dígitos localizado no verso do seu cartão de crédito." },
-        { q: "Fiz um Pix errado, como estornar?", a: "Entre em contato imediatamente com o suporte com o comprovante em mãos para analisarmos o caso." },
-        { q: "Posso parcelar no boleto?", a: "O parcelamento no boleto está disponível mediante análise de crédito (Crediário Próprio)." },
-        { q: "Como funciona o cashback?", a: "Parte do valor das suas compras volta como crédito para abater nas próximas faturas." },
-        { q: "Tem desconto à vista?", a: "Sim, pagamentos à vista (Pix ou dinheiro) geralmente têm desconto especial." },
-
-        // Loja & Produtos
-        { q: "Qual o prazo de entrega?", a: "Para Macapá e Santana, a entrega costuma ser no mesmo dia ou em até 24h úteis." },
-        { q: "Posso retirar na loja?", a: "Sim, basta selecionar a opção 'Retirada na Loja' no momento da compra." },
-        { q: "Os produtos têm garantia?", a: "Todos os produtos eletrônicos possuem garantia legal de 90 dias, mais a garantia do fabricante (geralmente 1 ano)." },
-        { q: "Como rastrear meu pedido?", a: "Vá em 'Meus Pedidos' no perfil. Lá você vê o status atualizado de cada etapa." },
-        { q: "Vendem acessórios originais?", a: "Sim, trabalhamos apenas com produtos originais e homologados." },
-        { q: "O que fazer se o produto vier com defeito?", a: "Você tem até 7 dias para troca imediata na loja. Após esse prazo, acione a garantia do fabricante." },
-        { q: "Posso reservar um produto?", a: "Não fazemos reservas sem pagamento. O produto é garantido apenas após a confirmação da compra." },
-        { q: "Vocês compram celular usado?", a: "Temos um programa de Trade-in em períodos específicos. Fique atento às notificações." },
-        { q: "O preço do site é o mesmo da loja?", a: "Geralmente sim, mas podem haver promoções exclusivas para o App." },
-        { q: "Como usar cupom de desconto?", a: "Na tela de pagamento, insira o código no campo 'Cupom' antes de finalizar." },
-        { q: "A loja emite Nota Fiscal?", a: "Sim, todas as vendas acompanham Nota Fiscal Eletrônica (NFe)." },
-        { q: "Tem seguro contra roubo?", a: "Oferecemos seguro opcional em parceria com seguradoras. Consulte no momento da compra." },
-        { q: "O que vem na caixa?", a: "A descrição detalhada dos itens inclusos está na página de cada produto." },
-        { q: "Quando chega o iPhone novo?", a: "Fique ligado nas notificações! Avisamos assim que houver pré-venda." },
-        { q: "Vendem Xiaomi?", a: "Sim, temos uma grande variedade de modelos Xiaomi, Samsung, Apple e Motorola." },
-
-        // Cadastro & Conta
-        { q: "Esqueci minha senha.", a: "Clique em 'Esqueceu?' na tela de login para receber um link de redefinição por e-mail." },
-        { q: "Como alterar meu e-mail?", a: "Por segurança, a alteração de e-mail deve ser solicitada via suporte com validação de identidade." },
-        { q: "É seguro enviar meus documentos?", a: "Sim, utilizamos criptografia de ponta a ponta e seus dados são usados apenas para análise de crédito." },
-        { q: "Como excluir minha conta?", a: "Acesse Configurações > Zona de Perigo > Excluir Conta. Atenção: essa ação é irreversível." },
-        { q: "Posso ter duas contas?", a: "Não, o cadastro é único por CPF." },
-        { q: "Como ativar a biometria?", a: "Vá em Perfil > Configurações > Segurança e ative a opção 'Entrar com Biometria'." },
-        { q: "Meu cadastro foi reprovado, por quê?", a: "A análise considera vários fatores como score, histórico e dados da Receita. Tente novamente em 30 dias." },
-        { q: "Como mudar o endereço de entrega?", a: "Você pode gerenciar seus endereços em Perfil > Meus Endereços." },
-        { q: "Recebo muitos e-mails, como parar?", a: "Em Configurações > Geral, você pode desativar as notificações por e-mail." },
-        { q: "O app pede minha localização, por quê?", a: "Usamos para calcular o frete e sugerir a loja mais próxima, além de segurança antifraude." },
-        { q: "Posso alterar meu telefone?", a: "Sim, vá em 'Meus Dados' no perfil e atualize seu número." },
-        { q: "Preciso enviar selfie?", a: "Para validação de crédito, podemos solicitar uma selfie com documento." },
-        { q: "Como ver meus contratos?", a: "Seus contratos digitais ficam salvos em 'Meus Documentos' > 'Contratos'." },
-
-        // Crédito & Score
-        { q: "O que é o Score Relp?", a: "É uma pontuação interna baseada no seu histórico de pagamentos e compras conosco." },
-        { q: "Como aumento meu Score?", a: "Pague em dia, mantenha seus dados atualizados e concentre suas compras na Relp Cell." },
-        { q: "Meu limite diminuiu, o que houve?", a: "O limite pode ser ajustado periodicamente com base em reanálises de crédito de mercado." },
-        { q: "O limite é renovado quando?", a: "Assim que o pagamento da fatura é compensado, o limite proporcional é liberado." },
-        { q: "Posso transferir limite?", a: "Não, o limite de crédito é pessoal e intransferível." },
-        { q: "O que é 'Limite por Parcela'?", a: "É o valor máximo que a parcela de uma compra pode atingir, não o valor total do produto." },
-        { q: "Negativados podem comprar?", a: "Cada caso é analisado individualmente. Ter restrição não impede a análise, mas pode limitar o crédito aprovado." },
-        { q: "A consulta de crédito baixa meu score no Serasa?", a: "Nossa consulta interna não afeta seu score de mercado." },
-        { q: "Quanto tempo demora a análise de aumento?", a: "Solicitações de aumento levam até 3 dias úteis." },
-        { q: "Existe anuidade no crediário?", a: "Não cobramos anuidade ou taxas de manutenção de conta." },
-        { q: "Como saber meu dia de vencimento?", a: "O vencimento é escolhido na primeira compra, mas geralmente é dia 05 ou 10." },
-        { q: "Posso mudar a data de vencimento?", a: "Entre em contato com o suporte antes de fechar a próxima fatura." },
-
-        // Suporte & App
-        { q: "O app está travando.", a: "Tente limpar o cache em Perfil > Configurações > Manutenção ou reinstale o aplicativo." },
-        { q: "Não recebo o código SMS.", a: "Verifique se o número está correto ou se há bloqueio de SMS no seu aparelho." },
-        { q: "Como falar com atendente?", a: "Abra um chamado na aba 'Meus Chamados' ou clique no botão de WhatsApp no Perfil." },
-        { q: "Qual a versão atual do app?", a: "Você pode ver a versão instalada no rodapé da aba Configurações." },
-        { q: "O app funciona sem internet?", a: "Algumas funções como ver faturas baixadas sim, mas para pagamentos é necessária conexão." },
-        { q: "Onde fica a loja física?", a: "Temos unidades no Centro e Zona Norte. Consulte o endereço no rodapé do site." },
-        { q: "Horário de atendimento do suporte?", a: "Nosso time atende de Seg a Sáb das 08h às 18h. O ChatBot funciona 24h." },
-        { q: "Posso sugerir melhorias?", a: "Adoramos feedback! Envie sua sugestão pelo canal de suporte." },
-        { q: "Meus dados sumiram do app.", a: "Tente sair da conta e fazer login novamente para sincronizar." },
-        { q: "Erro 'Token Inválido'.", a: "Isso ocorre por segurança. Faça login novamente para renovar sua sessão." }
-    ];
 
     const fetchTickets = async () => {
-        setIsLoading(true);
-        const { data } = await supabase.from('support_tickets').select('*').eq('user_id', userId).order('updated_at', { ascending: false });
-        setTickets(data || []);
-        setIsLoading(false);
-    };
-
-    const fetchMessages = async (ticketId: string) => {
-        const { data } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).eq('is_internal', false).order('created_at', { ascending: true });
-        setMessages(data || []);
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/admin/support-tickets?userId=${userId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setTickets(data);
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
     };
 
     useEffect(() => {
-        if (view === 'tickets') fetchTickets();
-        if (view === 'chat' && selectedTicket) {
-            fetchMessages(selectedTicket.id);
-            const interval = setInterval(() => fetchMessages(selectedTicket.id), 3000);
-            return () => clearInterval(interval);
-        }
-    }, [view, selectedTicket]);
-
-    useEffect(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
+        fetchTickets();
+    }, [userId]);
 
     const handleCreateTicket = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsLoading(true);
+        setSubmitting(true);
         try {
-            const { data: ticket, error } = await supabase.from('support_tickets').insert({
-                user_id: userId,
-                subject: newTicket.subject,
-                category: newTicket.category,
-                priority: newTicket.priority,
-                status: 'open'
-            }).select().single();
-
-            if (error) throw error;
-
-            if (newTicket.message) {
-                await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message: newTicket.message });
+            const res = await fetch('/api/admin/support-tickets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    subject: newTicket.subject,
+                    message: newTicket.message,
+                    category: newTicket.category,
+                    priority: 'Normal'
+                })
+            });
+            
+            if (res.ok) {
+                addToast('Chamado aberto com sucesso!', 'success');
+                setShowNewTicket(false);
+                setNewTicket({ subject: '', message: '', category: 'Geral' });
+                fetchTickets();
+            } else {
+                throw new Error('Erro ao criar chamado');
             }
-
-            addToast('Chamado criado com sucesso!', 'success');
-            setNewTicket({ subject: '', category: 'Financeiro', priority: 'Normal', message: '' });
-            setView('tickets');
-        } catch (e) {
+        } catch (error) {
             addToast('Erro ao criar chamado.', 'error');
         } finally {
-            setIsLoading(false);
+            setSubmitting(false);
         }
     };
 
-    const handleSendMessage = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!newMessage.trim()) return;
-        const msg = newMessage;
-        setNewMessage('');
-        setMessages(p => [...p, { id: 'temp', sender_type: 'user', message: msg, created_at: new Date().toISOString() }]); // Otimista
-        
-        await supabase.from('support_messages').insert({ ticket_id: selectedTicket.id, sender_type: 'user', message: msg });
-        await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', selectedTicket.id);
-        fetchMessages(selectedTicket.id);
-    };
-
-    const handleCloseTicket = async () => {
-        if (!window.confirm("Deseja encerrar este atendimento?")) return;
-        await supabase.from('support_tickets').update({ status: 'closed' }).eq('id', selectedTicket.id);
-        setSelectedTicket({ ...selectedTicket, status: 'closed' });
-        addToast('Atendimento encerrado.', 'success');
-    };
-
-    // --- SUB-VIEWS ---
-
-    if (view === 'home') return (
-        <div className="animate-fade-in space-y-6">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-                <div className="relative z-10">
-                    <h3 className="text-xl font-bold mb-1">Central de Ajuda</h3>
-                    <p className="text-indigo-100 text-sm mb-4">Estamos aqui para você, 24h por dia.</p>
-                    <button onClick={() => setView('create')} className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-50 transition-colors shadow-sm">
-                        Abrir Novo Chamado
-                    </button>
-                </div>
-                <div className="absolute right-0 bottom-0 opacity-20 pointer-events-none">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-32 w-32 -mr-6 -mb-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                </div>
-            </div>
-
-            <ServiceStatus />
-
-            <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setView('tickets')} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-left group">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 mb-3 group-hover:scale-110 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                    </div>
-                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Meus Chamados</h4>
-                    <p className="text-xs text-slate-500">Acompanhe solicitações</p>
-                </button>
-                <button onClick={() => setView('faq')} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-left group">
-                    <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 mb-3 group-hover:scale-110 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
-                    </div>
-                    <h4 className="font-bold text-slate-800 dark:text-white text-sm">Perguntas (FAQ)</h4>
-                    <p className="text-xs text-slate-500">Tire dúvidas rápidas</p>
-                </button>
-            </div>
-
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-100 dark:border-slate-700">
-                <h4 className="font-bold text-slate-900 dark:text-white mb-3 text-sm">Canais Externos</h4>
-                <a href="https://wa.me/5596991718167" target="_blank" rel="noreferrer" className="flex items-center p-3 mb-2 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors group">
-                    <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.008-.57-.008-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-bold text-slate-800 dark:text-white">WhatsApp</p>
-                        <p className="text-xs text-slate-500">Resposta rápida</p>
-                    </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </a>
-                <a href="mailto:suporte@relpcell.com" className="flex items-center p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors group">
-                    <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center mr-3 group-hover:scale-110 transition-transform">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-bold text-slate-800 dark:text-white">E-mail</p>
-                        <p className="text-xs text-slate-500">suporte@relpcell.com</p>
-                    </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                </a>
-            </div>
-        </div>
-    );
-
-    if (view === 'faq') return (
-        <div className="animate-fade-in space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-                <button onClick={() => setView('home')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Perguntas Frequentes</h3>
-            </div>
-            
-            <div className="relative">
-                <input type="text" placeholder="Buscar dúvida..." className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" onChange={(e) => setSearchQuery(e.target.value)} />
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            </div>
-
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-2">
-                {faqs.filter(f => f.q.toLowerCase().includes(searchQuery.toLowerCase())).map((f, i) => (
-                    <FAQItem key={i} question={f.q} answer={f.a} isExpanded={expandedFaq === i} onClick={() => setExpandedFaq(expandedFaq === i ? null : i)} />
-                ))}
-            </div>
-        </div>
-    );
-
-    if (view === 'tickets') return (
-        <div className="animate-fade-in space-y-4 h-full flex flex-col">
-            <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setView('home')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">Meus Chamados</h3>
-                </div>
-                <button onClick={() => setView('create')} className="bg-indigo-600 text-white p-2 rounded-full shadow-lg hover:bg-indigo-700 transition-transform active:scale-95">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                </button>
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                {['open', 'closed', 'all'].map((status) => (
+    return (
+        <div className="space-y-4 animate-fade-in">
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-4">
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold text-indigo-900 dark:text-white">Meus Chamados</h3>
                     <button 
-                        key={status}
-                        onClick={() => setTicketFilter(status as any)}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-md capitalize transition-all ${ticketFilter === status ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                        onClick={() => setShowNewTicket(!showNewTicket)}
+                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
                     >
-                        {status === 'all' ? 'Todos' : status === 'open' ? 'Abertos' : 'Fechados'}
+                        {showNewTicket ? 'Cancelar' : 'Novo Chamado'}
                     </button>
-                ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-3 pb-20 custom-scrollbar">
-                {isLoading ? (
-                    <div className="flex justify-center py-10"><LoadingSpinner /></div>
-                ) : tickets.filter(t => ticketFilter === 'all' || t.status === ticketFilter).length === 0 ? (
-                    <div className="text-center py-10 text-slate-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-                        <p className="text-sm">Nenhum ticket encontrado.</p>
-                    </div>
-                ) : (
-                    tickets.filter(t => ticketFilter === 'all' || t.status === ticketFilter).map(ticket => (
-                        <button key={ticket.id} onClick={() => { setSelectedTicket(ticket); setView('chat'); }} className="w-full text-left bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm active:scale-[0.98] transition-transform relative overflow-hidden group">
-                            <div className={`absolute left-0 top-0 bottom-0 w-1 ${ticket.status === 'open' ? 'bg-green-500' : 'bg-slate-400'}`}></div>
-                            <div className="pl-3">
-                                <div className="flex justify-between mb-1">
-                                    <span className="font-bold text-slate-800 dark:text-white text-sm truncate pr-2">{ticket.subject}</span>
-                                    <span className="text-[10px] text-slate-400">{new Date(ticket.created_at).toLocaleDateString()}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <div className="flex gap-2">
-                                        <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded uppercase font-bold">{ticket.category}</span>
-                                        {ticket.priority === 'Alta' && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase font-bold">Urgente</span>}
-                                    </div>
-                                    <span className={`text-[10px] font-bold uppercase ${ticket.status === 'open' ? 'text-green-600' : 'text-slate-400'}`}>{ticket.status === 'open' ? 'Aberto' : 'Fechado'}</span>
-                                </div>
-                            </div>
-                        </button>
-                    ))
-                )}
-            </div>
-        </div>
-    );
-
-    if (view === 'create') return (
-        <div className="animate-fade-in space-y-4 h-full flex flex-col">
-            <div className="flex items-center gap-2 mb-2">
-                <button onClick={() => setView('tickets')} className="p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Novo Chamado</h3>
-            </div>
-
-            <form onSubmit={handleCreateTicket} className="flex-1 overflow-y-auto pb-20 space-y-4 p-1">
-                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-200 mb-4">
-                    <p>👋 <strong>Dica:</strong> Verifique a aba "Perguntas" antes de abrir um chamado. Muitas dúvidas já estão respondidas lá!</p>
                 </div>
+                <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                    Acompanhe o status das suas solicitações de suporte.
+                </p>
+            </div>
 
-                <InputField label="Assunto" name="subject" value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})} required placeholder="Resumo do problema" />
-                
-                <div className="grid grid-cols-2 gap-4">
+            {showNewTicket && (
+                <form onSubmit={handleCreateTicket} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3 mb-4">
+                    <h4 className="font-bold text-sm text-slate-800 dark:text-white">Abrir Novo Chamado</h4>
+                    
+                    <InputField 
+                        label="Assunto" 
+                        name="subject" 
+                        value={newTicket.subject} 
+                        onChange={e => setNewTicket({...newTicket, subject: e.target.value})} 
+                        required 
+                    />
+                    
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoria</label>
-                        <select className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={newTicket.category} onChange={e => setNewTicket({...newTicket, category: e.target.value})}>
-                            <option>Financeiro</option>
-                            <option>Técnico</option>
-                            <option>Vendas</option>
-                            <option>Outros</option>
+                        <select 
+                            value={newTicket.category} 
+                            onChange={e => setNewTicket({...newTicket, category: e.target.value})}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                            <option value="Geral">Geral</option>
+                            <option value="Financeiro">Financeiro</option>
+                            <option value="Técnico">Técnico</option>
+                            <option value="Vendas">Vendas</option>
                         </select>
                     </div>
+
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Prioridade</label>
-                        <select className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={newTicket.priority} onChange={e => setNewTicket({...newTicket, priority: e.target.value})}>
-                            <option>Baixa</option>
-                            <option>Normal</option>
-                            <option>Alta</option>
-                        </select>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem</label>
+                        <textarea 
+                            rows={3} 
+                            value={newTicket.message} 
+                            onChange={e => setNewTicket({...newTicket, message: e.target.value})}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm resize-none"
+                            required
+                        ></textarea>
                     </div>
-                </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem</label>
-                    <textarea required rows={6} className="w-full px-3 py-2 border rounded-lg bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 resize-none text-sm" value={newTicket.message} onChange={e => setNewTicket({...newTicket, message: e.target.value})} placeholder="Descreva detalhadamente o que está acontecendo..."></textarea>
-                    <p className="text-right text-xs text-slate-400 mt-1">{newTicket.message.length}/500</p>
-                </div>
-
-                {/* Fake Attachment Button */}
-                <button type="button" className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium p-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg w-fit transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                    Anexar Arquivo (Imagem/PDF)
-                </button>
-
-                <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex justify-center items-center gap-2">
-                    {isLoading ? <LoadingSpinner /> : 'Enviar Solicitação'}
-                </button>
-            </form>
-        </div>
-    );
-
-    if (view === 'chat') return (
-        <div className="animate-fade-in flex flex-col h-full fixed inset-0 z-[60] bg-slate-50 dark:bg-slate-900">
-            {/* Chat Header */}
-            <div className="p-4 bg-white/90 dark:bg-slate-800/90 backdrop-blur shadow-sm flex items-center gap-3 border-b border-slate-200 dark:border-slate-700 pt-safe">
-                <button onClick={() => setView('tickets')} className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-                <div className="flex-1 truncate">
-                    <h4 className="font-bold text-slate-900 dark:text-white truncate">{selectedTicket?.subject}</h4>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                        Ticket #{selectedTicket?.id.slice(0,6)} • 
-                        <span className={`w-2 h-2 rounded-full ${selectedTicket?.status === 'open' ? 'bg-green-500' : 'bg-slate-400'}`}></span>
-                        {selectedTicket?.status === 'open' ? 'Aberto' : 'Fechado'}
-                    </p>
-                </div>
-                {selectedTicket?.status === 'open' && (
-                    <button onClick={handleCloseTicket} className="p-2 text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs font-bold">Encerrar</button>
-                )}
-            </div>
-
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-100 dark:bg-slate-900/50">
-                {/* System Message Start */}
-                <div className="flex justify-center"><span className="text-[10px] text-slate-400 bg-slate-200 dark:bg-slate-800 px-3 py-1 rounded-full">Início do atendimento: {new Date(selectedTicket.created_at).toLocaleDateString()}</span></div>
-                
-                {messages.map(msg => (
-                    <div key={msg.id} className={`flex flex-col ${msg.sender_type === 'user' ? 'items-end' : 'items-start'}`}>
-                        <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm relative ${msg.sender_type === 'user' ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200 dark:border-slate-600'}`}>
-                            {msg.message}
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-1 px-1">{new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                    </div>
-                ))}
-                
-                {selectedTicket.status === 'closed' && (
-                    <div className="p-4 bg-white dark:bg-slate-800 rounded-xl text-center border border-slate-200 dark:border-slate-700 shadow-sm my-4">
-                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Atendimento Finalizado</p>
-                        <p className="text-xs text-slate-500 mb-3">Como você avalia nosso suporte?</p>
-                        <div className="flex justify-center gap-2 mb-2">
-                            {[1,2,3,4,5].map(s => (
-                                <button key={s} onClick={() => setRating(s)} className={`text-2xl transition-transform hover:scale-110 ${s <= rating ? 'grayscale-0' : 'grayscale opacity-30'}`}>⭐</button>
-                            ))}
-                        </div>
-                        {rating > 0 && <p className="text-xs text-green-600 font-bold animate-fade-in">Obrigado pelo feedback!</p>}
-                    </div>
-                )}
-                <div ref={messagesEndRef} />
-            </div>
-
-            {/* Input Area */}
-            {selectedTicket.status === 'open' ? (
-                <form onSubmit={handleSendMessage} className="p-3 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex gap-2 pb-safe">
-                    <button type="button" className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg></button>
-                    <input type="text" value={newMessage} onChange={e => setNewMessage(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 bg-slate-100 dark:bg-slate-900 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all dark:text-white" />
-                    <button type="submit" disabled={!newMessage.trim()} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:scale-100 active:scale-95 transition-all shadow-md">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform rotate-90" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                    <button 
+                        type="submit" 
+                        disabled={submitting}
+                        className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 flex justify-center"
+                    >
+                        {submitting ? <LoadingSpinner /> : 'Enviar Solicitação'}
                     </button>
                 </form>
+            )}
+
+            {loading ? (
+                <div className="flex justify-center py-10"><LoadingSpinner /></div>
+            ) : tickets.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 dark:text-slate-400">
+                    <p>Nenhum chamado encontrado.</p>
+                </div>
             ) : (
-                <div className="p-4 bg-slate-50 dark:bg-slate-900 text-center text-xs text-slate-500 pb-safe border-t border-slate-200 dark:border-slate-700">
-                    Este ticket foi encerrado. Para novas dúvidas, abra um novo chamado.
+                <div className="space-y-3">
+                    {tickets.map(ticket => (
+                        <div key={ticket.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="font-bold text-slate-900 dark:text-white text-sm">{ticket.subject}</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ticket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                    {ticket.status === 'open' ? 'Aberto' : 'Fechado'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-slate-500">
+                                <span>{ticket.category}</span>
+                                <span>{new Date(ticket.created_at).toLocaleDateString('pt-BR')}</span>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
     );
-
-    return null;
 };
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode }) => {
@@ -1510,10 +1398,10 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
                     {activeView === 'addresses' && profile && <AddressView profile={profile} onUpdate={setProfile} />}
                     {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
-                    {activeView === 'fiscal_notes' && profile && <FiscalNotesView profile={profile} />}
+                    {activeView === 'fiscal_notes' && <FiscalNotesView userId={session.user.id} />}
                     {activeView === 'receipts' && profile && <PaymentReceiptsView userId={session.user.id} profile={profile} />}
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(updated) => setProfile(updated)} />}
-                    {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} />}
+                    {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} userId={session.user.id} />}
                     {activeView === 'referral' && profile && <ReferralView profile={profile} />}
                     {activeView === 'help' && <HelpView userId={session.user.id} />}
                 </div>

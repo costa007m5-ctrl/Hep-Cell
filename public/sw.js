@@ -1,36 +1,20 @@
 
-const CACHE_NAME = 'relp-cell-v23-pwabuilder-ready';
+const CACHE_NAME = 'relp-cell-v22-ultra-pwa';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
-];
-
-// Assets críticos para funcionamento offline completo
-const CRITICAL_ASSETS = [
-  'https://cdn.tailwindcss.com',
-  'https://sdk.mercadopago.com/js/v2'
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
 self.addEventListener('install', (event) => {
   self.skipWaiting(); // Força o SW a ativar imediatamente
   event.waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
+    caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Caching core assets');
-      // Cacheia assets estáticos primeiro
-      await cache.addAll(STATIC_ASSETS);
-      
-      // Tenta cachear assets críticos, mas não falha se algum der erro
-      for (const asset of CRITICAL_ASSETS) {
-        try {
-          await cache.add(asset);
-        } catch (error) {
-          console.warn(`[SW] Failed to cache ${asset}:`, error);
-        }
-      }
+      return cache.addAll(STATIC_ASSETS);
     })
   );
 });
@@ -107,8 +91,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-192x192.png',
+    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };

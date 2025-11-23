@@ -315,92 +315,60 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "neighborhood" "text",
     "city" "text",
     "federal_unit" "text",
+    "preferred_due_day" integer DEFAULT 10,
     "created_at" timestamp with time zone DEFAULT "now"(), 
     "updated_at" timestamp with time zone DEFAULT "now"(), 
     CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), 
     CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, 
     CONSTRAINT "profiles_email_key" UNIQUE ("email") 
 );
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "preferred_due_day" integer DEFAULT 10;
 
--- Atualização de Tabela de Faturas para Persistência de Pagamento
+-- Atualização de Tabela de Faturas
 CREATE TABLE IF NOT EXISTS "public"."invoices" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid", "month" "text" NOT NULL, "due_date" "date" NOT NULL, "amount" numeric(10, 2) NOT NULL, "status" "text" NOT NULL DEFAULT 'Em aberto', "payment_method" "text", "payment_date" timestamp with time zone, "payment_id" "text", "boleto_url" "text", "boleto_barcode" "text", "notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "invoices_pkey" PRIMARY KEY ("id"), CONSTRAINT "invoices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL );
 ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_code" "text";
 ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "payment_expiration" timestamp with time zone;
 
--- 3. Tabela de Missões (Gamificação)
-CREATE TABLE IF NOT EXISTS "public"."user_missions" (
+-- 3. Tabela de Contratos
+CREATE TABLE IF NOT EXISTS "public"."contracts" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text" NOT NULL, "items" "text", "total_value" numeric(10, 2), "installments" integer, "status" "text" DEFAULT 'Ativo', "signature_data" "text", "terms_accepted" boolean DEFAULT true, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "contracts_pkey" PRIMARY KEY ("id"), CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE );
+ALTER TABLE "public"."contracts" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
+
+-- 4. Tabela de Solicitação de Mudança de Data
+CREATE TABLE IF NOT EXISTS "public"."due_date_requests" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "user_id" "uuid" NOT NULL,
-    "mission_id" "text" NOT NULL,
-    "completed_at" timestamp with time zone DEFAULT "now"(),
-    "claimed_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "user_missions_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "user_missions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE,
-    CONSTRAINT "user_missions_unique" UNIQUE ("user_id", "mission_id")
-);
-ALTER TABLE "public"."user_missions" ENABLE ROW LEVEL SECURITY;
-
--- 4. Tabelas de Suporte (Enterprise)
-CREATE TABLE IF NOT EXISTS "public"."support_tickets" ( 
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), 
-    "user_id" "uuid" NOT NULL, 
-    "status" "text" DEFAULT 'open', 
-    "subject" "text",
-    "category" "text",
-    "priority" "text" DEFAULT 'normal',
-    "created_at" timestamp with time zone DEFAULT "now"(), 
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "support_tickets_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "support_tickets_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS "public"."support_messages" (
-    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
-    "ticket_id" "uuid" NOT NULL,
-    "sender_type" "text" NOT NULL,
-    "message" "text" NOT NULL,
-    "is_internal" boolean DEFAULT false,
+    "current_day" integer NOT NULL,
+    "requested_day" integer NOT NULL,
+    "reason" "text",
+    "status" "text" NOT NULL DEFAULT 'pending', -- pending, approved, rejected
+    "admin_notes" "text",
     "created_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "support_messages_ticket_id_fkey" FOREIGN KEY ("ticket_id") REFERENCES "public"."support_tickets"("id") ON DELETE CASCADE
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "due_date_requests_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "due_date_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
 );
-
--- Força a criação da coluna caso a tabela já exista sem ela
-ALTER TABLE "public"."support_messages" ADD COLUMN IF NOT EXISTS "is_internal" boolean DEFAULT false;
+ALTER TABLE "public"."due_date_requests" ENABLE ROW LEVEL SECURITY;
 
 -- 5. Políticas de Segurança (RLS)
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."support_tickets" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."invoices" ENABLE ROW LEVEL SECURITY;
 
 -- Dropar políticas antigas para evitar conflitos
 DROP POLICY IF EXISTS "Users can view own profile" ON "public"."profiles";
 DROP POLICY IF EXISTS "Users can update own profile" ON "public"."profiles";
 DROP POLICY IF EXISTS "Users can view own invoices" ON "public"."invoices";
-DROP POLICY IF EXISTS "Users can view own missions" ON "public"."user_missions";
-DROP POLICY IF EXISTS "Users view own tickets" ON "public"."support_tickets";
-DROP POLICY IF EXISTS "Users create own tickets" ON "public"."support_tickets";
-DROP POLICY IF EXISTS "Users view messages" ON "public"."support_messages";
-DROP POLICY IF EXISTS "Users insert messages" ON "public"."support_messages";
+DROP POLICY IF EXISTS "Users can view own contracts" ON "public"."contracts";
+DROP POLICY IF EXISTS "Users view own requests" ON "public"."due_date_requests";
+DROP POLICY IF EXISTS "Users create own requests" ON "public"."due_date_requests";
 
 -- Criar novas políticas
 CREATE POLICY "Users can view own profile" ON "public"."profiles" FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON "public"."profiles" FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Users can view own invoices" ON "public"."invoices" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can view own missions" ON "public"."user_missions" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users view own tickets" ON "public"."support_tickets" FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users create own tickets" ON "public"."support_tickets" FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- Política da mensagem (Agora segura porque a coluna is_internal existe)
-CREATE POLICY "Users view messages" ON "public"."support_messages" FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid()) 
-    AND is_internal = false
-);
-
-CREATE POLICY "Users insert messages" ON "public"."support_messages" FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id AND user_id = auth.uid())
-);
+CREATE POLICY "Users can view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users view own requests" ON "public"."due_date_requests" FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users create own requests" ON "public"."due_date_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- 6. Função Segura para Resgate de Missão (RPC)
 CREATE OR REPLACE FUNCTION claim_mission_reward(mission_id_input text, xp_reward int, reason_input text)
@@ -457,9 +425,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização Importante (Persistência e Limites)</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização Importante (Contratos e Datas)</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Clique no botão abaixo para atualizar a estrutura do banco de dados. Isso adicionará suporte para salvar Pix Copia e Cola e corrigir verificações de limite.
+                        Clique no botão abaixo para atualizar a estrutura do banco de dados. Isso adicionará suporte para solicitações de mudança de data e contratos robustos.
                     </p>
                 </div>
 
@@ -477,7 +445,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
                 <div>
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Código SQL de Setup</h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Este script configura o sistema de missões, suporte, tabelas de pagamento e garante a segurança dos dados.
+                        Este script configura as novas tabelas e políticas de segurança.
                     </p>
                     
                     <CodeBlock
