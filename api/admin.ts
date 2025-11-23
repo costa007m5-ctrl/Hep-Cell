@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -226,10 +225,10 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
 async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
+        // REMOVIDO O FILTRO .eq('status', 'pending') para debug e visualização completa
         const { data, error } = await supabase
             .from('limit_requests')
-            .select('*, profiles(first_name, last_name, email, salary, credit_limit, credit_score)') // Added salary to query
-            .eq('status', 'pending')
+            .select('*, profiles(first_name, last_name, email, salary, credit_limit, credit_score)') 
             .order('created_at', { ascending: false });
 
         if (error) throw error;
