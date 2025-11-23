@@ -141,7 +141,10 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
-  const [latestLimitStatus, setLatestLimitStatus] = useState<string | null>(null);
+  
+  // Estado para armazenar a notificação de limite (objeto completo para validar ID)
+  const [activeLimitNotification, setActiveLimitNotification] = useState<{id: string, status: string} | null>(null);
+  
   const [isLoading, setIsLoading] = useState(true);
   
   // UI States
@@ -193,7 +196,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           getProfile(user.id),
           supabase.from('invoices').select('*').eq('user_id', user.id),
           supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
-          supabase.from('limit_requests').select('status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
+          // Buscamos ID para rastrear se já foi visto
+          supabase.from('limit_requests').select('id, status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
         ]);
 
         setProfileData({ id: user.id, email: user.email, ...profile });
@@ -207,12 +211,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
         if (requestsData.data && requestsData.data.length > 0) {
             const lastReq = requestsData.data[0];
-            // Só mostra se foi atualizado recentemente (ex: 7 dias) ou se é a primeira vez vendo
+            // Só processa se não estiver pendente
             if (lastReq.status !== 'pending') {
-                const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
-                // Mostra por 7 dias após atualização
-                if (diff < 7 * 24 * 60 * 60 * 1000) {
-                    setLatestLimitStatus(lastReq.status);
+                const seenId = localStorage.getItem('relp_seen_limit_req_id');
+                // Só exibe se o ID da última solicitação for diferente do que já foi clicado/visto
+                if (seenId !== lastReq.id) {
+                    setActiveLimitNotification({ id: lastReq.id, status: lastReq.status });
                 }
             }
         }
@@ -269,6 +273,19 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           addToast(e.message || "Erro ao assinar contrato.", "error");
       } finally {
           setIsSigning(false);
+      }
+  };
+
+  // Handler para clique na notificação de limite
+  const handleLimitNotificationClick = () => {
+      if (activeLimitNotification) {
+          // Marca como visto no armazenamento local
+          localStorage.setItem('relp_seen_limit_req_id', activeLimitNotification.id);
+          // Oculta a notificação imediatamente
+          setActiveLimitNotification(null);
+          // Abre o modal de detalhes
+          setModalView('limit');
+          setIsModalOpen(true);
       }
   };
 
@@ -376,10 +393,10 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
         )}
 
         {/* Limit Request Status Notification */}
-        {latestLimitStatus && (
+        {activeLimitNotification && (
             <LimitRequestStatus 
-                status={latestLimitStatus} 
-                onClick={() => { setModalView('limit'); setIsModalOpen(true); }}
+                status={activeLimitNotification.status} 
+                onClick={handleLimitNotificationClick}
             />
         )}
 
