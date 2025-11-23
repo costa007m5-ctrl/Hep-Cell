@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const fallbackBanners = [
@@ -20,11 +21,8 @@ const StoreCarousel: React.FC<StoreCarouselProps> = ({ onBannerClick }) => {
                 const res = await fetch('/api/admin/banners');
                 if (res.ok) {
                     const data = await res.json();
-                    // Filtra banners que são especificamente para a Loja ou que não têm localização definida (legado)
-                    const storeBanners = data.filter((b: any) => (b.location === 'store' || !b.location) && b.active);
-                    
-                    if (storeBanners && storeBanners.length > 0) {
-                        setBanners(storeBanners);
+                    if (data && data.length > 0) {
+                        setBanners(data);
                     } else {
                         setBanners(fallbackBanners);
                     }

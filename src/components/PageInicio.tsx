@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
@@ -149,7 +150,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           }
         }
 
-        // Fetch Home Banner
+        // Fetch Home Banner - Busca banner especifico da HOME
         const bannersRes = await fetch('/api/admin/banners');
         if (bannersRes.ok) {
             const banners = await bannersRes.json();
@@ -176,7 +177,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           // 1. Atualiza Contrato
           await supabase.from('contracts').update({ 
               status: 'Ativo', 
-              signature_data: signature,
+              signature_data: signature, 
               terms_accepted: true 
           }).eq('id', pendingContract.id);
 
