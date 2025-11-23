@@ -223,21 +223,23 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                         {activeTab === 'historico' && (
                             <div className="space-y-4 animate-fade-in pt-2">
                                 {requestHistory.length > 0 ? requestHistory.map((req) => (
-                                    <div key={req.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    <div key={req.id} className={`bg-white dark:bg-slate-800 p-4 rounded-xl border shadow-sm ${req.status === 'approved' ? 'border-green-200 dark:border-green-900/50' : req.status === 'rejected' ? 'border-red-200 dark:border-red-900/50' : 'border-slate-200 dark:border-slate-700'}`}>
                                         <div className="flex justify-between items-center mb-2">
                                             <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                 {req.status === 'approved' ? 'Aprovado' : req.status === 'rejected' ? 'Recusado' : 'Pendente'}
                                             </span>
                                             <span className="text-xs text-slate-400">{new Date(req.created_at).toLocaleDateString()}</span>
                                         </div>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-1">Solicitado: R$ {req.requested_amount?.toLocaleString()}</p>
+                                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-1">Solicitado: R$ {req.requested_amount?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                                         
                                         {/* Exibe o motivo de forma clara */}
-                                        {req.admin_response_reason && (
+                                        {req.admin_response_reason ? (
                                             <div className={`mt-3 p-3 rounded-lg text-xs ${req.status === 'approved' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
                                                 <p className="font-bold mb-1 uppercase opacity-70">Motivo da Análise:</p>
-                                                <p className="font-medium">"{req.admin_response_reason}"</p>
+                                                <p className="font-medium leading-relaxed">"{req.admin_response_reason}"</p>
                                             </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-400 mt-2 italic">Aguardando análise da equipe.</p>
                                         )}
                                     </div>
                                 )) : (

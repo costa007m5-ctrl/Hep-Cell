@@ -183,10 +183,14 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
           if (requestsData.data && requestsData.data.length > 0) {
               const lastReq = requestsData.data[0];
-              // Só mostra se foi atualizado recentemente (ex: 7 dias)
-              const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
-              if (diff < 7 * 24 * 60 * 60 * 1000) {
-                  setLatestLimitStatus(lastReq.status);
+              // Só mostra se foi atualizado recentemente (ex: 7 dias) ou se é a primeira vez vendo
+              // Para simplificar, se o status não for 'pending', mostramos.
+              if (lastReq.status !== 'pending') {
+                  const diff = new Date().getTime() - new Date(lastReq.updated_at || '').getTime();
+                  // Mostra por 7 dias após atualização
+                  if (diff < 7 * 24 * 60 * 60 * 1000) {
+                      setLatestLimitStatus(lastReq.status);
+                  }
               }
           }
         }

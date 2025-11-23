@@ -101,7 +101,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
             - Score Atual: ${profile.credit_score}
             
             HISTÓRICO FINANCEIRO NA LOJA (CRUCIAL):
-            - Cliente Novo? ${isNewCustomer ? 'SIM' : 'NÃO (Já possui histórico)'}
+            - Cliente Novo? ${isNewCustomer ? 'SIM (Sem faturas pagas)' : 'NÃO (Já possui histórico)'}
             - Total Já Pago em Compras: R$ ${totalPaid.toFixed(2)}
             - Quantidade de Faturas Pagas em Dia: ${onTimeCount}
             - Maior Fatura Paga: R$ ${highestPayment.toFixed(2)}
@@ -132,8 +132,8 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
                     TAREFA DE VISÃO COMPUTACIONAL:
                     Analise a imagem anexada. 
                     1. Verifique se é um documento financeiro válido (Holerite, Extrato Bancário, Decore).
-                    2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), ignore o documento na decisão.
-                    3. Se for válido, extraia a renda líquida.
+                    2. Se for inválido (foto de pessoa, animal, paisagem, ou documento ilegível), considere "document_valid": false.
+                    3. Se for válido, extraia a renda líquida aproximada.
                     `;
                 } else {
                     documentAnalysis = `Formato de arquivo (${mimeType}) não suportado para leitura visual pela IA. Análise baseada apenas em dados.`;
@@ -149,26 +149,28 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 
         prompt += `
             
-            REGRAS DE DECISÃO (IMPORTANTE):
+            REGRAS DE DECISÃO ESTRITAS (SIGA RIGOROSAMENTE):
 
-            CENÁRIO 1: CLIENTE NOVO (Sem histórico de pagamentos pagos na loja)
-            - Se NÃO tiver comprovante de renda válido (ou nenhum documento): O limite deve ser TRAVADO em R$ 100,00. 
-              Motivo obrigatório: "Limite inicial padrão para novos clientes sem histórico. Realize sua primeira compra para aumentar."
-            - Se TIVER comprovante válido (Holerite/Extrato): Sugira 25% da renda comprovada.
+            CENÁRIO 1: CLIENTE NOVO (Sem histórico de pagamentos pagos na Relp Cell)
+            - Se NÃO tiver comprovante de renda válido (ou nenhum documento): 
+              -> O limite DEVE ser travado em R$ 100,00 (Risco Alto).
+              -> Motivo: "Limite inicial padrão para novos clientes sem histórico comprovado. Realize sua primeira compra para desbloquear aumentos."
+            - Se TIVER comprovante válido (Holerite/Extrato): 
+              -> Sugira 25% da renda comprovada.
 
-            CENÁRIO 2: CLIENTE ANTIGO / RECORRENTE (Tem histórico de pagamentos "Paga")
-            - O Comprovante de Renda é SECUNDÁRIO. O histórico de bom pagador vale muito mais.
-            - Se o cliente paga em dia:
-              -> Sugira AUMENTO de limite agressivo.
-              -> Base de cálculo: 150% da maior fatura paga ou 40% da renda estimada.
+            CENÁRIO 2: CLIENTE RECORRENTE (Já pagou faturas anteriormente)
+            - O Comprovante de Renda é OPCIONAL. O histórico de bom pagador tem peso maior.
+            - Se o cliente paga em dia e tem bom histórico:
+              -> Sugira AUMENTO de limite (confiança adquirida).
+              -> Base de cálculo: 150% da maior fatura já paga ou 40% da renda estimada.
               -> Motivo: "Aumento aprovado devido ao excelente histórico de pagamentos na Relp Cell."
-            - Se tiver atrasos recentes: Mantenha o limite atual.
+            - Se tiver atrasos recentes: Mantenha o limite atual ou sugira redução.
 
             RETORNO JSON OBRIGATÓRIO:
             {
                 "credit_score": (inteiro 0-1000),
                 "credit_limit": (valor numérico, float),
-                "reason": "Texto curto e direto para o cliente ler. Ex: 'Aprovado pelo bom histórico' ou 'Recusado: documento ilegível'.",
+                "reason": "Texto curto e direto para o cliente ler na notificação.",
                 "document_valid": boolean (true/false),
                 "document_analysis": "Breve descrição técnica para o admin"
             }
@@ -250,7 +252,8 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
         if (action === 'reject') {
             await supabase.from('limit_requests').update({ 
                 status: 'rejected',
-                admin_response_reason: reasonToSave 
+                admin_response_reason: reasonToSave,
+                updated_at: new Date().toISOString()
             }).eq('id', requestId);
             
             await supabase.from('notifications').insert({
@@ -292,7 +295,7 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
         await supabase.from('notifications').insert({
             user_id: request.user_id,
             title: 'Limite Aprovado! 🎉',
-            message: `Sua solicitação foi aprovada! Seu novo limite é R$ ${newLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}. Toque para ver detalhes.`,
+            message: `Sua solicitação foi aprovada! Seu novo limite é R$ ${newLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.`,
             type: 'success',
             read: false
         });

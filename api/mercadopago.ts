@@ -304,24 +304,32 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             return res.status(400).json({ error: 'Dados da fatura e do pagador são obrigatórios.' });
         }
         
-        // Sanitização rigorosa para Boleto
-        // CEP deve ser apenas números
+        // Sanitização rigorosa para Boleto - Evita erro 400 do MP
         const zipCodeClean = payer.zipCode.replace(/\D/g, '');
-        // Número da casa deve ser preenchido. Se vazio, coloca 'S/N'
+        const cpfClean = payer.identificationNumber.replace(/\D/g, '');
         const streetNumberClean = payer.streetNumber || 'S/N';
+        const transactionAmount = Number(Number(amount).toFixed(2)); // Garante que é número com 2 casas decimais
+
+        if (!zipCodeClean || zipCodeClean.length !== 8) {
+             return res.status(400).json({ error: 'CEP inválido. O CEP deve conter 8 dígitos.' });
+        }
+
+        if (!cpfClean || cpfClean.length !== 11) {
+             return res.status(400).json({ error: 'CPF inválido. Verifique os dados.' });
+        }
         
         const payment = new Payment(client);
         const result = await payment.create({
             body: {
-                transaction_amount: amount,
+                transaction_amount: transactionAmount,
                 description: description,
-                payment_method_id: 'bolbradesco', // Usando Bradesco como padrão, geralmente o mais estável
+                payment_method_id: 'bolbradesco', // Usando Bradesco como padrão
                 external_reference: invoiceId,
                 payer: {
                     email: payer.email,
                     first_name: payer.firstName,
                     last_name: payer.lastName,
-                    identification: { type: 'CPF', number: payer.identificationNumber.replace(/\D/g, '') },
+                    identification: { type: 'CPF', number: cpfClean },
                     address: {
                         zip_code: zipCodeClean,
                         street_name: payer.streetName,
@@ -337,12 +345,10 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         // Extração robusta dos dados do boleto
         const responseData = result as any;
         
-        // Tenta encontrar a URL do boleto em diferentes locais da resposta
         const boletoUrl = 
             responseData.transaction_details?.external_resource_url || 
             responseData.point_of_interaction?.transaction_data?.ticket_url;
 
-        // Tenta encontrar o código de barras em diferentes locais
         const boletoBarcode = 
             responseData.barcode?.content || 
             responseData.point_of_interaction?.transaction_data?.bar_code;
@@ -366,7 +372,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
     } catch (error: any) {
         await logAction(supabase, 'BOLETO_CREATED', 'FAILURE', `Falha ao gerar boleto.`, { error: error.message, body: req.body });
         console.error("Erro no handler Boleto:", error);
-        res.status(500).json({ error: 'Falha ao gerar boleto.', message: error.message || 'Erro de comunicação com o Mercado Pago.' });
+        res.status(500).json({ error: 'Falha ao gerar boleto. Verifique seus dados.', message: error.message });
     }
 }
 
