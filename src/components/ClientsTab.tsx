@@ -22,6 +22,7 @@ interface EnhancedProfile extends Profile {
     utilizationRate: number;
     isBlocked?: boolean; 
     internal_notes?: string;
+    salary?: number;
 }
 
 // --- Componentes Visuais ---
@@ -128,7 +129,7 @@ const DocumentsList: React.FC<{ userId: string }> = ({ userId }) => {
                             <span className="text-blue-600">📁</span>
                             <div>
                                 <p className="text-sm font-bold">{u.title}</p>
-                                <p className="text-[10px] text-slate-500">{new Date(u.created_at).toLocaleDateString()}</p>
+                                <p className="text-[10px] text-slate-500">{u.document_type} - {new Date(u.created_at).toLocaleDateString()}</p>
                             </div>
                         </div>
                         <a href={u.file_url} download className="text-[10px] text-indigo-600 hover:underline">Baixar</a>
@@ -210,12 +211,13 @@ const RiskAnalysis: React.FC<{ userId: string }> = ({ userId }) => {
 const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]); 
+    const [limitRequests, setLimitRequests] = useState<any[]>([]);
     const [isDataLoading, setIsDataLoading] = useState(true);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     
     // UI States
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterStatus, setFilterStatus] = useState<'todos' | 'inadimplentes' | 'vip'>('todos');
+    const [filterStatus, setFilterStatus] = useState<'todos' | 'inadimplentes' | 'vip' | 'solicitacoes'>('todos');
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null); 
@@ -241,14 +243,18 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [internalNotes, setInternalNotes] = useState('');
     const [isSavingNotes, setIsSavingNotes] = useState(false);
 
+    // Limit Request Actions
+    const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+
     // Fetch Data
     const fetchData = useCallback(async () => {
         setIsDataLoading(true);
         setErrorMsg(null);
         try {
-            const [profilesRes, invoicesRes] = await Promise.all([
+            const [profilesRes, invoicesRes, requestsRes] = await Promise.all([
                 fetch('/api/admin/profiles'),
-                fetch('/api/admin/invoices')
+                fetch('/api/admin/invoices'),
+                fetch('/api/admin/limit-requests')
             ]);
 
             if (!profilesRes.ok) throw new Error('Falha ao carregar perfis');
@@ -256,6 +262,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
             setProfiles(await profilesRes.json());
             setInvoices(await invoicesRes.json());
+            if(requestsRes.ok) setLimitRequests(await requestsRes.json());
+
         } catch (e: any) {
             console.error("Failed to load CRM data", e);
             setErrorMsg(e.message);
@@ -326,9 +334,13 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             if (!matchesSearch) return false;
             if (filterStatus === 'inadimplentes') return p.riskLevel === 'Alto';
             if (filterStatus === 'vip') return (p.credit_score || 0) > 800;
+            if (filterStatus === 'solicitacoes') {
+                // Retorna se tem solicitação pendente
+                return limitRequests.some(r => r.user_id === p.id && r.status === 'pending');
+            }
             return true;
         });
-    }, [enhancedProfiles, searchTerm, filterStatus]);
+    }, [enhancedProfiles, searchTerm, filterStatus, limitRequests]);
 
     const handleOpenDrawer = (client: EnhancedProfile) => {
         setSelectedClientId(client.id);
@@ -365,7 +377,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         if (!selectedClientId || selectedInvoiceIds.size === 0) return;
         setIsNegotiating(true);
         try {
-            // Calcular total
             const selectedInvoices = invoices.filter(inv => selectedInvoiceIds.has(inv.id));
             const totalAmount = selectedInvoices.reduce((acc, inv) => acc + inv.amount, 0);
 
@@ -375,7 +386,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 body: JSON.stringify({
                     userId: selectedClientId,
                     invoiceIds: Array.from(selectedInvoiceIds),
-                    totalAmount, // Na pratica, poderia ter juros aqui, simplificando para o total original
+                    totalAmount,
                     installments: negotiationData.installments,
                     firstDueDate: negotiationData.firstDueDate,
                     notes: negotiationData.notes
@@ -419,6 +430,35 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         } catch(e) { alert('Erro ao atualizar limite'); }
     };
 
+    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject', manualLimit?: number) => {
+        setProcessingRequest(requestId);
+        try {
+            const res = await fetch('/api/admin/manage-limit-request', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    requestId,
+                    action,
+                    manualLimit,
+                    manualScore: 600
+                })
+            });
+            
+            const data = await res.json();
+            if(res.ok) {
+                setSuccessMessage(data.message);
+                setTimeout(() => setSuccessMessage(null), 3000);
+                fetchData();
+            } else {
+                alert(data.error);
+            }
+        } catch(e) {
+            alert("Erro na solicitação");
+        } finally {
+            setProcessingRequest(null);
+        }
+    };
+
     const handleSaveNotes = async () => {
         if(!selectedClientId) return;
         setIsSavingNotes(true);
@@ -443,6 +483,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
     const selectedClient = enhancedProfiles.find(p => p.id === selectedClientId);
     const selectedClientInvoices = invoices.filter(inv => inv.user_id === selectedClientId);
+    const clientPendingRequest = limitRequests.find(r => r.user_id === selectedClientId && r.status === 'pending');
 
     if (isDataLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
     if (errorMsg) return <div className="p-8"><Alert message={`Erro ao carregar dados: ${errorMsg}`} type="error" /></div>;
@@ -459,6 +500,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard title="Total Clientes" value={enhancedProfiles.length} icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>} color="bg-indigo-600" />
                 <StatCard title="Em Aberto" value={enhancedProfiles.reduce((acc, p) => acc + p.totalDebt, 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'})} icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} color="bg-amber-500" />
+                <StatCard title="Novas Solicitações" value={limitRequests.length} icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} color="bg-purple-500" />
             </div>
 
             {/* Toolbar */}
@@ -469,6 +511,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                         <option value="todos">Todos</option>
                         <option value="inadimplentes">Inadimplentes</option>
                         <option value="vip">VIP</option>
+                        <option value="solicitacoes">Solicitações</option>
                     </select>
                 </div>
             </div>
@@ -487,26 +530,30 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {filteredProfiles.map((client) => (
-                                <tr key={client.id} onClick={() => handleOpenDrawer(client)} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer">
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-bold text-slate-900 dark:text-white">{client.first_name} {client.last_name}</div>
-                                        <div className="text-xs text-slate-500">{client.email}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex gap-1">
-                                            {client.credit_score > 800 && <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">VIP</span>}
-                                            {client.riskLevel === 'Alto' && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">RISCO</span>}
-                                            {!client.invoiceCount && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">NOVO</span>}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap"><RiskBadge level={client.riskLevel} /></td>
-                                    <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">R$ {client.averageTicket.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 font-bold">Gerenciar</button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {filteredProfiles.map((client) => {
+                                const hasRequest = limitRequests.some(r => r.user_id === client.id && r.status === 'pending');
+                                return (
+                                    <tr key={client.id} onClick={() => handleOpenDrawer(client)} className={`hover:bg-slate-50 dark:hover:bg-slate-700/30 cursor-pointer ${hasRequest ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-bold text-slate-900 dark:text-white">{client.first_name} {client.last_name}</div>
+                                            <div className="text-xs text-slate-500">{client.email}</div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex gap-1">
+                                                {hasRequest && <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold animate-pulse">PEDIDO</span>}
+                                                {client.credit_score > 800 && <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">VIP</span>}
+                                                {client.riskLevel === 'Alto' && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">RISCO</span>}
+                                                {!client.invoiceCount && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">NOVO</span>}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap"><RiskBadge level={client.riskLevel} /></td>
+                                        <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">R$ {client.averageTicket.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 font-bold">Gerenciar</button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -524,6 +571,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">{selectedClient.first_name} {selectedClient.last_name}</h2>
                                 <div className="flex gap-2 mt-1">
                                     <span className="px-2 py-0.5 bg-slate-200 text-slate-600 rounded text-xs font-bold">{selectedClient.identification_number}</span>
+                                    {selectedClient.salary && <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-bold">Renda: R$ {selectedClient.salary}</span>}
                                 </div>
                             </div>
                             <button onClick={() => setIsDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300 transition-colors">
@@ -549,6 +597,49 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                             {/* --- TAB GERAL --- */}
                             {activeDrawerTab === 'geral' && (
                                 <>
+                                    {/* Cartão de Solicitação Pendente */}
+                                    {clientPendingRequest && (
+                                        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-4 mb-4 shadow-sm animate-fade-in">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h3 className="font-bold text-purple-800 dark:text-purple-200 flex items-center gap-2">
+                                                        <span className="animate-pulse">🔔</span> Solicitação de Aumento
+                                                    </h3>
+                                                    <p className="text-sm text-purple-700 dark:text-purple-300 mt-1">
+                                                        Cliente pediu aumento para: <strong>R$ {clientPendingRequest.requested_amount.toLocaleString('pt-BR')}</strong>
+                                                    </p>
+                                                    <p className="text-xs text-purple-600 dark:text-purple-400 italic mt-1">"{clientPendingRequest.justification}"</p>
+                                                </div>
+                                                <div className="flex flex-col gap-2">
+                                                    <button 
+                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'approve_auto')}
+                                                        disabled={!!processingRequest}
+                                                        className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded hover:bg-green-700 disabled:opacity-50"
+                                                    >
+                                                        {processingRequest === clientPendingRequest.id ? 'Processando...' : 'Aprovar Sugerido (IA)'}
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            const val = prompt("Digite o novo limite aprovado:", String(clientPendingRequest.requested_amount));
+                                                            if(val) handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(val));
+                                                        }}
+                                                        disabled={!!processingRequest}
+                                                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded hover:bg-indigo-700 disabled:opacity-50"
+                                                    >
+                                                        Definir Manualmente
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'reject')}
+                                                        disabled={!!processingRequest}
+                                                        className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 disabled:opacity-50"
+                                                    >
+                                                        Rejeitar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 relative group">
                                             <div className="flex justify-between items-center">

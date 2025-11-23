@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -61,67 +60,211 @@ async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries
     throw new Error("Max retries exceeded");
 }
 
-async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string) {
+async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | null, userId: string, useStrictRules: boolean = true) {
+    // Busca dados do perfil
     const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (profileError) throw profileError;
-    const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date').eq('user_id', userId);
+    
+    // Busca faturas (histórico)
+    const { data: invoices, error: invoicesError } = await supabase.from('invoices').select('status, amount, due_date, payment_date').eq('user_id', userId);
     if (invoicesError) throw invoicesError;
 
-    if (!genAI) {
-        return {
-            credit_score: 500,
-            credit_limit: 200.00,
-            credit_status: "Análise Manual Necessária (IA Indisponível)"
-        };
-    }
+    // Busca documentos (comprovante de renda)
+    const { data: docs } = await supabase.from('client_documents').select('document_type').eq('user_id', userId);
+    const hasIncomeProof = docs?.some(d => d.document_type === 'Comprovante de Renda' || d.document_type === 'Holerite');
 
-    const prompt = `Analise o crédito de um cliente com os seguintes dados: - Histórico de Faturas: ${JSON.stringify(invoices)}. Com base nisso, forneça um score de crédito (0-1000), um limite de crédito (em BRL, ex: 1500.00), e um status de crédito ('Excelente', 'Bom', 'Regular', 'Negativado'). O limite de crédito deve ser por PARCELA, ou seja, o valor máximo que cada parcela de uma compra pode ter. Retorne a resposta APENAS como um objeto JSON válido assim: {"credit_score": 850, "credit_limit": 500.00, "credit_status": "Excelente"}. Não adicione nenhum outro texto.`;
+    let suggestedLimit = 0;
+    let suggestedScore = 0;
+    let riskReason = '';
 
-    const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } });
+    // --- Regra 1: Clientes Novos ou Sem Histórico Relevante ---
+    const paidInvoices = invoices?.filter(i => i.status === 'Paga').length || 0;
     
-    const text = response.text;
-    if (!text) {
-        throw new Error("A resposta da IA para análise de crédito estava vazia.");
-    }
-    const analysis = JSON.parse(text.trim());
+    if (paidInvoices < 3 && useStrictRules) {
+        // Regra Estrita para Novos Entrantes
+        if (hasIncomeProof && profile.salary && profile.salary > 0) {
+            // 20% do Salário
+            suggestedLimit = Math.round(profile.salary * 0.20);
+            suggestedScore = 600; // Score inicial bom
+            riskReason = 'Limite inicial baseado em 20% da renda comprovada.';
+        } else {
+            // Sem comprovante = Max 100 reais
+            suggestedLimit = 100.00;
+            suggestedScore = 400; // Score baixo
+            riskReason = 'Limite restrito (R$ 100) por falta de comprovante de renda.';
+        }
+    } else {
+        // --- Regra 2: Análise de Histórico (IA + Comportamento) ---
+        // Se tem histórico (> 3 faturas pagas), usamos a IA para analisar o comportamento e potencialmente aumentar além dos 20%
+        
+        if (!genAI) {
+            // Fallback sem IA
+            suggestedLimit = (profile.credit_limit || 200) * 1.1; // Aumento conservador de 10%
+            suggestedScore = Math.min(1000, (profile.credit_score || 500) + 50);
+            riskReason = 'Aumento automático por bom histórico (IA Indisponível).';
+        } else {
+            const prompt = `
+                Atue como um analista de crédito sênior.
+                Dados do Cliente:
+                - Salário Informado: R$ ${profile.salary || 0}
+                - Possui Comprovante de Renda: ${hasIncomeProof ? 'SIM' : 'NÃO'}
+                - Limite Atual: R$ ${profile.credit_limit}
+                - Histórico de Pagamentos: ${JSON.stringify(invoices)}
+                
+                Regras de Negócio:
+                1. Se não tiver comprovante de renda e histórico for fraco, teto é R$ 100.
+                2. Se tiver comprovante, base inicial é 20% do salário.
+                3. Se o histórico for EXCELENTE (pagamentos em dia), você pode sugerir um limite acima de 20% do salário, até no máximo 40%.
+                4. Se houver atrasos recentes, reduza o limite ou mantenha.
 
-    const { data: updatedProfile, error: updateError } = await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId).select().single();
+                Retorne APENAS um JSON: {"credit_score": (0-1000), "credit_limit": (valor numérico), "credit_status": "Excelente"|"Bom"|"Regular"|"Risco", "reason": "Explicação curta"}
+            `;
+
+            const response = await generateContentWithRetry(genAI, { 
+                model: 'gemini-2.5-flash', 
+                contents: prompt, 
+                config: { responseMimeType: 'application/json' } 
+            });
+            
+            const analysis = JSON.parse(response.text || '{}');
+            suggestedLimit = analysis.credit_limit;
+            suggestedScore = analysis.credit_score;
+            riskReason = analysis.reason;
+        }
+    }
+
+    // Aplica a atualização
+    const { data: updatedProfile, error: updateError } = await supabase.from('profiles')
+        .update({ 
+            credit_score: suggestedScore, 
+            credit_limit: suggestedLimit, 
+            credit_status: suggestedScore < 300 ? 'Bloqueado' : 'Ativo' 
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
     if (updateError) throw updateError;
     
-    if (profile.credit_score !== analysis.credit_score) {
-        const change = analysis.credit_score - (profile.credit_score || 0);
+    // Registra histórico de score
+    if (profile.credit_limit !== suggestedLimit) {
         await supabase.from('score_history').insert({
             user_id: userId,
-            change: change,
-            new_score: analysis.credit_score,
-            reason: change > 0 ? 'Análise automática: Perfil positivo' : 'Análise automática: Ajuste de crédito'
+            change: suggestedScore - (profile.credit_score || 0),
+            new_score: suggestedScore,
+            reason: riskReason
         });
     }
 
-    await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Análise de crédito para ${profile.email}. Status: ${analysis.credit_status}, Limite: ${analysis.credit_limit}`);
+    await logAction(supabase, 'CREDIT_ANALYSIS', 'SUCCESS', `Análise (${useStrictRules ? 'Regrada' : 'Histórica'}) para ${profile.email}. Novo Limite: ${suggestedLimit}. Motivo: ${riskReason}`);
     return updatedProfile;
 }
 
-// --- New Handlers for Enhanced Functionality ---
+// --- Handlers ---
+
+async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const genAI = getGeminiClient();
+
+    try {
+        const { requestId, action, manualLimit, manualScore } = req.body; // action: 'approve_auto', 'approve_manual', 'reject'
+
+        if (!requestId || !action) return res.status(400).json({ error: "ID da solicitação e ação obrigatórios." });
+
+        // Busca a solicitação
+        const { data: request, error: reqError } = await supabase.from('limit_requests').select('*').eq('id', requestId).single();
+        if (reqError || !request) return res.status(404).json({ error: "Solicitação não encontrada." });
+
+        let newLimit = request.current_limit;
+        let newScore = 0; // Será buscado do perfil se não alterado
+        let statusMsg = '';
+
+        if (action === 'reject') {
+            await supabase.from('limit_requests').update({ status: 'rejected' }).eq('id', requestId);
+            await supabase.from('notifications').insert({
+                user_id: request.user_id,
+                title: 'Solicitação de Limite',
+                message: 'Sua solicitação de aumento de limite foi analisada e, neste momento, não pôde ser aprovada. Continue pagando em dia para novas oportunidades.',
+                type: 'info'
+            });
+            return res.status(200).json({ message: "Solicitação rejeitada." });
+        }
+
+        if (action === 'approve_manual') {
+            if (!manualLimit) return res.status(400).json({ error: "Valor manual obrigatório." });
+            newLimit = manualLimit;
+            newScore = manualScore || 600; // Default se não passado
+            
+            await supabase.from('profiles').update({ credit_limit: newLimit, credit_score: newScore }).eq('id', request.user_id);
+            statusMsg = 'Aprovado manualmente.';
+        } 
+        
+        if (action === 'approve_auto') {
+            // Roda a análise inteligente (que considera salário e docs)
+            const updatedProfile = await runCreditAnalysis(supabase, genAI, request.user_id, true);
+            newLimit = updatedProfile.credit_limit;
+            statusMsg = 'Aprovado via análise de sistema.';
+        }
+
+        // Atualiza status da request
+        await supabase.from('limit_requests').update({ status: 'approved' }).eq('id', requestId);
+
+        // Notifica usuário
+        await supabase.from('notifications').insert({
+            user_id: request.user_id,
+            title: 'Aumento de Limite Aprovado! 🎉',
+            message: `Parabéns! Seu novo limite é de R$ ${newLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.`,
+            type: 'success'
+        });
+
+        return res.status(200).json({ message: statusMsg, newLimit });
+
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { data, error } = await supabase
+            .from('limit_requests')
+            .select('*, profiles(first_name, last_name, email, salary, credit_limit, credit_score)')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.status(200).json(data);
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+}
 
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const { invoiceId, invoiceIds, action } = req.body; // action: 'pay', 'cancel', 'delete'
         
-        // Normaliza para array para suportar bulk action ou single action
-        let ids: string[] = [];
-        if (invoiceIds && Array.isArray(invoiceIds)) {
-            ids = invoiceIds;
-        } else if (invoiceId) {
-            ids = [invoiceId];
-        }
+        if ((!invoiceId && !invoiceIds) || !action) return res.status(400).json({ error: "ID(s) da fatura e ação são obrigatórios." });
 
-        if (ids.length === 0 || !action) return res.status(400).json({ error: "IDs da fatura e ação são obrigatórios." });
+        // Normaliza para array para suportar bulk action
+        const ids = invoiceIds || [invoiceId];
 
         if (action === 'pay') {
             await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).in('id', ids);
             await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `${ids.length} fatura(s) marcada(s) como paga(s) manualmente.`);
+            
+            // Trigger de reanálise de crédito ao pagar (opcional, mas bom para o fluxo "aumentar/diminuir auto")
+            // Só executa para o primeiro user do batch para evitar timeout, idealmente seria queue
+            if(ids.length > 0) {
+                 const { data: inv } = await supabase.from('invoices').select('user_id').eq('id', ids[0]).single();
+                 if(inv) {
+                     const genAI = getGeminiClient();
+                     // Roda análise sem regras estritas de entrada, focado em histórico
+                     runCreditAnalysis(supabase, genAI, inv.user_id, false).catch(console.error);
+                 }
+            }
+
         } else if (action === 'cancel') {
             await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).in('id', ids);
             await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `${ids.length} fatura(s) cancelada(s) manualmente.`);
@@ -175,34 +318,23 @@ async function handleRiskDetails(req: VercelRequest, res: VercelResponse) {
     try {
         const { userId } = req.body;
         
-        // Coleta dados atualizados (uso em tempo real)
+        // Coleta dados
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
         const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId);
         const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10);
 
-        // Cálculo de métricas básicas para alimentar a IA
-        const totalDebt = invoices?.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').reduce((acc, i) => acc + i.amount, 0) || 0;
-        const paidInvoices = invoices?.filter(i => i.status === 'Paga').length || 0;
-        const lateInvoices = invoices?.filter(i => (i.status === 'Em aberto' || i.status === 'Boleto Gerado') && new Date(i.due_date) < new Date()).length || 0;
-
         const prompt = `
             Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares.
-            
-            Dados em Tempo Real:
-            - Dívida Total Atual: R$ ${totalDebt}
-            - Faturas Pagas: ${paidInvoices}
-            - Faturas em Atraso: ${lateInvoices}
-            - Limite Atual: R$ ${profile.credit_limit}
-            - Score Atual: ${profile.credit_score}
-            
-            Histórico Recente: ${JSON.stringify(history)}
+            Perfil: ${JSON.stringify(profile)}
+            Faturas: ${JSON.stringify(invoices)}
+            Histórico Score: ${JSON.stringify(history)}
             
             Retorne um relatório em formato JSON com:
             {
                 "riskLevel": "Baixo" | "Médio" | "Alto",
-                "reason": "Resumo curto do motivo principal (ex: 'Alto endividamento')",
-                "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira baseada nos dados acima.",
-                "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador, Manter como está).",
+                "reason": "Resumo curto do motivo principal",
+                "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.",
+                "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).",
                 "positivePoints": ["ponto 1", "ponto 2"],
                 "negativePoints": ["ponto 1", "ponto 2"]
             }
@@ -228,9 +360,9 @@ async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
         if (req.method === 'GET') {
             const { userId } = req.query;
             // Busca contratos
-            const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-            // Busca documentos manuais
-            const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId);
+            // Busca documentos manuais (nova tabela)
+            const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId);
             
             res.status(200).json({ contracts: contracts || [], uploads: uploads || [] });
         } else if (req.method === 'POST') {
@@ -336,7 +468,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             const { error: contractError } = await supabase.from('contracts').insert({
                 user_id: userId,
                 title: 'Contrato de Crediário (CDCI) - Relp Cell',
-                items: `Compra de ${productName}. Valor financiado: R$ ${totalAmount}. ${installments} parcelas de R$ ${installmentAmount}.`,
+                items: productName,
                 total_value: totalAmount,
                 installments: installments,
                 status: 'pending_signature', 
@@ -386,40 +518,28 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
 
         if (cancelError) throw cancelError;
 
-        // 2. Buscar dados do perfil para o contrato
+        // 2. Criar o Contrato de Negociação (Para o cliente aceitar)
         const { data: profile } = await supabase.from('profiles').select('first_name, last_name, identification_number').eq('id', userId).single();
         
-        // 3. Gerar Texto do Contrato Jurídico
         const contractTitle = 'Termo de Confissão e Renegociação de Dívida';
-        const currentDate = new Date().toLocaleDateString('pt-BR');
-        const installmentVal = totalAmount / installments;
-        
         const contractBody = `
-INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA E RENEGOCIAÇÃO
-
-CREDOR: RELP CELL ELETRONICOS LTDA, CNPJ 43.735.304/0001-00.
-DEVEDOR: ${profile?.first_name} ${profile?.last_name}, CPF ${profile?.identification_number}.
-
-1. DO OBJETO: O DEVEDOR reconhece expressamente a dívida no valor total renegociado de R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, referente a compras anteriores não quitadas.
-
-2. DO PAGAMENTO: O valor total será pago em ${installments} parcelas mensais e sucessivas de R$ ${installmentVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, vencendo a primeira em ${new Date(firstDueDate).toLocaleDateString('pt-BR')}.
-
-3. DOS ENCARGOS: O não pagamento de qualquer parcela na data de seu vencimento acarretará o vencimento antecipado de toda a dívida remanescente, acrescida de multa de 2% e juros de mora de 1% ao mês.
-
-4. DA INADIMPLÊNCIA: O atraso superior a 10 dias autoriza a inclusão do nome do DEVEDOR nos órgãos de proteção ao crédito (SPC/SERASA).
-
-5. DA VALIDADE: Este acordo substitui e cancela os títulos anteriores selecionados na negociação. A assinatura digital deste termo valida legalmente o acordo.
-
-Macapá, ${currentDate}.
+            INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA\n\n
+            DEVEDOR: ${profile?.first_name} ${profile?.last_name}, CPF ${profile?.identification_number}.\n
+            CREDOR: RELP CELL ELETRONICOS LTDA, CNPJ 43.735.304/0001-00.\n\n
+            1. O DEVEDOR reconhece a dívida no valor total renegociado de R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n
+            2. O pagamento será realizado em ${installments} parcelas mensais.\n
+            3. O não pagamento de qualquer parcela acarretará vencimento antecipado da dívida e inclusão nos órgãos de proteção ao crédito.\n
+            4. A assinatura digital deste termo valida legalmente o acordo.\n
+            
+            Detalhes: ${notes || 'Renegociação de saldo devedor.'}
         `;
 
         const creationTime = new Date().toISOString();
 
-        // 4. Salvar Contrato Pendente
         const { error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: contractTitle,
-            items: contractBody, // Armazenando o texto completo aqui
+            items: contractBody, // Usando campo items para armazenar o texto do contrato neste contexto
             total_value: totalAmount,
             installments: installments,
             status: 'pending_signature', // Cliente precisa assinar
@@ -428,11 +548,12 @@ Macapá, ${currentDate}.
 
         if (contractError) throw contractError;
 
-        // 5. Criar novas faturas do acordo (Status: Aguardando Assinatura)
+        // 3. Criar novas faturas do acordo (Status: Aguardando Assinatura)
         const newInvoices = [];
         let currentMonth = new Date(firstDueDate).getMonth();
         let currentYear = new Date(firstDueDate).getFullYear();
         const dueDay = new Date(firstDueDate).getDate();
+        const installmentVal = totalAmount / installments;
 
         for (let i = 1; i <= installments; i++) {
             const dueDate = new Date(currentYear, currentMonth, dueDay);
@@ -457,10 +578,10 @@ Macapá, ${currentDate}.
         const { error: insertError } = await supabase.from('invoices').insert(newInvoices);
         if (insertError) throw insertError;
 
-        // 6. Notificar e Logar
+        // 4. Notificar e Logar
         await supabase.from('notifications').insert({
             user_id: userId,
-            title: 'Proposta de Acordo Disponível',
+            title: 'Proposta de Acordo',
             message: 'Sua renegociação foi gerada. Acesse o app para assinar o termo e regularizar sua situação.',
             type: 'alert'
         });
@@ -577,7 +698,7 @@ async function handleAnalyzeCredit(req: VercelRequest, res: VercelResponse) { co
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { const supabase=getSupabaseAdminClient(); const {data}=await supabase.from('profiles').select('*'); res.status(200).json(data); }
 async function handleDiagnoseError(_req: VercelRequest, res: VercelResponse) { res.status(200).json({ diagnosis: "Simulated Diagnosis" }); }
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) { const { code_challenge } = req.body; const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${process.env.ML_CLIENT_ID}&response_type=code&platform_id=mp&state=random_state&redirect_uri=${req.headers.origin}/admin&code_challenge=${code_challenge}&code_challenge_method=S256`; res.status(200).json({ authUrl }); }
-async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const FULL_SETUP_SQL = `CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id);`; const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL }); if (error) throw error; await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.'); res.status(200).json({ message: "Banco de dados atualizado com sucesso!" }); }
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const FULL_SETUP_SQL = `CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own documents" ON "public"."client_documents" FOR SELECT USING (auth.uid() = user_id); CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "requested_amount" numeric(10, 2), "current_limit" numeric(10, 2), "justification" "text", "status" "text" DEFAULT 'pending', "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "limit_requests_pkey" PRIMARY KEY ("id"), CONSTRAINT "limit_requests_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);`; const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL }); if (error) throw error; await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.'); res.status(200).json({ message: "Banco de dados atualizado com sucesso!" }); }
 async function handleSupportTickets(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { userId, subject, message, category, priority } = req.body; const { data: ticket, error: ticketError } = await supabase.from('support_tickets').insert({ user_id: userId, subject: subject || 'Atendimento', category: category || 'Geral', priority: priority || 'normal', status: 'open' }).select().single(); if (ticketError) throw ticketError; if (message) { const { error: msgError } = await supabase.from('support_messages').insert({ ticket_id: ticket.id, sender_type: 'user', message }); if (msgError) throw msgError; } res.status(201).json(ticket); } else if (req.method === 'PUT') { const { id, status } = req.body; const { data, error } = await supabase.from('support_tickets').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select(); if (error) throw error; res.status(200).json(data[0]); } else if (req.method === 'GET') { const { userId } = req.query; let query = supabase.from('support_tickets').select('*, profiles(first_name, last_name, email, credit_score, credit_limit, credit_status)').order('updated_at', { ascending: false }); if (userId) { query = query.eq('user_id', userId); } const { data, error } = await query; if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSupportMessages(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'POST') { const { ticketId, sender, message, isInternal } = req.body; const { data, error } = await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_type: sender, message, is_internal: isInternal || false }).select().single(); if (error) throw error; await supabase.from('support_tickets').update({ updated_at: new Date().toISOString() }).eq('id', ticketId); res.status(201).json(data); } else if (req.method === 'GET') { const { ticketId } = req.query; const { data, error } = await supabase.from('support_messages').select('*').eq('ticket_id', ticketId).order('created_at', { ascending: true }); if (error) throw error; res.status(200).json(data); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleSupportChat(req: VercelRequest, res: VercelResponse) { const genAI = getGeminiClient(); if(!genAI) return res.status(500).json({error:"AI unavailable"}); const {message, context} = req.body; const prompt = `${context} User Message: "${message}" You are a helpful support assistant for Relp Cell. Respond in Portuguese (Brazil). Be concise, polite, and professional.`; try { const response = await generateContentWithRetry(genAI, {model:'gemini-2.5-flash', contents: prompt}); res.status(200).json({reply: response.text}); } catch(e: any) { res.status(500).json({error: e.message}); } }
@@ -600,6 +721,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/invoices': return await handleGetAllInvoices(req, res);
                 case '/api/admin/due-date-requests': return await handleDueDateRequests(req, res);
                 case '/api/admin/client-documents': return await handleClientDocuments(req, res);
+                case '/api/admin/limit-requests': return await handleGetLimitRequests(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -616,11 +738,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res); 
                 case '/api/admin/negotiate-debt': return await handleNegotiateDebt(req, res); 
-                case '/api/admin/manage-invoice': return await handleManageInvoice(req, res); // Updated for Bulk
+                case '/api/admin/manage-invoice': return await handleManageInvoice(req, res); 
                 case '/api/admin/risk-details': return await handleRiskDetails(req, res); 
                 case '/api/admin/manage-notes': return await handleManageInternalNotes(req, res); 
                 case '/api/admin/upload-document': return await handleClientDocuments(req, res); 
-                case '/api/admin/update-limit': return await handleUpdateLimit(req, res); // Novo
+                case '/api/admin/update-limit': return await handleUpdateLimit(req, res);
+                case '/api/admin/manage-limit-request': return await handleLimitRequestActions(req, res); // Novo Endpoint
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);

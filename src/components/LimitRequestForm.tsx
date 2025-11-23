@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import { supabase } from '../services/clients';
@@ -12,25 +12,39 @@ interface LimitRequestFormProps {
 
 const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClose, score }) => {
     const [requestedAmount, setRequestedAmount] = useState('');
+    const [salary, setSalary] = useState('');
+    const [proofFile, setProofFile] = useState<string | null>(null);
     const [justification, setJustification] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     
-    // Lógica de "Chance de Aprovação" baseada no Score
+    const hasProof = !!proofFile;
+
+    // Lógica de "Chance de Aprovação" baseada no Score e Salário
     const approvalChance = Math.min(100, Math.max(10, score / 10));
     let chanceColor = 'bg-red-500';
     let chanceText = 'Baixa';
     let chanceMessage = "Seu score precisa melhorar um pouco.";
     
-    if (approvalChance > 70) {
-        chanceColor = 'bg-emerald-500';
-        chanceText = 'Alta';
-        chanceMessage = "Você tem um ótimo perfil para aumento!";
-    } else if (approvalChance > 40) {
-        chanceColor = 'bg-amber-500';
-        chanceText = 'Média';
-        chanceMessage = "Continue pagando em dia para aumentar suas chances.";
+    if (hasProof) {
+        chanceMessage = "Comprovante anexado: Suas chances aumentaram!";
+        if (approvalChance > 60) chanceColor = 'bg-emerald-500';
+        else chanceColor = 'bg-amber-500';
+    } else {
+        chanceMessage = "Sem comprovante, o limite pode ser restrito a R$ 100.";
     }
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setProofFile(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -38,6 +52,8 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
         setMessage(null);
 
         const requestedValue = parseFloat(requestedAmount);
+        const salaryValue = parseFloat(salary);
+
         if (isNaN(requestedValue) || requestedValue <= currentLimit) {
             setMessage({ text: 'O valor solicitado deve ser maior que o atual.', type: 'error' });
             setIsSubmitting(false);
@@ -48,11 +64,31 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
 
+            // 1. Salva o comprovante se houver
+            if (proofFile) {
+                await fetch('/api/admin/upload-document', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        userId: user.id,
+                        title: 'Comprovante de Renda (Solicitação Limite)',
+                        type: 'Comprovante de Renda',
+                        fileBase64: proofFile
+                    })
+                });
+            }
+
+            // 2. Atualiza o salário no perfil
+            if (salaryValue > 0) {
+                await supabase.from('profiles').update({ salary: salaryValue }).eq('id', user.id);
+            }
+
+            // 3. Cria a solicitação
             const { error } = await supabase.from('limit_requests').insert({
                 user_id: user.id,
                 requested_amount: requestedValue,
                 current_limit: currentLimit,
-                justification: justification,
+                justification: justification + (hasProof ? ' [Comprovante Anexado]' : ' [Sem Comprovante]'),
                 status: 'pending'
             });
 
@@ -135,7 +171,47 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
                                 className="w-full pl-12 pr-4 py-4 text-2xl font-bold bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-slate-900 dark:text-white placeholder-slate-300"
                             />
                         </div>
-                        <p className="text-xs text-slate-400 mt-2 ml-1">Recomendado: Até R$ {(currentLimit * 1.3).toFixed(0)}</p>
+                    </div>
+
+                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                        <label className="block text-sm font-bold text-indigo-800 dark:text-indigo-200 mb-3">Comprovação de Renda (Obrigatório)</label>
+                        
+                        <div className="mb-3">
+                            <label className="block text-xs text-indigo-600 dark:text-indigo-300 mb-1">Renda Mensal (R$)</label>
+                            <input
+                                type="number"
+                                value={salary}
+                                onChange={(e) => setSalary(e.target.value)}
+                                placeholder="Ex: 2500.00"
+                                required
+                                className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+
+                        <button 
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`w-full py-2 px-4 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors border ${proofFile ? 'bg-green-100 border-green-200 text-green-700' : 'bg-white border-indigo-200 text-indigo-600 hover:bg-indigo-50'}`}
+                        >
+                            {proofFile ? (
+                                <>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                    Arquivo Anexado
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    Enviar Holerite/Extrato
+                                </>
+                            )}
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
+                        
+                        {!proofFile && (
+                            <p className="text-[10px] text-red-500 mt-2">
+                                * Sem comprovante, seu limite máximo será de R$ 100,00.
+                            </p>
+                        )}
                     </div>
 
                     <div>
