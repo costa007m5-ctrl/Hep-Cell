@@ -15,31 +15,17 @@
   "scope": "/",
   "lang": "pt-BR",
   "dir": "ltr",
-  "iarc_rating_id": "e84b072d-71b3-4d3c-86ae-31a8ceec6d60",
   "categories": [
     "finance",
     "shopping",
-    "productivity",
-    "utilities"
+    "productivity"
   ],
   "icons": [
     {
-      "src": "/logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
       "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=RC",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=RC",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
     },
     {
       "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp",
@@ -112,28 +98,5 @@
       ]
     }
   ],
-  "related_applications": [],
-  "prefer_related_applications": false,
-  "share_target": {
-    "action": "/?share=true",
-    "method": "GET",
-    "enctype": "application/x-www-form-urlencoded",
-    "params": {
-      "title": "title",
-      "text": "text",
-      "url": "url"
-    }
-  },
-  "launch_handler": {
-    "client_mode": "focus-existing"
-  },
-  "protocol_handlers": [
-    {
-      "protocol": "web+relp",
-      "url": "/?type=%s"
-    }
-  ],
-  "edge_side_panel": {
-    "preferred_width": 400
-  }
+  "prefer_related_applications": false
 }
