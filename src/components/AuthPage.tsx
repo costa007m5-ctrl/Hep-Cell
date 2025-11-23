@@ -57,7 +57,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
     state: ''
   });
   
-  // Referral Logic
+  // Referral Logic - NOVO
   const [referralCode, setReferralCode] = useState('');
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [isValidatingReferral, setIsValidatingReferral] = useState(false);
@@ -243,7 +243,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       }
   };
   
-  // Valida código de indicação
+  // Valida código de indicação em tempo real
   const validateReferralCode = async (code: string) => {
       if (!code || code.length < 5) {
           setReferrerName(null);
@@ -255,6 +255,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       setReferralError(null);
       
       try {
+          // Usa o endpoint administrativo para validação segura
           const response = await fetch('/api/admin/validate-referral', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -319,7 +320,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             throw new Error("Você precisa ler e aceitar os Termos de Uso e Política de Privacidade para criar uma conta.");
         }
         
-        // Se um código foi digitado mas deu erro, impede o cadastro
+        // Se um código foi digitado mas deu erro, impede o cadastro para evitar frustração
         if (referralCode && !referrerName && referralCode.length > 3) {
             throw new Error("Código de indicação inválido. Corrija ou deixe em branco.");
         }
@@ -352,14 +353,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                     neighborhood: address.neighborhood,
                     city: address.city,
                     federal_unit: address.state,
-                    referred_by_code: referralCode || null // Envia o código para o trigger ou processamento posterior
+                    // O código de quem indicou é enviado aqui, mas o processamento real é feito via API após sucesso
                 }
             }
         });
 
         if (error) throw error;
         
-        // Processa a indicação se houver código válido
+        // PROCESSAMENTO DA INDICAÇÃO (IMPORTANTE)
+        // Se houver um código válido e um novo usuário criado, chama a API para registrar a indicação
         if (data.user && referralCode && referrerName) {
             try {
                 await fetch('/api/admin/process-referral', {
@@ -371,7 +373,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                     })
                 });
             } catch (e) {
-                console.error("Falha ao processar indicação (silencioso)", e);
+                console.error("Falha ao processar indicação (silencioso):", e);
+                // Não bloqueia o cadastro se a indicação falhar, mas loga
             }
         }
 

@@ -291,7 +291,7 @@ const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     
-    // SQL Completo com Policies e Tabela de Indicação
+    // SQL Completo com Policies e Tabela de Indicação - ATUALIZADO
     const SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
@@ -301,7 +301,7 @@ ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "referral_code" "text";
 
--- Tabela de Indicações
+-- Tabela de Indicações (Referrals)
 CREATE TABLE IF NOT EXISTS "public"."referrals" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "referrer_id" "uuid" NOT NULL,
@@ -315,7 +315,7 @@ CREATE TABLE IF NOT EXISTS "public"."referrals" (
 );
 ALTER TABLE "public"."referrals" ENABLE ROW LEVEL SECURITY;
 
--- Policies para Indicações
+-- Policies para Indicações (Permitir usuários verem suas próprias indicações)
 DROP POLICY IF EXISTS "Users view own referrals" ON "public"."referrals";
 CREATE POLICY "Users view own referrals" ON "public"."referrals" FOR SELECT USING (auth.uid() = referrer_id); 
 
@@ -387,9 +387,9 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Banco de Dados (Supabase)</h2>
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
-                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Correção de Permissões</h3>
+                    <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização do Sistema</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Se você está tendo problemas com <strong>contratos não salvando a assinatura</strong> ou status de solicitações retornando para "Pendente", clique no botão abaixo. Isso vai recriar as regras de segurança (RLS) necessárias.
+                        Clique no botão abaixo para garantir que a tabela <strong>referrals</strong> e a coluna <strong>referral_code</strong> estejam criadas corretamente no banco de dados. Isso é necessário para o sistema de indicação funcionar.
                     </p>
                 </div>
 
