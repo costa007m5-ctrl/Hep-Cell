@@ -20,6 +20,7 @@ const MetricCard: React.FC<{ title: string; value: string; description?: string 
 const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoading }) => {
     const [interestRate, setInterestRate] = useState<string>('');
     const [negotiationInterest, setNegotiationInterest] = useState<string>('');
+    const [minEntryPercentage, setMinEntryPercentage] = useState<string>(''); // Novo estado
     const [isSavingInterest, setIsSavingInterest] = useState(false);
     const [interestMessage, setInterestMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -30,6 +31,7 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
                 const settings = await res.json();
                 setInterestRate(settings.interest_rate || '0');
                 setNegotiationInterest(settings.negotiation_interest || '15');
+                setMinEntryPercentage(settings.min_entry_percentage || '15'); // Carrega valor salvo ou padrão 15
             }
         } catch (e) {
             console.error("Erro ao buscar configurações", e);
@@ -54,10 +56,15 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ key: 'negotiation_interest', value: negotiationInterest })
+                }),
+                fetch('/api/admin/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'min_entry_percentage', value: minEntryPercentage })
                 })
             ]);
             
-            setInterestMessage({ text: 'Taxas atualizadas com sucesso!', type: 'success' });
+            setInterestMessage({ text: 'Configurações atualizadas com sucesso!', type: 'success' });
             setTimeout(() => setInterestMessage(null), 3000);
         } catch (e) {
             setInterestMessage({ text: 'Erro ao salvar.', type: 'error' });
@@ -140,9 +147,9 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
         <div className="p-4 space-y-8">
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Crediário</h2>
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-2xl">
-                     <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-white">Taxas de Juros</h3>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-4xl">
+                     <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-white">Taxas e Regras</h3>
+                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Nova Venda (% a.m.)</label>
                             <input 
@@ -165,7 +172,19 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
                                 className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 placeholder="15.00"
                             />
-                            <p className="text-xs text-slate-500 mt-1">Teto de juros para renegociação de dívidas.</p>
+                            <p className="text-xs text-slate-500 mt-1">Teto de juros para renegociação.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Entrada Mínima (%)</label>
+                            <input 
+                                type="number" 
+                                step="1"
+                                value={minEntryPercentage}
+                                onChange={(e) => setMinEntryPercentage(e.target.value)}
+                                className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="15"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">Porcentagem obrigatória de entrada.</p>
                         </div>
                      </div>
                      

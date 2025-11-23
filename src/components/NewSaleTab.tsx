@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Profile, Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -86,6 +85,7 @@ const NewSaleTab: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [profiles, setProfiles] = useState<Profile[]>([]);
     const [interestRate, setInterestRate] = useState(0);
+    const [minEntryPercentage, setMinEntryPercentage] = useState(0.15); // Padrão 15%
     const [loading, setLoading] = useState(true);
 
     // --- POS States ---
@@ -131,6 +131,12 @@ const NewSaleTab: React.FC = () => {
                 if (setRes.ok) {
                     const settings = await setRes.json();
                     setInterestRate(parseFloat(settings.interest_rate) || 0);
+                    
+                    // Carrega a porcentagem mínima de entrada (salva como 15, convertemos para 0.15)
+                    const entryPercent = parseFloat(settings.min_entry_percentage);
+                    if (!isNaN(entryPercent)) {
+                        setMinEntryPercentage(entryPercent / 100);
+                    }
                 }
             } catch (e) { console.error(e); }
             finally { setLoading(false); }
@@ -281,6 +287,23 @@ const NewSaleTab: React.FC = () => {
             setIsProcessing(false);
         }
     };
+
+    // --- Validation for Modal ---
+    const validationStatus = useMemo(() => {
+        if (paymentMode !== 'crediario') return { isValid: true, message: null };
+        
+        // Lógica de entrada mínima baseada na configuração do Admin
+        const requiredEntry = cartTotal * minEntryPercentage;
+        
+        if (entry < requiredEntry) {
+            return { 
+                isValid: false, 
+                message: `Entrada mínima de R$ ${requiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})} (${(minEntryPercentage * 100).toFixed(0)}%) necessária.`
+            };
+        }
+        return { isValid: true, message: 'Entrada Aprovada' };
+    }, [paymentMode, cartTotal, entry, minEntryPercentage]);
+
 
     if (loading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
 
@@ -456,7 +479,7 @@ const NewSaleTab: React.FC = () => {
                         {/* Coluna 1: Resumo e Trade-in */}
                         <div className="w-full md:w-1/2 p-6 border-r border-slate-200 dark:border-slate-700 overflow-y-auto bg-slate-50 dark:bg-slate-900/50">
                             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                                 Resumo da Operação
                             </h3>
                             
@@ -583,11 +606,16 @@ const NewSaleTab: React.FC = () => {
                                 </div>
                                 
                                 {paymentMode === 'crediario' && (
-                                    <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800 flex items-start gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-600 shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                        <p className="text-xs text-yellow-800 dark:text-yellow-200 leading-tight">
-                                            <strong>Atenção:</strong> O cliente precisará aprovar o contrato no aplicativo em até 24h para liberar a mercadoria.
-                                        </p>
+                                    <div className={`p-3 rounded-lg border flex items-start gap-2 ${validationStatus.isValid ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 shrink-0 ${validationStatus.isValid ? 'text-yellow-600' : 'text-red-600'}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                        <div>
+                                            <p className={`text-xs font-bold ${validationStatus.isValid ? 'text-yellow-800 dark:text-yellow-200' : 'text-red-800 dark:text-red-200'}`}>
+                                                {validationStatus.isValid ? 'Atenção:' : 'Erro:'}
+                                            </p>
+                                            <p className={`text-xs leading-tight ${validationStatus.isValid ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'}`}>
+                                                {validationStatus.isValid ? "O cliente precisará aprovar o contrato no app." : validationStatus.message}
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -598,8 +626,8 @@ const NewSaleTab: React.FC = () => {
                                 </button>
                                 <button 
                                     onClick={handleFinishSale}
-                                    disabled={isProcessing}
-                                    className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg shadow-green-500/30 flex items-center justify-center gap-2 disabled:opacity-50"
+                                    disabled={isProcessing || !validationStatus.isValid}
+                                    className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg shadow-green-500/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isProcessing ? <LoadingSpinner /> : 'Confirmar Venda'}
                                 </button>
