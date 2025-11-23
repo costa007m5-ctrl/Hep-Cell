@@ -233,6 +233,130 @@ async function updateProfileCredit(supabase: SupabaseClient, userId: string, lim
     }
 }
 
+// --- Referral System Handlers ---
+
+// Valida o código de indicação
+async function handleValidateReferral(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { code } = req.body;
+        if (!code || code.length < 5) return res.status(400).json({ error: "Código inválido" });
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('first_name, last_name, id')
+            .eq('referral_code', code.toUpperCase())
+            .single();
+
+        if (error || !data) {
+            return res.status(404).json({ valid: false });
+        }
+
+        return res.status(200).json({ 
+            valid: true, 
+            name: `${data.first_name} ${data.last_name}` 
+        });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+// Processa a indicação após o cadastro
+async function handleProcessReferral(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { newUserId, referralCode } = req.body;
+        
+        if (!newUserId || !referralCode) return res.status(400).json({ error: "Dados incompletos" });
+
+        // Busca quem indicou
+        const { data: referrer } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('referral_code', referralCode.toUpperCase())
+            .single();
+
+        if (!referrer) return res.status(404).json({ error: "Código não encontrado" });
+        if (referrer.id === newUserId) return res.status(400).json({ error: "Auto-indicação não permitida" });
+
+        // Verifica se já existe indicação
+        const { data: existing } = await supabase
+            .from('referrals')
+            .select('id')
+            .eq('referee_id', newUserId)
+            .single();
+
+        if (existing) return res.status(400).json({ error: "Usuário já foi indicado" });
+
+        // Cria o registro de indicação
+        const { error } = await supabase.from('referrals').insert({
+            referrer_id: referrer.id,
+            referee_id: newUserId,
+            status: 'registered',
+            reward_amount: 20.00 // Valor padrão de R$ 20,00
+        });
+
+        if (error) throw error;
+
+        // Notifica quem indicou
+        await supabase.from('notifications').insert({
+            user_id: referrer.id,
+            title: 'Nova Indicação! 🎉',
+            message: 'Um amigo se cadastrou com seu código. Você ganhará R$ 20,00 assim que ele fizer a primeira compra.',
+            type: 'success'
+        });
+
+        return res.status(200).json({ message: "Indicação processada" });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+// Busca dados do hub de indicação
+async function handleGetReferralData(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId } = req.query;
+        if (!userId) return res.status(400).json({ error: "User ID obrigatório" });
+
+        // Busca perfil para pegar o código
+        const { data: profile } = await supabase.from('profiles').select('referral_code, first_name').eq('id', userId).single();
+        
+        // Gera código se não existir
+        let referralCode = profile?.referral_code;
+        if (!referralCode) {
+            const randomDigits = Math.floor(1000 + Math.random() * 9000);
+            const namePart = (profile?.first_name || 'USER').substring(0, 3).toUpperCase();
+            referralCode = `RELP-${namePart}-${randomDigits}`;
+            
+            await supabase.from('profiles').update({ referral_code: referralCode }).eq('id', userId);
+        }
+
+        // Busca histórico de indicações
+        const { data: referrals } = await supabase
+            .from('referrals')
+            .select('id, status, reward_amount, created_at, profiles!referrals_referee_fkey(first_name)')
+            .eq('referrer_id', userId)
+            .order('created_at', { ascending: false });
+
+        // Calcula totais
+        const totalEarnings = referrals?.filter(r => r.status === 'paid' || r.status === 'purchased').reduce((acc, r) => acc + (Number(r.reward_amount) || 0), 0) || 0;
+        const pendingEarnings = referrals?.filter(r => r.status === 'registered').reduce((acc, r) => acc + (Number(r.reward_amount) || 0), 0) || 0;
+        
+        return res.status(200).json({
+            referralCode,
+            referrals: referrals || [],
+            totalEarnings,
+            pendingEarnings,
+            referralLink: `https://${req.headers.host}/?ref=${referralCode}`
+        });
+
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+// ... (Existing Handlers)
 async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const genAI = getGeminiClient();
@@ -307,38 +431,35 @@ async function handleLimitRequestActions(req: VercelRequest, res: VercelResponse
     }
 }
 
-// --- Updated Handle for Get Limit Requests ---
-async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    try {
-        // Usa select 'profiles(*)' para evitar erros caso colunas específicas (ex: salary) não existam no schema
-        const { data, error } = await supabase
-            .from('limit_requests')
-            .select('*, profiles(*)') 
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        
-        res.status(200).json(data);
-    } catch (e: any) {
-        console.error("Error fetching limit requests:", e);
-        res.status(500).json({ error: e.message });
-    }
-}
-
-// --- Updated Handle for Database Setup (Fixing Permissions) ---
+// ... (Updated Handle for Database Setup with Referral Tables) ...
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     
-    // O Script SQL abaixo é idempotente (IF NOT EXISTS) e corrige as permissões
     const FULL_SETUP_SQL = `
     CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
     
     -- Tabela de Perfis
-    CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); 
+    CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
     ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
+    ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "referral_code" "text";
     
+    -- Tabela de Indicações
+    CREATE TABLE IF NOT EXISTS "public"."referrals" (
+        "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+        "referrer_id" "uuid" NOT NULL,
+        "referee_id" "uuid" NOT NULL,
+        "status" "text" DEFAULT 'registered',
+        "reward_amount" numeric(10, 2) DEFAULT 0,
+        "created_at" timestamp with time zone DEFAULT "now"(),
+        CONSTRAINT "referrals_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "referrals_referrer_fkey" FOREIGN KEY ("referrer_id") REFERENCES "public"."profiles"("id"),
+        CONSTRAINT "referrals_referee_fkey" FOREIGN KEY ("referee_id") REFERENCES "public"."profiles"("id")
+    );
+    ALTER TABLE "public"."referrals" ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users view own referrals" ON "public"."referrals";
+    CREATE POLICY "Users view own referrals" ON "public"."referrals" FOR SELECT USING (auth.uid() = referrer_id); 
+
     -- Tabela de Documentos
     CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
     ALTER TABLE "public"."client_documents" ENABLE ROW LEVEL SECURITY; 
@@ -374,12 +495,11 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     );
     ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
 
-    -- Policies CRÍTICAS para Contratos (Permitir Assinatura)
+    -- Policies CRÍTICAS para Contratos
     DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
     DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
     
     CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
-    -- Esta policy é o que conserta o erro de assinatura não salvar
     CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
     `;
     
@@ -393,12 +513,12 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     res.status(200).json({ message: "Banco de dados atualizado com sucesso! Permissões corrigidas." }); 
 }
 
-// ... (Other handlers and default export maintained)
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { invoiceId, invoiceIds, action } = req.body; if ((!invoiceId && !invoiceIds) || !action) return res.status(400).json({ error: "ID(s) da fatura e ação são obrigatórios." }); const ids = invoiceIds || [invoiceId]; if (action === 'pay') { await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).in('id', ids); await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `${ids.length} fatura(s) marcada(s) como paga(s) manualmente.`); if(ids.length > 0) { const { data: inv } = await supabase.from('invoices').select('user_id').eq('id', ids[0]).single(); if(inv) { const genAI = getGeminiClient(); const analysis = await runCreditAnalysis(supabase, genAI, inv.user_id, false); await updateProfileCredit(supabase, inv.user_id, analysis.credit_limit, analysis.credit_score, analysis.profile.credit_status === 'Bloqueado' ? 'Bloqueado' : 'Ativo', analysis.reason); } } } else if (action === 'cancel') { await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).in('id', ids); await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `${ids.length} fatura(s) cancelada(s) manualmente.`); } else if (action === 'delete') { await supabase.from('invoices').delete().in('id', ids); await logAction(supabase, 'MANUAL_DELETE', 'SUCCESS', `${ids.length} fatura(s) excluída(s) permanentemente.`); } else { return res.status(400).json({ error: "Ação inválida." }); } return res.status(200).json({ message: "Ação realizada com sucesso." }); } catch (e: any) { return res.status(500).json({ error: e.message }); } }
 async function handleUpdateLimit(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, creditLimit, creditScore } = req.body; if (!userId) return res.status(400).json({ error: "User ID obrigatório." }); const updates: any = {}; if (creditLimit !== undefined) updates.credit_limit = creditLimit; if (creditScore !== undefined) updates.credit_score = creditScore; const { error } = await supabase.from('profiles').update(updates).eq('id', userId); if (error) throw error; await supabase.from('score_history').insert({ user_id: userId, change: 0, new_score: creditScore || 0, reason: 'Ajuste manual pelo administrador' }); await logAction(supabase, 'MANUAL_LIMIT_UPDATE', 'SUCCESS', `Limite/Score atualizado manualmente para user ${userId}.`); return res.status(200).json({ message: "Perfil atualizado com sucesso." }); } catch (e: any) { return res.status(500).json({ error: e.message }); } }
 async function handleRiskDetails(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: "IA não configurada." }); try { const { userId } = req.body; const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single(); const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId); const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10); const prompt = `Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares. Perfil: ${JSON.stringify(profile)} Faturas: ${JSON.stringify(invoices)} Histórico Score: ${JSON.stringify(history)} Retorne um relatório em formato JSON com: { "riskLevel": "Baixo" | "Médio" | "Alto", "reason": "Resumo curto do motivo principal", "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.", "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).", "positivePoints": ["ponto 1", "ponto 2"], "negativePoints": ["ponto 1", "ponto 2"] }`; const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleClientDocuments(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'GET') { const { userId } = req.query; const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId); const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId); res.status(200).json({ contracts: contracts || [], uploads: uploads || [] }); } else if (req.method === 'POST') { const { userId, title, type, fileBase64 } = req.body; const { data, error } = await supabase.from('client_documents').insert({ user_id: userId, title, document_type: type, file_url: fileBase64 }).select(); if (error) throw error; res.status(201).json(data[0]); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleManageInternalNotes(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, notes } = req.body; const { error } = await supabase.from('profiles').update({ internal_notes: notes }).eq('id', userId); if (error) throw error; res.status(200).json({ message: "Notas atualizadas." }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
+async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { data, error } = await supabase.from('limit_requests').select('*, profiles(*)').order('created_at', { ascending: false }); if (error) throw error; res.status(200).json(data); } catch (e: any) { console.error("Error fetching limit requests:", e); res.status(500).json({ error: e.message }); } }
 
 // --- Helper para gerar contrato robusto ---
 function generateRobustContractText(profile: any, productName: string, totalAmount: number, installments: number, downPayment: number, installmentValue: number, dueDay: number) {
@@ -480,25 +600,22 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const today = new Date(); 
         const purchaseTimestamp = new Date().toISOString(); 
         
-        // --- CORREÇÃO DE LÓGICA DE STATUS ---
         const isSigned = !!signature;
         const initialStatus = saleType === 'crediario' && !isSigned ? 'Aguardando Assinatura' : 'Em aberto'; 
-        const contractStatus = saleType === 'crediario' ? (isSigned ? 'Assinado' : 'pending_signature') : 'Ativo'; // Venda direta não gera pendência
+        const contractStatus = saleType === 'crediario' ? (isSigned ? 'Assinado' : 'pending_signature') : 'Ativo'; 
         
         const selectedDay = dueDay || 10; 
         let currentMonth = today.getMonth() + 1; 
         let currentYear = today.getFullYear(); 
         
-        // --- GERAÇÃO DA FATURA DE ENTRADA ---
-        // Se houver entrada, cria uma fatura separada com vencimento IMEDIATO (hoje)
         const entryValue = Number(downPayment);
         if (saleType === 'crediario' && entryValue > 0) {
             newInvoices.push({
                 user_id: userId,
                 month: `Entrada - ${productName}`,
-                due_date: today.toISOString().split('T')[0], // Vence HOJE
+                due_date: today.toISOString().split('T')[0], 
                 amount: entryValue,
-                status: 'Em aberto', // Fatura gerada para pagamento imediato
+                status: 'Em aberto', 
                 notes: `ENTRADA: ${productName}. Pagamento obrigatório em 12h. Cancelamento automático caso não pago.`,
                 created_at: purchaseTimestamp,
                 payment_method: paymentMethod || null
@@ -538,7 +655,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         if (saleType === 'crediario') { 
             await supabase.from('profiles').update({ preferred_due_day: selectedDay }).eq('id', userId); 
             
-            // Gera o texto robusto do contrato
             const contractItems = generateRobustContractText(profile, productName, totalAmount, installments, Number(downPayment||0) + Number(tradeInValue||0), installmentAmount, selectedDay);
 
             const { error: contractError } = await supabase.from('contracts').insert({ 
@@ -549,7 +665,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 installments: installments, 
                 status: contractStatus, 
                 signature_data: signature || null, 
-                terms_accepted: isSigned, // Se assinou, aceitou
+                terms_accepted: isSigned, 
                 created_at: purchaseTimestamp 
             }); 
             
@@ -583,7 +699,6 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
         const installmentVal = totalAmount / installments;
         const creationTime = new Date().toISOString(); 
         
-        // Gera contrato robusto de confissão de dívida
         const contractItems = generateRobustContractText(profile, "RENEGOCIAÇÃO DE DÍVIDA", totalAmount, installments, 0, installmentVal, dueDay);
         
         const { error: contractError } = await supabase.from('contracts').insert({ 
@@ -671,6 +786,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/due-date-requests': return await handleDueDateRequests(req, res);
                 case '/api/admin/client-documents': return await handleClientDocuments(req, res);
                 case '/api/admin/limit-requests': return await handleGetLimitRequests(req, res);
+                case '/api/admin/get-referral-data': return await handleGetReferralData(req, res);
                 default: return res.status(404).json({ error: 'Admin GET route not found' });
             }
         }
@@ -703,6 +819,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/banners': return await handleBanners(req, res);
                 case '/api/admin/support-tickets': return await handleSupportTickets(req, res);
                 case '/api/admin/support-messages': return await handleSupportMessages(req, res);
+                case '/api/admin/validate-referral': return await handleValidateReferral(req, res);
+                case '/api/admin/process-referral': return await handleProcessReferral(req, res);
                 default: return res.status(404).json({ error: 'Admin POST route not found' });
             }
         }

@@ -10,7 +10,8 @@ import { useToast } from './Toast';
 import ReceiptDetails from './ReceiptDetails';
 import Modal from './Modal';
 import jsPDF from 'jspdf';
-import SignaturePad from './SignaturePad'; // Importe o SignaturePad
+import SignaturePad from './SignaturePad'; 
+import Confetti from './Confetti';
 
 interface PagePerfilProps {
     session: Session;
@@ -79,7 +80,7 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
 
 // --- Views Implementadas ---
 
-// --- ContractsView Atualizada ---
+// --- ContractsView ---
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
@@ -261,6 +262,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
                         ))}
                     </div>
                 )}
+
             </div>
 
             {/* Modal de Assinatura */}
@@ -848,32 +850,175 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
     );
 };
 
-const ReferralView: React.FC<{ profile: Profile }> = ({ profile }) => {
-    const code = `RELP-${profile.first_name?.substring(0, 3).toUpperCase()}${Math.floor(Math.random() * 1000)}`;
+// --- REFERRAL HUB PREMIUM ---
+const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [showConfetti, setShowConfetti] = useState(false);
     const { addToast } = useToast();
 
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch(`/api/admin/get-referral-data?userId=${userId}`, { method: 'POST' });
+                if (res.ok) {
+                    const result = await res.json();
+                    setData(result);
+                    if (result.totalEarnings > 0 && Math.random() > 0.7) setShowConfetti(true);
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [userId]);
+
     const handleCopy = () => {
-        navigator.clipboard.writeText(code);
-        addToast('Código copiado!', 'success');
+        if (data?.referralCode) {
+            navigator.clipboard.writeText(data.referralCode);
+            addToast('Código copiado! Compartilhe com amigos.', 'success');
+            if (navigator.vibrate) navigator.vibrate([50]);
+        }
     };
 
-    return (
-        <div className="animate-fade-in text-center space-y-6 pt-4">
-            <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/40 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-slow">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
-            </div>
-            
-            <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Convide e Ganhe</h3>
-            <p className="text-slate-600 dark:text-slate-300 px-4">
-                Indique amigos para a Relp Cell. Eles ganham <span className="font-bold text-indigo-600">R$ 20</span> na primeira compra e você ganha <span className="font-bold text-green-600">1% de cashback</span> vitalício nas compras deles!
-            </p>
+    const handleShare = async () => {
+        if (navigator.share && data) {
+            try {
+                await navigator.share({
+                    title: 'Ganhe R$ 20 na Relp Cell!',
+                    text: `Use meu código ${data.referralCode} e ganhe R$ 20 de desconto na primeira compra!`,
+                    url: data.referralLink
+                });
+            } catch (err) {}
+        } else {
+            handleCopy();
+        }
+    };
 
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-dashed border-indigo-300 dark:border-indigo-700 mx-4 relative overflow-hidden">
-                <p className="text-xs text-slate-500 uppercase tracking-widest mb-2">Seu Código Exclusivo</p>
-                <p className="text-3xl font-black text-indigo-600 dark:text-white tracking-wider font-mono">{code}</p>
-                <button onClick={handleCopy} className="absolute top-2 right-2 p-2 text-slate-400 hover:text-indigo-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+    if (loading) return <div className="flex justify-center p-10"><LoadingSpinner /></div>;
+
+    // Níveis de Embaixador
+    const totalInvites = data?.referrals?.length || 0;
+    const level = totalInvites < 5 ? 'Bronze' : totalInvites < 15 ? 'Prata' : totalInvites < 30 ? 'Ouro' : 'Diamante';
+    const nextLevel = totalInvites < 5 ? 5 : totalInvites < 15 ? 15 : totalInvites < 30 ? 30 : 100;
+    const progress = Math.min(100, (totalInvites / nextLevel) * 100);
+    const levelColor = level === 'Bronze' ? 'from-orange-700 to-amber-600' : level === 'Prata' ? 'from-slate-400 to-zinc-500' : level === 'Ouro' ? 'from-yellow-400 to-yellow-600' : 'from-cyan-400 to-blue-600';
+
+    return (
+        <div className="animate-fade-in pb-6">
+            {showConfetti && <Confetti />}
+            
+            {/* Hero Card: Golden Ticket Style */}
+            <div className={`relative overflow-hidden rounded-3xl p-6 text-white shadow-2xl bg-gradient-to-br ${levelColor} mb-6 mx-2 transform transition-transform hover:scale-[1.01]`}>
+                {/* Holographic overlay effect */}
+                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none"></div>
+                <div className="absolute top-0 right-0 w-48 h-48 bg-white/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+                
+                <div className="relative z-10 text-center">
+                    <div className="inline-block px-3 py-1 rounded-full bg-black/30 backdrop-blur-sm text-[10px] font-bold uppercase tracking-widest mb-2 border border-white/20">
+                        Embaixador {level}
+                    </div>
+                    
+                    <p className="text-xs text-white/80 font-medium uppercase tracking-wide mb-1">Saldo de Indicações</p>
+                    <h2 className="text-4xl font-black tracking-tighter drop-shadow-md">
+                        R$ {data.totalEarnings.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                    </h2>
+                    
+                    {data.pendingEarnings > 0 && (
+                        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-lg border border-white/10 backdrop-blur-md">
+                            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                            <span className="text-xs font-medium text-white/90">R$ {data.pendingEarnings.toLocaleString('pt-BR', {minimumFractionDigits: 2})} pendentes</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Code Section */}
+                <div className="mt-6 bg-black/20 backdrop-blur-lg rounded-xl p-4 border border-white/10 flex items-center justify-between relative overflow-hidden group" onClick={handleCopy}>
+                    <div className="flex flex-col text-left">
+                        <span className="text-[9px] uppercase text-white/60 font-bold">Seu Código Único</span>
+                        <span className="font-mono text-xl font-bold tracking-widest text-white group-active:scale-95 transition-transform">{data.referralCode}</span>
+                    </div>
+                    <button className="p-2 bg-white text-slate-900 rounded-lg shadow-lg hover:bg-slate-100 active:scale-90 transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            {/* Level Progress */}
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 mx-2 mb-6">
+                <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                    <span>Progresso Nível {level}</span>
+                    <span>{totalInvites} / {nextLevel} convites</span>
+                </div>
+                <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-1000 bg-gradient-to-r ${levelColor}`} style={{width: `${progress}%`}}></div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2 text-center">
+                    Convide mais {nextLevel - totalInvites} amigos para subir de nível e desbloquear bônus extras!
+                </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 px-2 mb-6">
+                <button 
+                    onClick={handleShare}
+                    className="py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg shadow-green-500/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                    WhatsApp
                 </button>
+                <button 
+                    onClick={handleCopy}
+                    className="py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-all active:scale-95"
+                >
+                    Copiar Link
+                </button>
+            </div>
+
+            {/* Referrals List */}
+            <div className="px-2">
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 pl-2">Histórico de Amigos</h3>
+                
+                {data.referrals.length === 0 ? (
+                    <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+                        <div className="text-4xl mb-2">😢</div>
+                        <p className="text-slate-500 font-medium">Nenhuma indicação ainda.</p>
+                        <p className="text-xs text-slate-400">Compartilhe seu código para começar a ganhar!</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {data.referrals.map((ref: any) => (
+                            <div key={ref.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex items-center justify-between shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
+                                        ref.status === 'paid' || ref.status === 'purchased' ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
+                                    }`}>
+                                        {ref.profiles?.first_name?.[0]}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-900 dark:text-white">{ref.profiles?.first_name}</p>
+                                        <p className="text-[10px] text-slate-500">{new Date(ref.created_at).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${
+                                        ref.status === 'paid' ? 'bg-green-100 text-green-700' : 
+                                        ref.status === 'purchased' ? 'bg-blue-100 text-blue-700' : 
+                                        'bg-yellow-100 text-yellow-700'
+                                    }`}>
+                                        {ref.status === 'registered' ? 'Cadastrou' : ref.status === 'purchased' ? 'Comprou' : 'Pago'}
+                                    </span>
+                                    {ref.status !== 'registered' && (
+                                        <p className="text-[10px] font-bold text-green-600 mt-1">+ R$ {ref.reward_amount}</p>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -1354,129 +1499,101 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     <div className="grid grid-cols-3 gap-3 mb-6">
                         <StatBadge label="Score" value={profile?.credit_score || 0} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} />
                         <StatBadge label="Pedidos" value="0" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} />
-                        <StatBadge label="Cashback" value="R$ 0" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} />
+                        <StatBadge label="Docs" value="0" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} />
                     </div>
 
-                    {/* Menu Principal */}
-                    <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white mb-3 px-1">Minha Conta</h3>
-                        
-                        <MenuItem 
-                            label="Meus Pedidos" 
-                            description="Acompanhe suas compras"
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>}
-                            onClick={() => setActiveView('orders')}
-                            colorClass="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
-                        />
-                        
-                        <MenuItem 
-                            label="Carteira & Cashback" 
-                            description="Seu saldo e cartões"
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>}
-                            onClick={() => setActiveView('wallet')}
-                            colorClass="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-                        />
-
-                        <MenuItem 
-                            label="Meus Endereços" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                            onClick={() => setActiveView('addresses')}
-                            colorClass="bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
-                        />
-
-                        <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Meus Documentos</h3>
-
-                        <MenuItem 
-                            label="Comprovantes" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-                            onClick={() => setActiveView('receipts')}
-                            colorClass="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
-                        />
-
-                        <MenuItem 
-                            label="Contratos" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
-                            onClick={() => setActiveView('contracts')}
-                            colorClass="bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400"
-                        />
-
-                        <MenuItem 
-                            label="Notas Fiscais" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
-                            onClick={() => setActiveView('fiscal_notes')}
-                            colorClass="bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
-                        />
-
-                        <h3 className="font-bold text-slate-900 dark:text-white mb-3 mt-6 px-1">Preferências & Suporte</h3>
-
+                    <div className="space-y-3">
+                        <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-wide mb-2">Minha Conta</h3>
                         <MenuItem 
                             label="Meus Dados" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
-                            onClick={() => setActiveView('data')}
-                            colorClass="bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400"
+                            description="Nome, CPF, Telefone"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
+                            onClick={() => setActiveView('data')} 
                         />
-                        
                         <MenuItem 
-                            label="Configurações" 
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                            onClick={() => setActiveView('settings')}
-                            colorClass="bg-gray-100 text-gray-600 dark:bg-gray-900/30 dark:text-gray-400"
+                            label="Endereços" 
+                            description="Gerenciar entrega"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            onClick={() => setActiveView('addresses')} 
+                        />
+                        <MenuItem 
+                            label="Meus Pedidos" 
+                            description="Histórico de compras"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>}
+                            onClick={() => setActiveView('orders')} 
+                        />
+                        <MenuItem 
+                            label="Contratos" 
+                            description="Termos assinados"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+                            onClick={() => setActiveView('contracts')} 
+                        />
+                        <MenuItem 
+                            label="Notas Fiscais" 
+                            description="2ª via de NFe"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
+                            onClick={() => setActiveView('fiscal_notes')} 
                         />
 
+                        <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-wide mb-2 mt-6">Serviços</h3>
+                        <MenuItem 
+                            label="Carteira Digital" 
+                            description="Chaves Pix"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>}
+                            onClick={() => setActiveView('wallet')} 
+                            colorClass="bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+                        />
                         <MenuItem 
                             label="Indique e Ganhe" 
-                            description="Ganhe R$ 20 por amigo"
-                            icon={<svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>}
-                            onClick={() => setActiveView('referral')}
-                            colorClass="bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400"
+                            description="Ganhe descontos"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>}
+                            onClick={() => setActiveView('referral')} 
+                            colorClass="bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400"
                         />
-
-                         <MenuItem 
-                            label="Central de Atendimento" 
-                            description="Fale com nossa equipe"
-                            icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
-                            onClick={() => setActiveView('help')}
-                            colorClass="bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400"
+                        <MenuItem 
+                            label="Central de Ajuda" 
+                            description="Chamados e Suporte"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
+                            onClick={() => setActiveView('help')} 
+                            colorClass="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
+                        />
+                        <MenuItem 
+                            label="Configurações" 
+                            description="App e Segurança"
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            onClick={() => setActiveView('settings')} 
+                            colorClass="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
                         />
                     </div>
 
-                    <button onClick={handleLogout} className="w-full py-4 mt-6 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/10 rounded-xl transition-colors text-sm">
+                    <button 
+                        onClick={handleLogout}
+                        className="w-full mt-8 py-3 flex items-center justify-center gap-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors font-bold text-sm"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                         Sair da Conta
                     </button>
                 </div>
             ) : (
-                <div className="space-y-4 animate-fade-in">
-                    <button onClick={() => setActiveView('main')} className="flex items-center text-slate-500 hover:text-indigo-600 font-medium mb-4 transition-colors p-2 -ml-2">
-                        <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg> 
-                        Voltar
+                <div className="animate-fade-in-right">
+                    <button 
+                        onClick={() => setActiveView('main')} 
+                        className="mb-4 flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        <span className="font-bold text-sm">Voltar para Perfil</span>
                     </button>
-                    
-                    {/* Header da Sub-view */}
-                    <div className="mb-6">
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {activeView === 'data' && 'Meus Dados'}
-                            {activeView === 'orders' && 'Meus Pedidos'}
-                            {activeView === 'wallet' && 'Carteira'}
-                            {activeView === 'addresses' && 'Endereços'}
-                            {activeView === 'contracts' && 'Meus Contratos'}
-                            {activeView === 'fiscal_notes' && 'Notas Fiscais'}
-                            {activeView === 'receipts' && 'Comprovantes'}
-                            {activeView === 'settings' && 'Configurações'}
-                            {activeView === 'referral' && 'Indique e Ganhe'}
-                            {activeView === 'help' && 'Central de Atendimento'}
-                        </h2>
-                    </div>
 
+                    {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={setProfile} />}
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
                     {activeView === 'addresses' && profile && <AddressView profile={profile} onUpdate={setProfile} />}
+                    {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} userId={session.user.id} />}
+                    {activeView === 'referral' && <ReferralView userId={session.user.id} />}
+                    {activeView === 'help' && <HelpView userId={session.user.id} />}
                     {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
                     {activeView === 'fiscal_notes' && <FiscalNotesView userId={session.user.id} />}
                     {activeView === 'receipts' && profile && <PaymentReceiptsView userId={session.user.id} profile={profile} />}
-                    {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(updated) => setProfile(updated)} />}
-                    {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} userId={session.user.id} />}
-                    {activeView === 'referral' && profile && <ReferralView profile={profile} />}
-                    {activeView === 'help' && <HelpView userId={session.user.id} />}
                 </div>
             )}
         </div>

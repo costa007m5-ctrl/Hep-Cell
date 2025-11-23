@@ -291,14 +291,33 @@ const DeveloperTab: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
     
-    // SQL Completo com Políticas RLS e Correção de Parsing
+    // SQL Completo com Policies e Tabela de Indicação
     const SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
--- Tabela de Perfis
-CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email") ); 
+-- Tabela de Perfis (Com código de indicação)
+CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "referral_code" "text";
+
+-- Tabela de Indicações
+CREATE TABLE IF NOT EXISTS "public"."referrals" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "referrer_id" "uuid" NOT NULL,
+    "referee_id" "uuid" NOT NULL,
+    "status" "text" DEFAULT 'registered', -- registered, purchased, paid
+    "reward_amount" numeric(10, 2) DEFAULT 0,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "referrals_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "referrals_referrer_fkey" FOREIGN KEY ("referrer_id") REFERENCES "public"."profiles"("id"),
+    CONSTRAINT "referrals_referee_fkey" FOREIGN KEY ("referee_id") REFERENCES "public"."profiles"("id")
+);
+ALTER TABLE "public"."referrals" ENABLE ROW LEVEL SECURITY;
+
+-- Policies para Indicações
+DROP POLICY IF EXISTS "Users view own referrals" ON "public"."referrals";
+CREATE POLICY "Users view own referrals" ON "public"."referrals" FOR SELECT USING (auth.uid() = referrer_id); 
 
 -- Tabela de Documentos
 CREATE TABLE IF NOT EXISTS "public"."client_documents" ( "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(), "user_id" "uuid" NOT NULL, "title" "text", "document_type" "text", "file_url" "text", "created_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "client_documents_pkey" PRIMARY KEY ("id"), CONSTRAINT "client_documents_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE ); 
@@ -318,7 +337,7 @@ DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_reque
 CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
 CREATE POLICY "Users create own limit requests" ON "public"."limit_requests" FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Tabela de Contratos (Essencial para Assinatura)
+-- Tabela de Contratos
 CREATE TABLE IF NOT EXISTS "public"."contracts" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "user_id" "uuid" NOT NULL,
@@ -340,7 +359,6 @@ DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
 DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
 
 CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
--- Esta policy corrige o erro ao assinar contrato
 CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
     `.trim();
 
@@ -394,7 +412,7 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
                     
                     <CodeBlock
                         title="Estrutura das Tabelas"
-                        explanation="Este script inclui as tabelas de Contratos e Limit Requests com as Policies corretas."
+                        explanation="Inclui tabelas de Contratos, Indicações e Limit Requests com as Policies corretas."
                         code={SETUP_SQL}
                     />
                 </div>

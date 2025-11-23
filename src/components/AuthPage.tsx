@@ -56,6 +56,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
     city: '',
     state: ''
   });
+  
+  // Referral Logic
+  const [referralCode, setReferralCode] = useState('');
+  const [referrerName, setReferrerName] = useState<string | null>(null);
+  const [isValidatingReferral, setIsValidatingReferral] = useState(false);
+  const [referralError, setReferralError] = useState<string | null>(null);
+
   const [loadingCep, setLoadingCep] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   
@@ -71,6 +78,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
           PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
               .then(available => setSupportsBiometrics(available))
               .catch(e => console.error(e));
+      }
+      
+      // Check for referral code in URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const refCode = urlParams.get('ref');
+      if (refCode) {
+          setMode('register');
+          setReferralCode(refCode);
+          validateReferralCode(refCode);
       }
   }, []);
 
@@ -173,37 +189,26 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
   const handleBiometricLogin = async () => {
       setMessage({ text: "Iniciando autenticação biométrica...", type: 'success' });
       
-      // Implementação real do WebAuthn
       if (!window.PublicKeyCredential) {
           setMessage({ text: "Biometria não suportada neste dispositivo.", type: 'error' });
           return;
       }
 
       try {
-          // Gera um desafio aleatório (em produção, viria do backend)
           const challenge = new Uint8Array(32);
           window.crypto.getRandomValues(challenge);
 
           const credential = await navigator.credentials.get({
               publicKey: {
                   challenge: challenge,
-                  // allowCredentials: [], // Se tivéssemos o ID salvo, colocaríamos aqui
                   userVerification: "required",
                   timeout: 60000
               }
           });
 
           if (credential) {
-              // Em um app real, enviaríamos a credencial para o backend verificar.
-              // Como estamos no frontend e sem backend de Passkeys configurado no Supabase neste momento,
-              // simulamos o sucesso visual se o dispositivo aprovou a biometria.
               setMessage({ text: "Biometria reconhecida! Redirecionando...", type: 'success' });
-              
-              // Aqui, idealmente, faríamos o login. Como fallback para demonstração de "funcionar de verdade" a UX:
-              // Se o usuário já tiver logado antes e salvo um token local, poderíamos usar.
-              // Mas sem backend, só podemos mostrar que a biometria foi aceita pelo hardware.
               setTimeout(() => {
-                   // Fallback: Pede a senha se não tiver token
                    setMessage({ text: "Biometria validada pelo dispositivo. Por favor, confirme sua senha para o primeiro acesso seguro.", type: 'success' });
               }, 1500);
           }
@@ -237,6 +242,40 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
           console.error("Erro ao verificar usuário existente", err);
       }
   };
+  
+  // Valida código de indicação
+  const validateReferralCode = async (code: string) => {
+      if (!code || code.length < 5) {
+          setReferrerName(null);
+          setReferralError(null);
+          return;
+      }
+      
+      setIsValidatingReferral(true);
+      setReferralError(null);
+      
+      try {
+          const response = await fetch('/api/admin/validate-referral', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok && data.valid) {
+              setReferrerName(data.name);
+          } else {
+              setReferrerName(null);
+              setReferralError("Código inválido ou não encontrado.");
+          }
+      } catch (e) {
+          console.error("Error validating referral", e);
+          setReferrerName(null);
+      } finally {
+          setIsValidatingReferral(false);
+      }
+  };
 
   const handleAuth = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -249,14 +288,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
 
         // Se NÃO for email, assumimos que é CPF ou Telefone
         if (!isEmail(loginEmail)) {
-            // Tenta buscar o email associado a esse CPF/Telefone via RPC
             const { data: resolvedEmail, error: rpcError } = await supabase
                 .rpc('get_email_by_identifier', { identifier_input: loginEmail }); 
             
             if (resolvedEmail) {
                 loginEmail = resolvedEmail;
             } else {
-                // Se falhar, tenta limpar a formatação e tentar de novo (redundância)
                 const cleanIdentifier = loginEmail.replace(/\D/g, '');
                 if (cleanIdentifier.length > 5) {
                      const { data: resolvedEmailClean } = await supabase
@@ -281,6 +318,11 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         if (!termsAccepted) {
             throw new Error("Você precisa ler e aceitar os Termos de Uso e Política de Privacidade para criar uma conta.");
         }
+        
+        // Se um código foi digitado mas deu erro, impede o cadastro
+        if (referralCode && !referrerName && referralCode.length > 3) {
+            throw new Error("Código de indicação inválido. Corrija ou deixe em branco.");
+        }
 
         // Verificação final de Duplicidade
         const { data: existingEmailByCpf } = await supabase.rpc('get_email_by_identifier', { identifier_input: cpf });
@@ -295,7 +337,6 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
         const lastName = fullName.split(' ').slice(1).join(' ');
 
         // 2. Criar usuário no Auth enviando TODOS os dados no 'options.data'
-        // Isso permite que o Trigger do banco capture e salve no perfil automaticamente
         const { data, error } = await supabase.auth.signUp({ 
             email, 
             password,
@@ -303,25 +344,41 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
                 data: {
                     first_name: firstName,
                     last_name: lastName,
-                    cpf: cpf.replace(/\D/g, ''), // Salva limpo para consistência
-                    phone: phone.replace(/\D/g, ''), // Salva limpo
+                    cpf: cpf.replace(/\D/g, ''), 
+                    phone: phone.replace(/\D/g, ''), 
                     zip_code: cep.replace(/\D/g, ''),
                     street_name: address.street,
                     street_number: address.number,
                     neighborhood: address.neighborhood,
                     city: address.city,
-                    federal_unit: address.state
+                    federal_unit: address.state,
+                    referred_by_code: referralCode || null // Envia o código para o trigger ou processamento posterior
                 }
             }
         });
 
         if (error) throw error;
+        
+        // Processa a indicação se houver código válido
+        if (data.user && referralCode && referrerName) {
+            try {
+                await fetch('/api/admin/process-referral', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        newUserId: data.user.id, 
+                        referralCode: referralCode 
+                    })
+                });
+            } catch (e) {
+                console.error("Falha ao processar indicação (silencioso)", e);
+            }
+        }
 
         if (data.user && !data.session) {
              setMessage({ text: 'Cadastro realizado! Verifique seu e-mail para confirmar.', type: 'success' });
              setMode('login');
         } else if (data.user && data.session) {
-             // Login automático ocorreu
              setMessage({ text: 'Cadastro realizado com sucesso!', type: 'success' });
         }
 
@@ -501,6 +558,52 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
             {/* === REGISTRO === */}
             {mode === 'register' && (
                 <div className="space-y-4 pt-2 animate-fade-in">
+                    
+                    {/* Referral Code Section - New UI */}
+                    <div>
+                        <label className={labelStyle}>Código de Indicação</label>
+                        <div className="relative group">
+                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-indigo-500 group-focus-within:text-indigo-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
+                            </span>
+                            <input
+                                type="text"
+                                value={referralCode}
+                                onChange={(e) => {
+                                    setReferralCode(e.target.value.toUpperCase());
+                                    validateReferralCode(e.target.value.toUpperCase());
+                                }}
+                                className={`${glassInput} border-indigo-500/30 focus:border-indigo-500`}
+                                placeholder="Ex: RELP-JOA-1234"
+                                autoComplete="off"
+                            />
+                            {isValidatingReferral && (
+                                <div className="absolute right-3 top-3.5">
+                                    <LoadingSpinner />
+                                </div>
+                            )}
+                        </div>
+                        
+                        {referrerName && (
+                            <div className="mt-2 p-3 bg-indigo-600/10 border border-indigo-600/20 rounded-xl flex items-center gap-3 animate-fade-in">
+                                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold shadow-md">
+                                    {referrerName[0]}
+                                </div>
+                                <div>
+                                    <p className="text-xs text-indigo-600 dark:text-indigo-300 font-bold">Você está sendo indicado por:</p>
+                                    <p className="text-sm font-bold text-slate-800 dark:text-white">{referrerName}</p>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500 ml-auto" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                            </div>
+                        )}
+                        
+                        {referralError && (
+                            <p className="text-xs text-red-500 mt-1 ml-1 font-bold animate-fade-in">{referralError}</p>
+                        )}
+                    </div>
+
+                    <div className="h-px bg-slate-200 dark:bg-slate-700/50 w-full my-4"></div>
+
                     <div className="space-y-4">
                         <div>
                             <label className={labelStyle}>Email de Acesso</label>
