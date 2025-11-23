@@ -23,14 +23,14 @@ const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }>
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div>
-                <h3 className="font-bold text-yellow-800 dark:text-yellow-100">Contrato Pendente</h3>
+                <h3 className="font-bold text-yellow-800 dark:text-yellow-100">{contract.title || 'Contrato Pendente'}</h3>
                 <p className="text-xs text-yellow-700 dark:text-yellow-200 mt-1">
-                    Você tem uma compra de <strong>{contract.items}</strong> aguardando assinatura. Assine em até 24h para evitar o cancelamento.
+                    Ação necessária: Leia e assine digitalmente para liberar sua compra ou negociação.
                 </p>
             </div>
         </div>
         <button onClick={onSign} className="w-full py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-lg text-sm shadow-md transition-colors">
-            Assinar Agora
+            Ler e Assinar
         </button>
     </div>
 );
@@ -349,7 +349,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             />
              <ActionButton 
                 label="Hub de Score" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
                 onClick={() => { setModalView('score'); setIsModalOpen(true); }}
             />
         </div>
@@ -431,17 +431,19 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           <Modal isOpen={true} onClose={() => setIsModalOpen(false)}>
               <div className="space-y-4">
                   <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura Digital</h3>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-40 overflow-y-auto">
-                      <p>Eu, {profileData?.first_name} {profileData?.last_name}, CPF {profileData?.identification_number}, reconheço a dívida referente a compra de {pendingContract.items} no valor total de {pendingContract.total_value?.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}, parcelado em {pendingContract.installments}x.</p>
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap">
+                      {pendingContract.items ? pendingContract.items : 
+                        <p>Eu, {profileData?.first_name} {profileData?.last_name}, CPF {profileData?.identification_number}, reconheço a dívida referente a compra de {pendingContract.title} no valor total de {pendingContract.total_value?.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}, parcelado em {pendingContract.installments}x.</p>
+                      }
                   </div>
-                  <label className="block text-sm font-medium mb-2">Assine abaixo:</label>
+                  <label className="block text-sm font-medium mb-2">Assine abaixo para confirmar:</label>
                   <SignaturePad onEnd={setSignature} />
                   <button 
                     onClick={handleSignContract} 
                     disabled={!signature || isSigning}
-                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50"
+                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex justify-center"
                   >
-                      {isSigning ? <LoadingSpinner /> : 'Confirmar e Liberar Compra'}
+                      {isSigning ? <LoadingSpinner /> : 'Confirmar e Aceitar Termos'}
                   </button>
               </div>
           </Modal>

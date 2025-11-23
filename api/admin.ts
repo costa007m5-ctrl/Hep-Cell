@@ -107,24 +107,61 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { invoiceId, action } = req.body; // action: 'pay', 'cancel', 'delete'
+        const { invoiceId, invoiceIds, action } = req.body; // action: 'pay', 'cancel', 'delete'
         
-        if (!invoiceId || !action) return res.status(400).json({ error: "ID da fatura e ação são obrigatórios." });
+        // Normaliza para array para suportar bulk action ou single action
+        let ids: string[] = [];
+        if (invoiceIds && Array.isArray(invoiceIds)) {
+            ids = invoiceIds;
+        } else if (invoiceId) {
+            ids = [invoiceId];
+        }
+
+        if (ids.length === 0 || !action) return res.status(400).json({ error: "IDs da fatura e ação são obrigatórios." });
 
         if (action === 'pay') {
-            await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
-            await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `Fatura ${invoiceId} marcada como paga manualmente.`);
+            await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).in('id', ids);
+            await logAction(supabase, 'MANUAL_PAYMENT', 'SUCCESS', `${ids.length} fatura(s) marcada(s) como paga(s) manualmente.`);
         } else if (action === 'cancel') {
-            await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).eq('id', invoiceId);
-            await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `Fatura ${invoiceId} cancelada manualmente.`);
+            await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Cancelado manualmente pelo admin.' }).in('id', ids);
+            await logAction(supabase, 'MANUAL_CANCEL', 'SUCCESS', `${ids.length} fatura(s) cancelada(s) manualmente.`);
         } else if (action === 'delete') {
-            await supabase.from('invoices').delete().eq('id', invoiceId);
-            await logAction(supabase, 'MANUAL_DELETE', 'SUCCESS', `Fatura ${invoiceId} excluída permanentemente.`);
+            await supabase.from('invoices').delete().in('id', ids);
+            await logAction(supabase, 'MANUAL_DELETE', 'SUCCESS', `${ids.length} fatura(s) excluída(s) permanentemente.`);
         } else {
             return res.status(400).json({ error: "Ação inválida." });
         }
 
         return res.status(200).json({ message: "Ação realizada com sucesso." });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleUpdateLimit(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { userId, creditLimit, creditScore } = req.body;
+        
+        if (!userId) return res.status(400).json({ error: "User ID obrigatório." });
+
+        const updates: any = {};
+        if (creditLimit !== undefined) updates.credit_limit = creditLimit;
+        if (creditScore !== undefined) updates.credit_score = creditScore;
+
+        const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+        if (error) throw error;
+
+        // Log history
+        await supabase.from('score_history').insert({
+            user_id: userId,
+            change: 0,
+            new_score: creditScore || 0,
+            reason: 'Ajuste manual pelo administrador'
+        });
+
+        await logAction(supabase, 'MANUAL_LIMIT_UPDATE', 'SUCCESS', `Limite/Score atualizado manualmente para user ${userId}.`);
+        return res.status(200).json({ message: "Perfil atualizado com sucesso." });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -138,23 +175,34 @@ async function handleRiskDetails(req: VercelRequest, res: VercelResponse) {
     try {
         const { userId } = req.body;
         
-        // Coleta dados
+        // Coleta dados atualizados (uso em tempo real)
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
         const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId);
         const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10);
 
+        // Cálculo de métricas básicas para alimentar a IA
+        const totalDebt = invoices?.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').reduce((acc, i) => acc + i.amount, 0) || 0;
+        const paidInvoices = invoices?.filter(i => i.status === 'Paga').length || 0;
+        const lateInvoices = invoices?.filter(i => (i.status === 'Em aberto' || i.status === 'Boleto Gerado') && new Date(i.due_date) < new Date()).length || 0;
+
         const prompt = `
             Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares.
-            Perfil: ${JSON.stringify(profile)}
-            Faturas: ${JSON.stringify(invoices)}
-            Histórico Score: ${JSON.stringify(history)}
+            
+            Dados em Tempo Real:
+            - Dívida Total Atual: R$ ${totalDebt}
+            - Faturas Pagas: ${paidInvoices}
+            - Faturas em Atraso: ${lateInvoices}
+            - Limite Atual: R$ ${profile.credit_limit}
+            - Score Atual: ${profile.credit_score}
+            
+            Histórico Recente: ${JSON.stringify(history)}
             
             Retorne um relatório em formato JSON com:
             {
                 "riskLevel": "Baixo" | "Médio" | "Alto",
-                "reason": "Resumo curto do motivo principal",
-                "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.",
-                "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).",
+                "reason": "Resumo curto do motivo principal (ex: 'Alto endividamento')",
+                "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira baseada nos dados acima.",
+                "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador, Manter como está).",
                 "positivePoints": ["ponto 1", "ponto 2"],
                 "negativePoints": ["ponto 1", "ponto 2"]
             }
@@ -180,9 +228,9 @@ async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
         if (req.method === 'GET') {
             const { userId } = req.query;
             // Busca contratos
-            const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId);
-            // Busca documentos manuais (nova tabela)
-            const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId);
+            const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+            // Busca documentos manuais
+            const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId).order('created_at', { ascending: false });
             
             res.status(200).json({ contracts: contracts || [], uploads: uploads || [] });
         } else if (req.method === 'POST') {
@@ -191,7 +239,7 @@ async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
                 user_id: userId,
                 title,
                 document_type: type,
-                file_url: fileBase64 // Armazenando base64 direto no banco para simplificar neste escopo, idealmente seria Storage
+                file_url: fileBase64
             }).select();
             
             if (error) throw error;
@@ -206,11 +254,6 @@ async function handleManageInternalNotes(req: VercelRequest, res: VercelResponse
     const supabase = getSupabaseAdminClient();
     try {
         const { userId, notes } = req.body;
-        // Como não alteramos a tabela profiles no setup original para ter 'internal_notes',
-        // vamos salvar isso em uma tabela separada ou JSONB se possível, mas aqui vou assumir que vamos criar a coluna no setup
-        // ou usar a tabela action_logs para recuperar a última nota.
-        // Para ser mais robusto, vou adicionar a coluna no setup.
-        
         const { error } = await supabase.from('profiles').update({ internal_notes: notes }).eq('id', userId);
         if (error) throw error;
         res.status(200).json({ message: "Notas atualizadas." });
@@ -293,7 +336,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             const { error: contractError } = await supabase.from('contracts').insert({
                 user_id: userId,
                 title: 'Contrato de Crediário (CDCI) - Relp Cell',
-                items: productName,
+                items: `Compra de ${productName}. Valor financiado: R$ ${totalAmount}. ${installments} parcelas de R$ ${installmentAmount}.`,
                 total_value: totalAmount,
                 installments: installments,
                 status: 'pending_signature', 
@@ -343,12 +386,53 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
 
         if (cancelError) throw cancelError;
 
-        // 2. Criar novas faturas do acordo
+        // 2. Buscar dados do perfil para o contrato
+        const { data: profile } = await supabase.from('profiles').select('first_name, last_name, identification_number').eq('id', userId).single();
+        
+        // 3. Gerar Texto do Contrato Jurídico
+        const contractTitle = 'Termo de Confissão e Renegociação de Dívida';
+        const currentDate = new Date().toLocaleDateString('pt-BR');
+        const installmentVal = totalAmount / installments;
+        
+        const contractBody = `
+INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA E RENEGOCIAÇÃO
+
+CREDOR: RELP CELL ELETRONICOS LTDA, CNPJ 43.735.304/0001-00.
+DEVEDOR: ${profile?.first_name} ${profile?.last_name}, CPF ${profile?.identification_number}.
+
+1. DO OBJETO: O DEVEDOR reconhece expressamente a dívida no valor total renegociado de R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, referente a compras anteriores não quitadas.
+
+2. DO PAGAMENTO: O valor total será pago em ${installments} parcelas mensais e sucessivas de R$ ${installmentVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, vencendo a primeira em ${new Date(firstDueDate).toLocaleDateString('pt-BR')}.
+
+3. DOS ENCARGOS: O não pagamento de qualquer parcela na data de seu vencimento acarretará o vencimento antecipado de toda a dívida remanescente, acrescida de multa de 2% e juros de mora de 1% ao mês.
+
+4. DA INADIMPLÊNCIA: O atraso superior a 10 dias autoriza a inclusão do nome do DEVEDOR nos órgãos de proteção ao crédito (SPC/SERASA).
+
+5. DA VALIDADE: Este acordo substitui e cancela os títulos anteriores selecionados na negociação. A assinatura digital deste termo valida legalmente o acordo.
+
+Macapá, ${currentDate}.
+        `;
+
+        const creationTime = new Date().toISOString();
+
+        // 4. Salvar Contrato Pendente
+        const { error: contractError } = await supabase.from('contracts').insert({
+            user_id: userId,
+            title: contractTitle,
+            items: contractBody, // Armazenando o texto completo aqui
+            total_value: totalAmount,
+            installments: installments,
+            status: 'pending_signature', // Cliente precisa assinar
+            created_at: creationTime
+        });
+
+        if (contractError) throw contractError;
+
+        // 5. Criar novas faturas do acordo (Status: Aguardando Assinatura)
         const newInvoices = [];
         let currentMonth = new Date(firstDueDate).getMonth();
         let currentYear = new Date(firstDueDate).getFullYear();
         const dueDay = new Date(firstDueDate).getDate();
-        const installmentVal = totalAmount / installments;
 
         for (let i = 1; i <= installments; i++) {
             const dueDate = new Date(currentYear, currentMonth, dueDay);
@@ -358,9 +442,9 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
                 month: `Acordo de Renegociação (${i}/${installments})`,
                 due_date: dueDate.toISOString().split('T')[0],
                 amount: installmentVal,
-                status: 'Em aberto',
+                status: 'Aguardando Assinatura', // Travado até assinar
                 notes: `Refinanciamento de débitos anteriores. ${notes || ''}`,
-                created_at: new Date().toISOString()
+                created_at: creationTime
             });
 
             currentMonth++;
@@ -373,17 +457,17 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
         const { error: insertError } = await supabase.from('invoices').insert(newInvoices);
         if (insertError) throw insertError;
 
-        // 3. Notificar e Logar
+        // 6. Notificar e Logar
         await supabase.from('notifications').insert({
             user_id: userId,
-            title: 'Acordo Realizado',
-            message: 'Sua renegociação foi concluída com sucesso. Novas faturas geradas.',
-            type: 'success'
+            title: 'Proposta de Acordo Disponível',
+            message: 'Sua renegociação foi gerada. Acesse o app para assinar o termo e regularizar sua situação.',
+            type: 'alert'
         });
 
-        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Negociação realizada para user ${userId}. ${invoiceIds.length} faturas canceladas. Novo total: ${totalAmount}.`);
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Negociação criada para user ${userId}. Contrato pendente gerado.`);
 
-        return res.status(200).json({ message: "Negociação realizada com sucesso." });
+        return res.status(200).json({ message: "Proposta de negociação enviada para o cliente." });
 
     } catch (error: any) {
         await logAction(supabase, 'DEBT_NEGOTIATION', 'FAILURE', 'Erro na negociação.', { error: error.message });
@@ -532,10 +616,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 case '/api/admin/create-and-analyze-customer': return await handleCreateAndAnalyzeCustomer(req, res);
                 case '/api/admin/create-sale': return await handleCreateSale(req, res); 
                 case '/api/admin/negotiate-debt': return await handleNegotiateDebt(req, res); 
-                case '/api/admin/manage-invoice': return await handleManageInvoice(req, res); // Novo
-                case '/api/admin/risk-details': return await handleRiskDetails(req, res); // Novo
-                case '/api/admin/manage-notes': return await handleManageInternalNotes(req, res); // Novo
-                case '/api/admin/upload-document': return await handleClientDocuments(req, res); // Novo
+                case '/api/admin/manage-invoice': return await handleManageInvoice(req, res); // Updated for Bulk
+                case '/api/admin/risk-details': return await handleRiskDetails(req, res); 
+                case '/api/admin/manage-notes': return await handleManageInternalNotes(req, res); 
+                case '/api/admin/upload-document': return await handleClientDocuments(req, res); 
+                case '/api/admin/update-limit': return await handleUpdateLimit(req, res); // Novo
                 case '/api/admin/diagnose-error': return await handleDiagnoseError(req, res);
                 case '/api/admin/settings': return await handleSettings(req, res);
                 case '/api/admin/chat': return await handleSupportChat(req, res);
