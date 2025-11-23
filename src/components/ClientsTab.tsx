@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -229,6 +230,9 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [isEditingLimit, setIsEditingLimit] = useState(false);
     const [tempLimit, setTempLimit] = useState<string>('');
     const [tempScore, setTempScore] = useState<string>('');
+    
+    // Limit Request State
+    const [responseReason, setResponseReason] = useState('');
 
     // Negotiation Form
     const [negotiationData, setNegotiationData] = useState({
@@ -348,6 +352,17 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         setSelectedInvoiceIds(new Set());
         setActiveDrawerTab('geral');
         setIsEditingLimit(false);
+        setResponseReason('');
+        
+        // Reseta campos de solicitação se houver
+        const req = limitRequests.find(r => r.user_id === client.id && r.status === 'pending');
+        if(req) {
+            setTempLimit(String(req.requested_amount));
+            setTempScore('600');
+        } else {
+            setTempLimit(String(client.credit_limit || 0));
+            setTempScore(String(client.credit_score || 0));
+        }
     };
 
     const handleManageInvoice = async (invoiceId: string | string[], action: 'pay' | 'cancel' | 'delete') => {
@@ -429,7 +444,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         } catch(e) { alert('Erro ao atualizar limite'); }
     };
 
-    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject' | 'calculate_auto', manualLimit?: number, responseReason?: string) => {
+    const handleLimitAction = async (requestId: string, action: 'approve_auto' | 'approve_manual' | 'reject' | 'calculate_auto', manualLimit?: number, responseReasonText?: string) => {
         setProcessingRequest(requestId);
         try {
             const res = await fetch('/api/admin/manage-limit-request', {
@@ -440,14 +455,21 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                     action,
                     manualLimit,
                     manualScore: 600,
-                    responseReason
+                    responseReason: responseReasonText
                 })
             });
             
             const data = await res.json();
             if(res.ok) {
                 // Se for apenas cálculo, não recarrega tudo, apenas atualiza campos locais
-                if (action === 'calculate_auto' && data.suggestedLimit) return; // Apenas retorno dados, tratado abaixo no botão
+                if (action === 'calculate_auto' && data.suggestedLimit) {
+                    setTempLimit(String(data.suggestedLimit));
+                    setTempScore(String(data.suggestedScore || 600));
+                    setResponseReason(data.reason || '');
+                    setSuccessMessage("Sugestão calculada pela IA!");
+                    setTimeout(() => setSuccessMessage(null), 2000);
+                    return;
+                }
 
                 setSuccessMessage(data.message);
                 setTimeout(() => setSuccessMessage(null), 3000);
@@ -625,24 +647,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                             <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700 space-y-3">
                                                 <div className="flex gap-2 items-center mb-2">
                                                     <button 
-                                                        onClick={async () => {
-                                                            setProcessingRequest(clientPendingRequest.id);
-                                                            try {
-                                                                const res = await fetch('/api/admin/manage-limit-request', {
-                                                                    method: 'POST',
-                                                                    headers: {'Content-Type': 'application/json'},
-                                                                    body: JSON.stringify({ requestId: clientPendingRequest.id, action: 'calculate_auto' })
-                                                                });
-                                                                const data = await res.json();
-                                                                if(data.suggestedLimit) {
-                                                                    setTempLimit(String(data.suggestedLimit));
-                                                                    setTempScore(String(data.suggestedScore || 600));
-                                                                    setInternalNotes(`Sugestão IA: ${data.reason}`); // Usa o campo de notas temporariamente para feedback visual rápido
-                                                                    alert(`Sugestão IA: R$ ${data.suggestedLimit} (Baseado em renda/histórico)`);
-                                                                }
-                                                            } catch(e) { alert('Erro ao calcular'); }
-                                                            setProcessingRequest(null);
-                                                        }}
+                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'calculate_auto')}
                                                         className="text-xs bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm hover:opacity-90 flex items-center gap-1"
                                                     >
                                                         ✨ Calcular Sugestão Auto
@@ -677,26 +682,21 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                                         className="w-full p-2 border rounded text-sm bg-slate-50 dark:bg-slate-900 resize-none"
                                                         rows={2}
                                                         placeholder="Ex: Aprovado com base no bom histórico de pagamentos."
-                                                        id="responseReason" 
+                                                        value={responseReason}
+                                                        onChange={(e) => setResponseReason(e.target.value)}
                                                     ></textarea>
                                                 </div>
 
                                                 <div className="flex gap-2 pt-2">
                                                     <button 
-                                                        onClick={() => {
-                                                            const reason = (document.getElementById('responseReason') as HTMLTextAreaElement).value;
-                                                            handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(tempLimit || String(clientPendingRequest.requested_amount)), reason);
-                                                        }}
+                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'approve_manual', parseFloat(tempLimit || String(clientPendingRequest.requested_amount)), responseReason)}
                                                         disabled={!!processingRequest}
                                                         className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg shadow-md transition-colors"
                                                     >
                                                         Confirmar Aprovação
                                                     </button>
                                                     <button 
-                                                        onClick={() => {
-                                                            const reason = (document.getElementById('responseReason') as HTMLTextAreaElement).value || 'Critérios internos não atendidos no momento.';
-                                                            handleLimitAction(clientPendingRequest.id, 'reject', undefined, reason);
-                                                        }}
+                                                        onClick={() => handleLimitAction(clientPendingRequest.id, 'reject', undefined, responseReason || 'Critérios internos não atendidos no momento.')}
                                                         disabled={!!processingRequest}
                                                         className="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 font-bold rounded-lg border border-red-200 transition-colors"
                                                     >

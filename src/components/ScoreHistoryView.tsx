@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { ScoreHistory, Invoice, Profile } from '../types';
 import { supabase } from '../services/clients';
@@ -197,7 +196,7 @@ const ScoreHistoryView: React.FC<ScoreHistoryViewProps> = ({ currentScore, onClo
             if (profileRes) setUserProfile({ ...profileRes, id: user.id, email: user.email });
             if (invRes.data) setUserInvoices(invRes.data);
             if (missionsRes.data) {
-                const claimedSet = new Set(missionsRes.data.map(m => m.mission_id));
+                const claimedSet = new Set<string>(missionsRes.data.map((m: any) => m.mission_id as string));
                 setCompletedMissions(claimedSet);
             }
         }

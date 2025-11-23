@@ -46,26 +46,6 @@ const LiquidGauge: React.FC<{ value: number; max: number }> = ({ value, max }) =
     );
 };
 
-const DNAItem: React.FC<{ label: string; value: string; icon: React.ReactNode; status: 'good' | 'neutral' | 'bad' }> = ({ label, value, icon, status }) => {
-    const statusColors = {
-        good: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-        neutral: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-        bad: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    };
-    return (
-        <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-            <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${statusColors[status]}`}>{icon}</div>
-                <div>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wide">{label}</p>
-                    <p className="text-sm font-bold text-slate-800 dark:text-white">{value}</p>
-                </div>
-            </div>
-            <div className={`w-2 h-2 rounded-full ${status === 'good' ? 'bg-green-500' : status === 'neutral' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
-        </div>
-    );
-};
-
 const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = ({ availableLimit, totalLimit }) => {
     const [productValue, setProductValue] = useState<number>(1500);
     const [installments, setInstallments] = useState(10);
@@ -173,7 +153,6 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
     
     const creditLimit = profile.credit_limit || 0;
     const availableLimit = Math.max(0, creditLimit - usedLimit);
-    const percentageAvailable = creditLimit > 0 ? (availableLimit / creditLimit) * 100 : 0;
 
     if (showRequestForm) {
         return (
@@ -228,9 +207,9 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                     </div>
                                 </div>
 
-                                {/* Última Solicitação Status */}
+                                {/* Última Solicitação Status - Feedback para o cliente */}
                                 {lastRequest && lastRequest.status !== 'pending' && (
-                                    <div className={`p-4 rounded-xl border ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'}`}>
+                                    <div className={`p-4 rounded-xl border animate-fade-in-up ${lastRequest.status === 'approved' ? 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200' : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'}`}>
                                         <div className="flex justify-between items-start">
                                             <h4 className="font-bold text-sm flex items-center gap-2">
                                                 {lastRequest.status === 'approved' ? '✅ Solicitação Aprovada' : '❌ Solicitação Recusada'}
@@ -238,9 +217,12 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                             <span className="text-xs opacity-70">{new Date(lastRequest.updated_at || lastRequest.created_at).toLocaleDateString()}</span>
                                         </div>
                                         {lastRequest.admin_response_reason && (
-                                            <p className="mt-2 text-xs leading-relaxed">
-                                                <strong>Motivo:</strong> {lastRequest.admin_response_reason}
-                                            </p>
+                                            <div className="mt-3 pt-3 border-t border-black/10 dark:border-white/10">
+                                                <p className="text-[10px] font-bold uppercase opacity-70 mb-1">Motivo / Resposta</p>
+                                                <p className="text-xs leading-relaxed font-medium">
+                                                    {lastRequest.admin_response_reason}
+                                                </p>
+                                            </div>
                                         )}
                                     </div>
                                 )}

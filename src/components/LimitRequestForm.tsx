@@ -131,7 +131,7 @@ const LimitRequestForm: React.FC<LimitRequestFormProps> = ({ currentLimit, onClo
     // Renderização de Bloqueio (90 dias)
     if (!eligibility.eligible) {
         return (
-            <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 p-6 text-center justify-center">
+            <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 p-6 text-center justify-center animate-fade-in">
                 <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
