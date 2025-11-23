@@ -251,9 +251,25 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       }
   };
 
-  const totalDebt = useMemo(() => invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').reduce((acc, inv) => acc + inv.amount, 0), [invoices]);
-  const creditLimit = profileData?.credit_limit || 0;
-  const availableLimit = Math.max(0, creditLimit - totalDebt);
+  // Cálculo de Margem Mensal
+  const { maxMonthlyCommitment, totalDebt } = useMemo(() => {
+      const monthlyCommitments: Record<string, number> = {};
+      let debt = 0;
+      
+      invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').forEach(inv => {
+          const dueMonth = inv.due_date.substring(0, 7); // YYYY-MM
+          monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
+          debt += inv.amount;
+      });
+      
+      return { 
+          maxMonthlyCommitment: Math.max(0, ...Object.values(monthlyCommitments)),
+          totalDebt: debt
+      };
+  }, [invoices]);
+
+  const creditLimit = profileData?.credit_limit || 0; // Agora interpretado como Limite MENSAL de parcela
+  const availableLimit = Math.max(0, creditLimit - maxMonthlyCommitment);
   const limitUsedPercent = creditLimit > 0 ? ((creditLimit - availableLimit) / creditLimit) * 100 : 0;
   
   const nextInvoice = invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
@@ -369,7 +385,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
              <div className="relative z-10 flex flex-col h-full justify-between">
                 <div className="flex justify-between items-start">
                     <div>
-                        <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Limite Disponível</p>
+                        <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Margem Mensal Disponível</p>
                         <h3 className="text-3xl font-bold tracking-tight">{formatValue(availableLimit)}</h3>
                     </div>
                     <div className="w-10 h-6 rounded-md bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
@@ -382,14 +398,14 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
                 <div className="space-y-3">
                      <div className="flex justify-between text-sm">
-                         <span className="text-slate-300">Fatura Atual</span>
-                         <span className="font-semibold">{formatValue(totalDebt)}</span>
+                         <span className="text-slate-300">Limite de Parcela</span>
+                         <span className="font-semibold">{formatValue(creditLimit)}</span>
                      </div>
                      
                      <div className="space-y-1.5">
                         <div className="flex justify-between text-[10px] text-slate-400">
                             <span>Utilizado</span>
-                            <span>{Math.round(limitUsedPercent)}% do limite</span>
+                            <span>{Math.round(limitUsedPercent)}% do limite mensal</span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
                              <div 
@@ -504,10 +520,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           <Modal isOpen={true} onClose={() => setIsModalOpen(false)}>
               <div className="space-y-4">
                   <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura Digital</h3>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap">
-                      {pendingContract.items ? pendingContract.items : 
-                        <p>Eu, {profileData?.first_name} {profileData?.last_name}, CPF {profileData?.identification_number}, reconheço a dívida referente a compra de {pendingContract.title} no valor total de {pendingContract.total_value?.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}, parcelado em {pendingContract.installments}x.</p>
-                      }
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap font-mono leading-relaxed text-justify">
+                      {pendingContract.items}
                   </div>
                   <label className="block text-sm font-medium mb-2">Assine abaixo para confirmar:</label>
                   <SignaturePad onEnd={setSignature} />

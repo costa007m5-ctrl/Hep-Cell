@@ -225,12 +225,12 @@ const FinancialHeader: React.FC<{ totalDue: number; creditLimit: number; availab
             
             <div className="flex gap-4 pt-4 border-t border-white/10">
                 <div>
-                    <p className="text-slate-400 text-[10px]">Limite Total</p>
+                    <p className="text-slate-400 text-[10px]">Limite de Parcela</p>
                     <p className="font-semibold text-sm">{creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                 </div>
                 <div className="w-px bg-white/10"></div>
                 <div>
-                    <p className="text-slate-400 text-[10px]">Disponível</p>
+                    <p className="text-slate-400 text-[10px]">Margem Mensal</p>
                     <p className="font-semibold text-sm text-green-400">{availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                 </div>
             </div>
@@ -534,9 +534,17 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const overdueInvoices = invoices.filter(i => (i.status === 'Em aberto' || i.status === 'Boleto Gerado') && new Date(i.due_date) < new Date());
     const lateCount = overdueInvoices.length;
 
-    // Calculate Limits
-    const creditLimit = profile?.credit_limit || 0;
-    const availableLimit = Math.max(0, creditLimit - totalDue);
+    // Calculate Limits based on Monthly Margin
+    const creditLimit = profile?.credit_limit || 0; // Limite de Parcela
+    
+    // Calcular uso mensal atual (maior fatura mensal futura)
+    const monthlyCommitments: Record<string, number> = {};
+    invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').forEach(inv => {
+        const dueMonth = inv.due_date.substring(0, 7);
+        monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
+    });
+    const maxMonthlyUsed = Math.max(0, ...Object.values(monthlyCommitments));
+    const availableLimit = Math.max(0, creditLimit - maxMonthlyUsed);
 
     const handlePaymentSuccess = useCallback(async (paymentId: string | number) => {
         // Se for pagamento em massa
@@ -745,7 +753,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 </div>
             )}
 
-            {/* Header Financeiro */}
+            {/* Header Financeiro Atualizado */}
             <FinancialHeader totalDue={totalDue} creditLimit={creditLimit} availableLimit={availableLimit} />
 
             {/* Abas de Navegação */}

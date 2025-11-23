@@ -399,8 +399,220 @@ async function handleUpdateLimit(req: VercelRequest, res: VercelResponse) { cons
 async function handleRiskDetails(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); if (!genAI) return res.status(500).json({ error: "IA não configurada." }); try { const { userId } = req.body; const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single(); const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId); const { data: history } = await supabase.from('score_history').select('*').eq('user_id', userId).limit(10); const prompt = `Analise detalhadamente o risco deste cliente para um sistema de crediário de loja de celulares. Perfil: ${JSON.stringify(profile)} Faturas: ${JSON.stringify(invoices)} Histórico Score: ${JSON.stringify(history)} Retorne um relatório em formato JSON com: { "riskLevel": "Baixo" | "Médio" | "Alto", "reason": "Resumo curto do motivo principal", "detailedAnalysis": "Explicação detalhada de 3-4 linhas sobre o comportamento de pagamento e capacidade financeira.", "recommendation": "Sugestão para o lojista (ex: Aumentar limite, Bloquear compras, Pedir fiador).", "positivePoints": ["ponto 1", "ponto 2"], "negativePoints": ["ponto 1", "ponto 2"] }`; const response = await generateContentWithRetry(genAI, { model: 'gemini-2.5-flash', contents: prompt, config: { responseMimeType: 'application/json' } }); res.status(200).json(JSON.parse(response.text || '{}')); } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleClientDocuments(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if (req.method === 'GET') { const { userId } = req.query; const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId); const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId); res.status(200).json({ contracts: contracts || [], uploads: uploads || [] }); } else if (req.method === 'POST') { const { userId, title, type, fileBase64 } = req.body; const { data, error } = await supabase.from('client_documents').insert({ user_id: userId, title, document_type: type, file_url: fileBase64 }).select(); if (error) throw error; res.status(201).json(data[0]); } } catch (e: any) { res.status(500).json({ error: e.message }); } }
 async function handleManageInternalNotes(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, notes } = req.body; const { error } = await supabase.from('profiles').update({ internal_notes: notes }).eq('id', userId); if (error) throw error; res.status(200).json({ message: "Notas atualizadas." }); } catch (e: any) { res.status(500).json({ error: e.message }); } }
-async function handleCreateSale(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName, dueDay } = req.body; if (!userId || !totalAmount || !installments || !productName) { return res.status(400).json({ error: 'Missing required sale data.' }); } const installmentAmount = Math.round((totalAmount / installments) * 100) / 100; const newInvoices = []; const today = new Date(); const purchaseTimestamp = new Date().toISOString(); const initialStatus = saleType === 'crediario' ? 'Aguardando Assinatura' : 'Em aberto'; const selectedDay = dueDay || 10; let currentMonth = today.getMonth() + 1; let currentYear = today.getFullYear(); for (let i = 1; i <= installments; i++) { if (currentMonth > 11) { currentMonth = 0; currentYear++; } const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate(); const day = Math.min(selectedDay, maxDay); const dueDate = new Date(currentYear, currentMonth, day); const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`; let notes = saleType === 'direct' ? `Compra direta via ${paymentMethod}.` : `Referente a compra de ${productName} parcelada em ${installments}x.`; if (downPayment && Number(downPayment) > 0) { notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } if (tradeInValue && Number(tradeInValue) > 0) { notes += ` (Trade-In: R$ ${Number(tradeInValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } if (sellerName) { notes += ` [Vendedor: ${sellerName}]`; } newInvoices.push({ user_id: userId, month: monthLabel, due_date: dueDate.toISOString().split('T')[0], amount: installmentAmount, status: initialStatus, notes: notes, created_at: purchaseTimestamp, payment_method: paymentMethod || null }); currentMonth++; } const { error } = await supabase.from('invoices').insert(newInvoices); if (error) throw error; if (saleType === 'crediario') { await supabase.from('profiles').update({ preferred_due_day: selectedDay }).eq('id', userId); const { error: contractError } = await supabase.from('contracts').insert({ user_id: userId, title: 'Contrato de Crediário (CDCI) - Relp Cell', items: productName, total_value: totalAmount, installments: installments, status: 'pending_signature', signature_data: null, terms_accepted: false, created_at: purchaseTimestamp }); if (contractError) console.error("Erro ao salvar contrato:", contractError); await supabase.from('notifications').insert({ user_id: userId, title: 'Aprovação Necessária', message: `Sua compra de ${productName} está aguardando sua assinatura digital no app. Você tem 24h.`, type: 'alert', read: false }); } await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId}. Tipo: ${saleType || 'Crediário'}. Total: ${totalAmount}. Status: ${initialStatus}`); res.status(201).json({ message: 'Venda registrada com sucesso.', status: initialStatus }); } catch (error: any) { await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body }); res.status(500).json({ error: error.message }); } }
-async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body; if (!userId || !invoiceIds || invoiceIds.length === 0 || !totalAmount || !installments) { return res.status(400).json({ error: "Dados incompletos para negociação." }); } const { error: cancelError } = await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Renegociado em ' + new Date().toLocaleDateString('pt-BR') }).in('id', invoiceIds).eq('user_id', userId); if (cancelError) throw cancelError; const { data: profile } = await supabase.from('profiles').select('first_name, last_name, identification_number').eq('id', userId).single(); const contractTitle = 'Termo de Confissão e Renegociação de Dívida'; const contractBody = ` INSTRUMENTO PARTICULAR DE CONFISSÃO DE DÍVIDA\n\n DEVEDOR: ${profile?.first_name} ${profile?.last_name}, CPF ${profile?.identification_number}.\n CREDOR: RELP CELL ELETRONICOS LTDA, CNPJ 43.735.304/0001-00.\n\n 1. O DEVEDOR reconhece a dívida no valor total renegociado de R$ ${totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n 2. O pagamento será realizado em ${installments} parcelas mensais.\n 3. O não pagamento de qualquer parcela acarretará vencimento antecipado da dívida e inclusão nos órgãos de proteção ao crédito.\n 4. A assinatura digital deste termo valida legalmente o acordo.\n \n Detalhes: ${notes || 'Renegociação de saldo devedor.'} `; const creationTime = new Date().toISOString(); const { error: contractError } = await supabase.from('contracts').insert({ user_id: userId, title: contractTitle, items: contractBody, total_value: totalAmount, installments: installments, status: 'pending_signature', created_at: creationTime }); if (contractError) throw contractError; const newInvoices = []; let currentMonth = new Date(firstDueDate).getMonth(); let currentYear = new Date(firstDueDate).getFullYear(); const dueDay = new Date(firstDueDate).getDate(); const installmentVal = totalAmount / installments; for (let i = 1; i <= installments; i++) { const dueDate = new Date(currentYear, currentMonth, dueDay); newInvoices.push({ user_id: userId, month: `Acordo de Renegociação (${i}/${installments})`, due_date: dueDate.toISOString().split('T')[0], amount: installmentVal, status: 'Aguardando Assinatura', notes: `Refinanciamento de débitos anteriores. ${notes || ''}`, created_at: creationTime }); currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentYear++; } } const { error: insertError } = await supabase.from('invoices').insert(newInvoices); if (insertError) throw insertError; await supabase.from('notifications').insert({ user_id: userId, title: 'Proposta de Acordo', message: 'Sua renegociação foi gerada. Acesse o app para assinar o termo e regularizar sua situação.', type: 'alert' }); await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Negociação criada para user ${userId}. Contrato pendente gerado.`); return res.status(200).json({ message: "Proposta de negociação enviada para o cliente." }); } catch (error: any) { await logAction(supabase, 'DEBT_NEGOTIATION', 'FAILURE', 'Erro na negociação.', { error: error.message }); return res.status(500).json({ error: error.message }); } }
+
+// --- Helper para gerar contrato robusto ---
+function generateRobustContractText(profile: any, productName: string, totalAmount: number, installments: number, downPayment: number, installmentValue: number, dueDay: number) {
+    const today = new Date();
+    const companyName = "RELP CELL ELETRÔNICOS LTDA";
+    const companyCNPJ = "43.735.304/0001-00";
+    const companyAddress = "Avenida Principal, 123, Centro, Macapá - AP";
+
+    let installmentList = "";
+    let currentMonth = today.getMonth() + 1;
+    let currentYear = today.getFullYear();
+
+    for (let i = 1; i <= installments; i++) {
+        if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+        const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const day = Math.min(dueDay, maxDay);
+        const dueDate = new Date(currentYear, currentMonth, day);
+        installmentList += `${i}ª Parcela: R$ ${installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})} - Vencimento: ${dueDate.toLocaleDateString('pt-BR')}\n`;
+        currentMonth++;
+    }
+
+    return `
+CONTRATO DE CONFISSÃO DE DÍVIDA E COMPRA E VENDA COM RESERVA DE DOMÍNIO
+
+Pelo presente instrumento particular, de um lado a empresa:
+CREDOR: ${companyName}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº ${companyCNPJ}, com sede em ${companyAddress}.
+
+E de outro lado o(a) cliente:
+DEVEDOR(A): ${profile.first_name} ${profile.last_name}, inscrito(a) no CPF sob o nº ${profile.identification_number || 'N/A'}, residente e domiciliado(a) no endereço cadastrado neste aplicativo.
+
+As partes acima qualificadas têm, entre si, justo e contratado o seguinte:
+
+CLÁUSULA PRIMEIRA - DO OBJETO
+1.1. O presente contrato tem por objeto a compra e venda do produto/serviço: "${productName}", adquirido pelo DEVEDOR junto ao CREDOR.
+
+CLÁUSULA SEGUNDA - DO PREÇO E FORMA DE PAGAMENTO
+2.1. O preço total ajustado para a aquisição do produto é de R$ ${totalAmount.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.
+2.2. O pagamento será realizado da seguinte forma:
+   a) Entrada de R$ ${downPayment.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, paga no ato.
+   b) O saldo restante será pago em ${installments} parcelas mensais e sucessivas de R$ ${installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.
+
+CLÁUSULA TERCEIRA - DO VENCIMENTO E DAS PARCELAS
+3.1. As parcelas terão os seguintes vencimentos e valores:
+${installmentList}
+
+CLÁUSULA QUARTA - DA MORA E INADIMPLEMENTO
+4.1. O não pagamento de qualquer parcela na data de seu vencimento sujeitará o DEVEDOR ao pagamento de multa de 2% (dois por cento) sobre o valor do débito e juros moratórios de 1% (um por cento) ao mês, conforme artigo 52, § 1º do Código de Defesa do Consumidor.
+4.2. O atraso superior a 30 (trinta) dias poderá ensejar a inclusão do nome do DEVEDOR nos órgãos de proteção ao crédito (SPC/SERASA), bem como o protesto do título e a cobrança judicial da dívida.
+
+CLÁUSULA QUINTA - DA ANTECIPAÇÃO DE PAGAMENTO
+5.1. É assegurado ao DEVEDOR o direito à liquidação antecipada do débito, total ou parcialmente, mediante redução proporcional dos juros e demais acréscimos, na forma do artigo 52, § 2º do Código de Defesa do Consumidor.
+
+CLÁUSULA SEXTA - DA RESERVA DE DOMÍNIO
+6.1. Em virtude da venda ser a prazo, o CREDOR reserva para si o domínio do bem alienado até a liquidação total da dívida, transferindo-se ao DEVEDOR apenas a posse direta, nos termos dos artigos 521 e seguintes do Código Civil Brasileiro.
+
+CLÁUSULA SÉTIMA - DAS DISPOSIÇÕES GERAIS
+7.1. O DEVEDOR declara ter conferido o produto no ato da entrega, recebendo-o em perfeitas condições de uso.
+7.2. A assinatura digital aposta neste instrumento, realizada mediante senha pessoal e intransferível no aplicativo do CREDOR, é válida e eficaz para todos os fins legais, conforme Medida Provisória nº 2.200-2/2001.
+
+CLÁUSULA OITAVA - DO FORO
+8.1. As partes elegem o foro da Comarca de Macapá/AP para dirimir quaisquer dúvidas oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.
+
+Macapá, ${today.toLocaleDateString('pt-BR')} às ${today.toLocaleTimeString('pt-BR')}.
+    `.trim();
+}
+
+async function handleCreateSale(req: VercelRequest, res: VercelResponse) { 
+    const supabase = getSupabaseAdminClient(); 
+    try { 
+        const { userId, totalAmount, installments, productName, signature, saleType, paymentMethod, downPayment, tradeInValue, sellerName, dueDay } = req.body; 
+        
+        if (!userId || !totalAmount || !installments || !productName) { return res.status(400).json({ error: 'Missing required sale data.' }); } 
+        
+        const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (profileError || !profile) throw new Error("Cliente não encontrado.");
+
+        const installmentAmount = Math.round((totalAmount / installments) * 100) / 100; 
+        const newInvoices = []; 
+        const today = new Date(); 
+        const purchaseTimestamp = new Date().toISOString(); 
+        
+        // --- CORREÇÃO DE LÓGICA DE STATUS ---
+        // Se tem assinatura (vem do App Cliente), o contrato nasce assinado e as faturas em aberto.
+        // Se não tem assinatura (vem do Admin), o contrato é pendente e as faturas aguardam.
+        const isSigned = !!signature;
+        const initialStatus = saleType === 'crediario' && !isSigned ? 'Aguardando Assinatura' : 'Em aberto'; 
+        const contractStatus = saleType === 'crediario' ? (isSigned ? 'Assinado' : 'pending_signature') : 'Ativo'; // Venda direta não gera pendência
+        
+        const selectedDay = dueDay || 10; 
+        let currentMonth = today.getMonth() + 1; 
+        let currentYear = today.getFullYear(); 
+        
+        for (let i = 1; i <= installments; i++) { 
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; } 
+            const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate(); 
+            const day = Math.min(selectedDay, maxDay); 
+            const dueDate = new Date(currentYear, currentMonth, day); 
+            const monthLabel = installments === 1 ? productName : `${productName} (${i}/${installments})`; 
+            
+            let notes = saleType === 'direct' ? `Compra direta via ${paymentMethod}.` : `Referente a compra de ${productName} parcelada em ${installments}x.`; 
+            if (downPayment && Number(downPayment) > 0) { notes += ` (Entrada: R$ ${Number(downPayment).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } 
+            if (tradeInValue && Number(tradeInValue) > 0) { notes += ` (Trade-In: R$ ${Number(tradeInValue).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`; } 
+            if (sellerName) { notes += ` [Vendedor: ${sellerName}]`; } 
+            
+            newInvoices.push({ 
+                user_id: userId, 
+                month: monthLabel, 
+                due_date: dueDate.toISOString().split('T')[0], 
+                amount: installmentAmount, 
+                status: initialStatus, 
+                notes: notes, 
+                created_at: purchaseTimestamp, 
+                payment_method: paymentMethod || null 
+            }); 
+            currentMonth++; 
+        } 
+        
+        const { error } = await supabase.from('invoices').insert(newInvoices); 
+        if (error) throw error; 
+        
+        if (saleType === 'crediario') { 
+            await supabase.from('profiles').update({ preferred_due_day: selectedDay }).eq('id', userId); 
+            
+            // Gera o texto robusto do contrato
+            const contractItems = generateRobustContractText(profile, productName, totalAmount, installments, Number(downPayment||0) + Number(tradeInValue||0), installmentAmount, selectedDay);
+
+            const { error: contractError } = await supabase.from('contracts').insert({ 
+                user_id: userId, 
+                title: `Contrato de Compra - ${productName}`, 
+                items: contractItems, 
+                total_value: totalAmount, 
+                installments: installments, 
+                status: contractStatus, 
+                signature_data: signature || null, 
+                terms_accepted: isSigned, // Se assinou, aceitou
+                created_at: purchaseTimestamp 
+            }); 
+            
+            if (contractError) console.error("Erro ao salvar contrato:", contractError); 
+            
+            if (!isSigned) {
+                await supabase.from('notifications').insert({ user_id: userId, title: 'Aprovação Necessária', message: `Sua compra de ${productName} está aguardando sua assinatura digital no app. Você tem 24h.`, type: 'alert', read: false }); 
+            }
+        } 
+        
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para o usuário ${userId}. Tipo: ${saleType || 'Crediário'}. Total: ${totalAmount}. Status: ${initialStatus}`); 
+        res.status(201).json({ message: 'Venda registrada com sucesso.', status: initialStatus }); 
+    } catch (error: any) { 
+        await logAction(supabase, 'SALE_CREATED', 'FAILURE', 'Falha ao criar venda.', { error: error.message, body: req.body }); 
+        res.status(500).json({ error: error.message }); 
+    } 
+}
+
+async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) { 
+    const supabase = getSupabaseAdminClient(); 
+    try { 
+        const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body; 
+        if (!userId || !invoiceIds || invoiceIds.length === 0 || !totalAmount || !installments) { return res.status(400).json({ error: "Dados incompletos para negociação." }); } 
+        
+        const { error: cancelError } = await supabase.from('invoices').update({ status: 'Cancelado', notes: 'Renegociado em ' + new Date().toLocaleDateString('pt-BR') }).in('id', invoiceIds).eq('user_id', userId); 
+        if (cancelError) throw cancelError; 
+        
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single(); 
+        
+        const dueDay = new Date(firstDueDate).getDate();
+        const installmentVal = totalAmount / installments;
+        const creationTime = new Date().toISOString(); 
+        
+        // Gera contrato robusto de confissão de dívida
+        const contractItems = generateRobustContractText(profile, "RENEGOCIAÇÃO DE DÍVIDA", totalAmount, installments, 0, installmentVal, dueDay);
+        
+        const { error: contractError } = await supabase.from('contracts').insert({ 
+            user_id: userId, 
+            title: 'Termo de Confissão e Renegociação de Dívida', 
+            items: contractItems, 
+            total_value: totalAmount, 
+            installments: installments, 
+            status: 'pending_signature', 
+            created_at: creationTime 
+        }); 
+        
+        if (contractError) throw contractError; 
+        
+        const newInvoices = []; 
+        let currentMonth = new Date(firstDueDate).getMonth(); 
+        let currentYear = new Date(firstDueDate).getFullYear(); 
+        
+        for (let i = 1; i <= installments; i++) { 
+            const dueDate = new Date(currentYear, currentMonth, dueDay); 
+            newInvoices.push({ 
+                user_id: userId, 
+                month: `Acordo de Renegociação (${i}/${installments})`, 
+                due_date: dueDate.toISOString().split('T')[0], 
+                amount: installmentVal, 
+                status: 'Aguardando Assinatura', 
+                notes: `Refinanciamento de débitos anteriores. ${notes || ''}`, 
+                created_at: creationTime 
+            }); 
+            currentMonth++; 
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; } 
+        } 
+        
+        const { error: insertError } = await supabase.from('invoices').insert(newInvoices); 
+        if (insertError) throw insertError; 
+        
+        await supabase.from('notifications').insert({ user_id: userId, title: 'Proposta de Acordo', message: 'Sua renegociação foi gerada. Acesse o app para assinar o termo e regularizar sua situação.', type: 'alert' }); 
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Negociação criada para user ${userId}. Contrato pendente gerado.`); 
+        return res.status(200).json({ message: "Proposta de negociação enviada para o cliente." }); 
+    } catch (error: any) { 
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'FAILURE', 'Erro na negociação.', { error: error.message }); 
+        return res.status(500).json({ error: error.message }); 
+    } 
+}
+
 async function handleDueDateRequests(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); if (req.method === 'GET') { try { const { data, error } = await supabase.from('due_date_requests').select('*, profiles(first_name, last_name, email)').eq('status', 'pending').order('created_at', { ascending: false }); if (error) throw error; return res.status(200).json(data); } catch (e: any) { return res.status(500).json({ error: e.message }); } } if (req.method === 'PUT') { try { const { id, status, adminNotes } = req.body; if (!id || !status) return res.status(400).json({ error: "ID e Status são obrigatórios." }); const { data: request, error: reqError } = await supabase.from('due_date_requests').update({ status, admin_notes: adminNotes, updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (reqError) throw reqError; if (status === 'approved' && request) { const newDay = request.requested_day; const userId = request.user_id; await supabase.from('profiles').update({ preferred_due_day: newDay }).eq('id', userId); const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId).or('status.eq.Em aberto,status.eq.Boleto Gerado'); if (invoices) { for (const inv of invoices) { const oldDate = new Date(inv.due_date); const year = oldDate.getFullYear(); const month = oldDate.getMonth(); const maxDay = new Date(year, month + 1, 0).getDate(); const safeDay = Math.min(newDay, maxDay); const newDateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(safeDay).padStart(2,'0')}`; await supabase.from('invoices').update({ due_date: newDateStr, notes: (inv.notes || '') + ` [Vencimento alterado de dia ${oldDate.getDate()} para ${safeDay}]` }).eq('id', inv.id); } } await supabase.from('notifications').insert({ user_id: userId, title: 'Data de Vencimento Alterada', message: `Sua solicitação foi aprovada. Suas faturas agora vencem no dia ${newDay}.`, type: 'success' }); } else if (status === 'rejected' && request) { await supabase.from('notifications').insert({ user_id: request.user_id, title: 'Solicitação Recusada', message: `Sua solicitação de mudança de data foi recusada. Motivo: ${adminNotes || 'Política interna'}.`, type: 'warning' }); } return res.status(200).json({ message: "Solicitação processada com sucesso." }); } catch (e: any) { return res.status(500).json({ error: e.message }); } } }
 async function handleProducts(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); try { if(req.method==='GET'){ const {data,error}=await supabase.from('products').select('*').order('created_at',{ascending:false}); if(error) throw error; res.status(200).json(data); } else if(req.method==='POST'){ const {name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').insert([{name,description,price,stock,image_url:image_base64||image_url,brand,category}]).select(); if(error) throw error; res.status(201).json(data[0]); } else if(req.method==='PUT'){ const {id,name,description,price,stock,image_url,image_base64,brand,category}=req.body; const {data,error}=await supabase.from('products').update({name,description,price,stock,image_url:image_base64||image_url,brand,category}).eq('id',id).select(); if(error) throw error; res.status(200).json(data[0]); } else { res.status(405).json({error:'Method not allowed'}); } } catch(e:any) { res.status(500).json({error:e.message}); } }
 async function handleCreateAndAnalyzeCustomer(req: VercelRequest, res: VercelResponse) { const supabase = getSupabaseAdminClient(); const genAI = getGeminiClient(); try { const { email, password, ...meta } = req.body; const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: meta }); if (error) throw error; const profile = await runCreditAnalysis(supabase, genAI, data.user.id); res.status(200).json({ message: 'Success', profile }); } catch (e: any) { res.status(500).json({ error: e.message }); } }

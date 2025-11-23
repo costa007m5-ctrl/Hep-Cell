@@ -505,7 +505,7 @@ const NewSaleTab: React.FC = () => {
                                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{selectedProfile.credit_status || 'Ativo'}</span>
                             </div>
                             <span className="text-xs text-slate-500">Score: <strong>{selectedProfile.credit_score}</strong></span>
-                            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Margem Mensal: R$ {clientLimitData.totalMonthly.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                            <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Margem Mensal: R$ {clientLimitData.availableMonthly.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
                         </div>
                     )}
                 </div>

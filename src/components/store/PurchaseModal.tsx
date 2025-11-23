@@ -193,6 +193,23 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         }
     };
 
+    // --- Helper para Gerar Lista de Parcelas ---
+    const generateInstallmentList = () => {
+        let list = "";
+        let currentMonth = new Date().getMonth() + 1;
+        let currentYear = new Date().getFullYear();
+        
+        for (let i = 1; i <= installments; i++) {
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+            const maxDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const day = Math.min(selectedDueDay, maxDay);
+            const dueDate = new Date(currentYear, currentMonth, day);
+            list += `${i}ª Parcela: R$ ${installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})} - Vencimento: ${dueDate.toLocaleDateString('pt-BR')}\n`;
+            currentMonth++;
+        }
+        return list;
+    };
+
     const renderConfigStep = () => (
         <div className="space-y-6">
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
@@ -290,16 +307,51 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     const renderContractStep = () => (
         <div className="space-y-6 flex-1 overflow-y-auto">
-            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg h-64 overflow-y-auto text-xs text-justify border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                <p className="font-bold text-center mb-4 text-sm">CONTRATO DE CONFISSÃO DE DÍVIDA E COMPRA E VENDA</p>
-                <p><strong>CREDOR:</strong> {COMPANY_DATA.razaoSocial}, CNPJ {COMPANY_DATA.cnpj}, situado em {COMPANY_DATA.endereco}.</p>
-                <p><strong>DEVEDOR:</strong> {profile.first_name} {profile.last_name}, CPF {profile.identification_number}.</p>
-                <p className="mt-2">1. <strong>DO OBJETO:</strong> O CREDOR vende ao DEVEDOR o produto <strong>{product.name}</strong> pelo valor financiado de R$ {totalFinancedWithInterest.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.</p>
-                <p>2. <strong>DO PAGAMENTO:</strong> O pagamento será realizado em {installments} parcelas mensais de R$ {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, com primeiro vencimento conforme selecionado.</p>
-                <p>3. <strong>DA ENTRADA:</strong> Foi pago a título de entrada o valor de R$ {downPaymentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.</p>
-                <p>4. <strong>DO ATRASO:</strong> O não pagamento na data de vencimento acarretará multa de 2% e juros moratórios de 1% ao mês.</p>
-                <p>5. <strong>DA ASSINATURA:</strong> A assinatura digital abaixo confirma a leitura e concordância com todos os termos deste contrato.</p>
-                <p className="mt-4 text-center">Macapá, {new Date().toLocaleDateString()}</p>
+            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg h-80 overflow-y-auto text-xs text-justify border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-serif leading-relaxed">
+                
+                <div className="flex justify-center mb-4">
+                    <div className="text-center">
+                        <h2 className="font-bold text-sm">CONTRATO DE CONFISSÃO DE DÍVIDA</h2>
+                        <p className="text-[10px]">COM RESERVA DE DOMÍNIO</p>
+                    </div>
+                </div>
+
+                <p><strong>CREDOR:</strong> {COMPANY_DATA.razaoSocial}, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {COMPANY_DATA.cnpj}, com sede em {COMPANY_DATA.endereco}.</p>
+                <p className="mt-2"><strong>DEVEDOR:</strong> {profile.first_name} {profile.last_name}, inscrito(a) no CPF sob o nº {profile.identification_number || 'N/A'}, residente e domiciliado(a) no endereço cadastrado neste aplicativo.</p>
+                
+                <p className="mt-3 font-bold">CLÁUSULA PRIMEIRA - DO OBJETO</p>
+                <p>1.1. O presente contrato tem por objeto a compra e venda do produto/serviço: "<strong>{product.name}</strong>", adquirido pelo DEVEDOR junto ao CREDOR.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA SEGUNDA - DO PREÇO E FORMA DE PAGAMENTO</p>
+                <p>2.1. O preço total ajustado para a aquisição do produto, já inclusos os encargos financeiros pactuados, é de R$ {totalFinancedWithInterest.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.</p>
+                <p>2.2. O pagamento será realizado da seguinte forma:</p>
+                <p className="pl-4">a) Entrada de R$ {downPaymentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, paga no ato.</p>
+                <p className="pl-4">b) O saldo restante será pago em {installments} parcelas mensais e sucessivas de R$ {installmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA TERCEIRA - DO VENCIMENTO E DAS PARCELAS</p>
+                <p>3.1. As parcelas terão os seguintes vencimentos e valores:</p>
+                <pre className="font-mono text-[10px] bg-slate-100 dark:bg-slate-900 p-2 rounded mt-1 mb-1 whitespace-pre-wrap">
+                    {generateInstallmentList()}
+                </pre>
+
+                <p className="mt-3 font-bold">CLÁUSULA QUARTA - DA MORA E INADIMPLEMENTO</p>
+                <p>4.1. O não pagamento de qualquer parcela na data de seu vencimento sujeitará o DEVEDOR ao pagamento de multa de 2% (dois por cento) sobre o valor do débito e juros moratórios de 1% (um por cento) ao mês, conforme artigo 52, § 1º do Código de Defesa do Consumidor.</p>
+                <p>4.2. O atraso superior a 30 (trinta) dias poderá ensejar a inclusão do nome do DEVEDOR nos órgãos de proteção ao crédito (SPC/SERASA), bem como o protesto do título e a cobrança judicial da dívida.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA QUINTA - DA ANTECIPAÇÃO DE PAGAMENTO</p>
+                <p>5.1. É assegurado ao DEVEDOR o direito à liquidação antecipada do débito, total ou parcialmente, mediante redução proporcional dos juros e demais acréscimos, na forma do artigo 52, § 2º do Código de Defesa do Consumidor.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA SEXTA - DA RESERVA DE DOMÍNIO</p>
+                <p>6.1. Em virtude da venda ser a prazo, o CREDOR reserva para si o domínio do bem alienado até a liquidação total da dívida, transferindo-se ao DEVEDOR apenas a posse direta, nos termos dos artigos 521 e seguintes do Código Civil Brasileiro.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA SÉTIMA - DAS DISPOSIÇÕES GERAIS</p>
+                <p>7.1. O DEVEDOR declara ter conferido o produto no ato da entrega, recebendo-o em perfeitas condições de uso.</p>
+                <p>7.2. A assinatura digital aposta neste instrumento, realizada mediante senha pessoal e intransferível no aplicativo do CREDOR, é válida e eficaz para todos os fins legais, conforme Medida Provisória nº 2.200-2/2001.</p>
+
+                <p className="mt-3 font-bold">CLÁUSULA OITAVA - DO FORO</p>
+                <p>8.1. As partes elegem o foro da Comarca de Macapá/AP para dirimir quaisquer dúvidas oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.</p>
+
+                <p className="mt-6 text-center">Macapá, {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}.</p>
             </div>
             
             <div>
@@ -351,7 +403,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
             <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{step === 'config' ? 'Configurar' : step === 'contract' ? 'Contrato' : 'Confirmar'}</h2>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{step === 'config' ? 'Configurar' : step === 'contract' ? 'Contrato Jurídico' : 'Confirmar'}</h2>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">✕</button>
                 </div>
                 <div className="p-6 overflow-y-auto flex-1">
