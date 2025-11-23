@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import Logo from './Logo';
 
 interface AdminLoginPageProps {
   onLoginSuccess: () => void;
@@ -51,7 +52,10 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-slate-100 dark:bg-slate-900">
       <div className="w-full max-w-md">
-        <div className="text-center mb-8">
+        <div className="flex flex-col items-center text-center mb-8">
+            <div className="mb-4">
+                <Logo className="h-16 w-16" />
+            </div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                 Área do Administrador
             </h1>

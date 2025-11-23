@@ -9,7 +9,8 @@ import PageNotifications from './components/PageNotifications';
 import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
-import ResetPasswordPage from './components/ResetPasswordPage'; // Novo Import
+import ResetPasswordPage from './components/ResetPasswordPage'; 
+import SplashScreen from './components/SplashScreen'; // Import da Splash
 import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
@@ -17,7 +18,6 @@ import LoadingSpinner from './components/LoadingSpinner';
 import { ToastProvider, useToast } from './components/Toast';
 import SupportChat from './components/SupportChat';
 
-// A chave pública do Mercado Pago pode ser exposta com segurança no frontend.
 const MERCADO_PAGO_PUBLIC_KEY = "TEST-c1f09c65-832f-45a8-9860-5a3b9846b532";
 
 type View = 'customer' | 'adminLogin' | 'adminDashboard';
@@ -28,6 +28,7 @@ const AppContent: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [showSplash, setShowSplash] = useState(true); // Estado para controlar a Splash Screen
   const { addToast } = useToast();
 
   // Verifica tema inicial
@@ -82,17 +83,11 @@ const AppContent: React.FC = () => {
 
     const fetchSession = async () => {
       try {
-        // Tenta obter a sessão. Se o refresh token for inválido, isso pode lançar erro ou retornar error.
         const { data, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          throw error;
-        }
-        
+        if (error) throw error;
         setSession(data.session);
       } catch (error) {
-        console.warn("Erro ao recuperar sessão (possível refresh token inválido):", error);
-        // Limpa qualquer estado inválido localmente para permitir novo login
+        console.warn("Erro ao recuperar sessão:", error);
         await supabase.auth.signOut();
         setSession(null);
       } finally {
@@ -106,8 +101,6 @@ const AppContent: React.FC = () => {
        if (event === 'SIGNED_OUT') {
          setSession(null);
          setAuthLoading(false);
-       } else if (event === 'TOKEN_REFRESH_ROUTED' || event === 'PASSWORD_RECOVERY') {
-         // Eventos específicos que não necessariamente mudam a sessão imediatamente
        } else {
          if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
             setSession(session);
@@ -131,10 +124,16 @@ const AppContent: React.FC = () => {
       return <ResetPasswordPage />;
   }
 
+  // Mostra a Splash Screen até que ela termine E a autenticação esteja pronta
+  if (showSplash) {
+      return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
   if (view === 'adminLogin') return <AdminLoginPage onLoginSuccess={() => setView('adminDashboard')} onBackToCustomer={() => setView('customer')} />;
   if (view === 'adminDashboard') return <AdminDashboard onLogout={handleAdminLogout} />;
 
   if (authLoading) {
+    // Fallback loading se a splash já passou mas o auth ainda não (raro devido aos tempos)
     return (
       <div className="flex flex-col min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
         <LoadingSpinner />
@@ -158,7 +157,7 @@ const AppContent: React.FC = () => {
   const showHeader = activeTab !== Tab.LOJA && activeTab !== Tab.NOTIFICATIONS;
 
   return (
-    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
+    <div className="flex flex-col min-h-screen font-sans text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900 transition-colors duration-300 animate-fade-in">
       {showHeader && <Header toggleTheme={toggleTheme} isDarkMode={isDarkMode} setActiveTab={setActiveTab} />}
       
       <main className={activeTab === Tab.LOJA ? "flex-grow w-full pb-20" : "flex-grow flex items-center justify-center p-4 pb-24"}>

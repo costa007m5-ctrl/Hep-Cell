@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Relp Cell</title>
-    <meta name="description" content="Gerencie faturas, limite de crédito e faça compras na Relp Cell. Pagamento via Pix, Boleto e Cartão." />
+    <meta name="description" content="Conectando você ao seu crédito. Gerencie faturas e faça compras na Relp Cell." />
     
     <!-- PWA Tags -->
     <link rel="manifest" href="/manifest.json" />
@@ -12,9 +12,11 @@
     <!-- Tema: Deve coincidir com manifest.json -->
     <meta name="theme-color" content="#4f46e5" />
     
-    <!-- Favicon & Icons -->
-    <link rel="icon" type="image/png" href="https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp" />
-    <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp" />
+    <!-- Favicon & Icons (SVG Data URI Animado) -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0' y1='0' x2='200' y2='200'%3E%3Cstop offset='0%25' stop-color='%234f46e5'/%3E%3Cstop offset='100%25' stop-color='%237c3aed'/%3E%3C/linearGradient%3E%3Cstyle%3E@keyframes pulse{0%25{stroke-opacity:0.3}50%25{stroke-opacity:1}100%25{stroke-opacity:0.3}}.s1{animation:pulse 1.5s infinite ease-in-out}.s2{animation:pulse 1.5s infinite ease-in-out 0.4s}%3C/style%3E%3C/defs%3E%3Crect width='200' height='200' rx='40' fill='url(%23grad)'/%3E%3Crect x='55' y='45' width='90' height='70' rx='8' fill='white' fill-opacity='0.15'/%3E%3Cpath d='M75 135 V 65 H 105 C 125 65, 125 85, 105 85 H 75 M 105 85 L 125 135' stroke='white' stroke-width='12' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath class='s1' d='M135 40 A 20 20 0 0 1 155 60' stroke='%234ade80' stroke-width='8' stroke-linecap='round' fill='none'/%3E%3Cpath class='s2' d='M145 30 A 35 35 0 0 1 170 65' stroke='%234ade80' stroke-width='8' stroke-linecap='round' fill='none'/%3E%3Ccircle cx='100' cy='160' r='8' fill='white' fill-opacity='0.8'/%3E%3C/svg%3E" />
+    
+    <!-- Apple Touch Icon (Usando PNG de alta qualidade gerado para garantir suporte iOS) -->
+    <link rel="apple-touch-icon" href="https://placehold.co/192x192/4f46e5/ffffff.png?text=RC&font=roboto" />
 
     <!-- iOS PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,13 +35,20 @@
             padding: {
               'safe': 'env(safe-area-inset-bottom)',
             },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
             keyframes: {
               'fade-in': {
                 '0%': { opacity: '0' },
                 '100%': { opacity: '1' },
               },
+              'fade-out': {
+                '0%': { opacity: '1' },
+                '100%': { opacity: '0' },
+              },
               'fade-in-up': {
-                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '0%': { opacity: '0', transform: 'translateY(20px)' },
                 '100%': { opacity: '1', transform: 'translateY(0)' },
               },
               'fade-in-right': {
@@ -53,14 +62,31 @@
               'confetti-fall': {
                 '0%': { transform: 'translateY(0) rotate(0deg)', opacity: '1' },
                 '100%': { transform: 'translateY(110vh) rotate(720deg)', opacity: '0' }
+              },
+              'pop-in': {
+                '0%': { opacity: '0', transform: 'scale(0.5)' },
+                '70%': { transform: 'scale(1.1)' },
+                '100%': { opacity: '1', transform: 'scale(1)' }
+              },
+              'slide-reveal': {
+                '0%': { width: '0%' },
+                '100%': { width: '100%' }
+              },
+              'shimmer': {
+                '0%': { backgroundPosition: '-200% 0' },
+                '100%': { backgroundPosition: '200% 0' }
               }
             },
             animation: {
-              'fade-in': 'fade-in 0.3s ease-out forwards',
-              'fade-in-up': 'fade-in-up 0.4s ease-out forwards',
+              'fade-in': 'fade-in 0.5s ease-out forwards',
+              'fade-out': 'fade-out 0.5s ease-out forwards',
+              'fade-in-up': 'fade-in-up 0.6s ease-out forwards',
               'fade-in-right': 'fade-in-right 0.3s ease-out forwards',
               'bounce-slow': 'bounce-slow 2s infinite',
               'confetti-fall': 'confetti-fall 4s linear forwards',
+              'pop-in': 'pop-in 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+              'slide-reveal': 'slide-reveal 1.5s ease-in-out forwards',
+              'shimmer': 'shimmer 3s infinite linear'
             },
           },
         },

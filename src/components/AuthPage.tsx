@@ -1,9 +1,9 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import Modal from './Modal';
+import Logo from './Logo';
 
 interface AuthPageProps {
   onAdminLoginClick?: () => void;
@@ -466,18 +466,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAdminLoginClick }) => {
       <div className="relative w-full max-w-md z-10 my-auto">
         
         {/* Brand Header */}
-        <div className="flex flex-col items-center justify-center mb-8 space-y-3 animate-fade-in-up">
-            <div className="p-3.5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-2xl shadow-2xl shadow-indigo-500/10 border border-white/20">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-            </div>
-            <div className="text-center">
-                <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                    Relp Cell
-                </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Pagamentos & Loja</p>
-            </div>
+        <div className="flex flex-col items-center justify-center mb-8 space-y-4 animate-fade-in-up">
+            <Logo className="h-20 w-20" showText slogan />
         </div>
         
         {/* Glass Card */}
