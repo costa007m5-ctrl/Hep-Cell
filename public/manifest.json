@@ -1,9 +1,9 @@
 {
   "name": "Relp Cell Pagamentos",
   "short_name": "Relp Cell",
+  "start_url": "/",
   "description": "Gerencie suas faturas, faça compras e acompanhe seu limite na Relp Cell com facilidade e segurança.",
   "id": "relp-cell-pagamentos-v1",
-  "start_url": "/",
   "display": "standalone",
   "display_override": [
     "window-controls-overlay",
@@ -25,9 +25,9 @@
   "icons": [
     {
       "src": "/logo.svg",
-      "sizes": "192x192 512x512",
+      "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "https://placehold.co/192x192/4f46e5/ffffff.png?text=RC",
@@ -42,13 +42,13 @@
       "purpose": "maskable"
     },
     {
-      "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=RC",
+      "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=RC",
+      "src": "https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
