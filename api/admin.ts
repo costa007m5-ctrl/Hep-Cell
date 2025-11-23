@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
-import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
 
 // --- Helper Functions ---
@@ -103,7 +102,8 @@ async function handleManageProfile(req: VercelRequest, res: VercelResponse) {
             if (resetPassword) {
                 const { data: user } = await supabase.from('profiles').select('email').eq('id', id).single();
                 if (user?.email) {
-                    await supabase.auth.admin.resetPasswordForEmail(user.email);
+                    // auth.resetPasswordForEmail está disponível no cliente supabase, não no admin namespace especificamente para envio de email
+                    await supabase.auth.resetPasswordForEmail(user.email);
                     await logAction(supabase, 'PASSWORD_RESET', 'SUCCESS', `Reset de senha enviado para ${user.email}`);
                 }
             }
@@ -141,7 +141,7 @@ async function handleUploadDocument(req: VercelRequest, res: VercelResponse) {
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, totalAmount, installments, productName, saleType, paymentMethod, downPayment, signature, dueDay, sellerName, tradeInValue } = req.body;
+        const { userId, totalAmount, installments, productName, saleType, paymentMethod, downPayment, signature, dueDay, sellerName } = req.body;
 
         // Validações
         if (!userId || !totalAmount || !productName) {
@@ -155,7 +155,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         }
 
         const newInvoices = [];
-        const amountPerInstallment = totalAmount / installments;
         const today = new Date();
         let currentMonth = today.getMonth(); // 0-11
         let currentYear = today.getFullYear();
@@ -240,10 +239,9 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { userId, invoiceIds, totalAmount, installments, firstDueDate, interestRate } = req.body;
+        const { userId, invoiceIds, totalAmount, installments, firstDueDate } = req.body;
         if (!userId || !invoiceIds || invoiceIds.length === 0) return res.status(400).json({ error: "Selecione faturas." });
 
-        const contractText = `TERMO DE CONFISSÃO DE DÍVIDA E RENEGOCIAÇÃO...`;
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: `Acordo de Renegociação (${new Date().toLocaleDateString()})`,
@@ -343,16 +341,22 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                 contents: { parts: [{ text: `Create a high quality advertising banner based on: ${description}. Additional request: ${prompt}. Professional lighting, 4k.` }] }
              });
              
-             for (const part of imageResponse.candidates[0].content.parts) {
-                if (part.inlineData) generatedImageBase64 = `data:image/png;base64,${part.inlineData.data}`;
+             const parts = imageResponse.candidates?.[0]?.content?.parts;
+             if (parts) {
+                for (const part of parts) {
+                    if (part.inlineData) generatedImageBase64 = `data:image/png;base64,${part.inlineData.data}`;
+                }
              }
         } else {
             const imageResponse = await ai.models.generateContent({
                 model: 'gemini-2.5-flash-image',
                 contents: { parts: [{ text: `Create a professional advertising banner for a tech store. Theme: ${prompt}. High quality, photorealistic, minimalist background.` }] }
             });
-             for (const part of imageResponse.candidates[0].content.parts) {
-                if (part.inlineData) generatedImageBase64 = `data:image/png;base64,${part.inlineData.data}`;
+             const parts = imageResponse.candidates?.[0]?.content?.parts;
+             if (parts) {
+                for (const part of parts) {
+                    if (part.inlineData) generatedImageBase64 = `data:image/png;base64,${part.inlineData.data}`;
+                }
              }
         }
 
@@ -441,7 +445,7 @@ async function handleBanners(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
 }
 
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     // SQL Completo para garantir todas as tabelas necessárias
     const SQL = `
     -- Tabela de Banners (Com coluna location adicionada)
