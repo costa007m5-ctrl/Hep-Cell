@@ -1,14 +1,14 @@
 
-const CACHE_NAME = 'relp-cell-v24-fix-icons';
+const CACHE_NAME = 'relp-cell-v23-ultra-pwa';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  'https://placehold.co/192x192/4f46e5/ffffff.png',
-  'https://placehold.co/512x512/4f46e5/ffffff.png'
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=RC'
 ];
 
-// Instalação: Cacheia o Shell do App (HTML + Assets básicos)
+// Instalação: Cacheia os arquivos essenciais imediatamente
 self.addEventListener('install', (event) => {
   self.skipWaiting(); // Força o SW a ativar imediatamente
   event.waitUntil(
@@ -34,26 +34,19 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: Estratégia Network First com Fallback para Cache (SPA Friendly)
+// Fetch: Stale-While-Revalidate para Assets, Network First para HTML
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Ignora requisições API, Chrome Extensions, ou métodos não-GET
-  // Nota: Permitimos requisições cross-origin para imagens (placehold.co) passarem
+  // Ignora requisições de API (sempre rede) e outros métodos
   if (event.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.protocol.startsWith('chrome-extension')) {
     return;
   }
 
-  // 2. Tratamento de Navegação (HTML)
+  // Navegação (HTML): Tenta rede primeiro, fallback para cache (Offline)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
-        .then((networkResponse) => {
-          return caches.open(CACHE_NAME).then((cache) => {
-            cache.put('/', networkResponse.clone());
-            return networkResponse;
-          });
-        })
         .catch(() => {
           return caches.match('/index.html') || caches.match('/');
         })
@@ -61,7 +54,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Tratamento de Assets
+  // Assets Estáticos: Cache First com atualização em background
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -98,8 +91,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png',
-    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png',
+    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
+    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };
