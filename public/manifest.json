@@ -48,18 +48,46 @@
   ],
   "screenshots": [
     {
-      "src": "https://placehold.co/750x1334/4f46e5/ffffff.png?text=Inicio+Relp+Cell",
-      "sizes": "750x1334",
+      "src": "/screenshots/mobile_login_screen.png",
+      "sizes": "1024x1820",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Tela Inicial e Limites"
+      "label": "Tela de Login - Acesso Fácil e Seguro"
     },
     {
-      "src": "https://placehold.co/1280x800/4f46e5/ffffff.png?text=Relp+Cell+Desktop",
-      "sizes": "1280x800",
+      "src": "/screenshots/mobile_invoices_dashboard.png",
+      "sizes": "1024x1820",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Faturas - Gerencie seus Pagamentos"
+    },
+    {
+      "src": "/screenshots/mobile_payment_screen.png",
+      "sizes": "1024x1820",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Pagamentos - PIX, Cartão e Boleto"
+    },
+    {
+      "src": "/screenshots/tablet_store_view.png",
+      "sizes": "1365x1024",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Versão Desktop"
+      "label": "Loja - Compre com seu Crédito"
+    },
+    {
+      "src": "/screenshots/desktop_credit_dashboard.png",
+      "sizes": "1820x1024",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dashboard - Análise de Crédito com IA"
+    },
+    {
+      "src": "/screenshots/desktop_admin_panel.png",
+      "sizes": "1820x1024",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Painel Admin - Gestão Completa"
     }
   ],
   "shortcuts": [
