@@ -1,13 +1,12 @@
 
-const CACHE_NAME = 'relp-cell-v26-fix-tools';
+const CACHE_NAME = 'relp-cell-v28-cloud-icons';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-192-maskable.png',
-  '/icons/icon-512-maskable.png'
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp',
+  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Faturas'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
@@ -60,7 +59,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Atualiza o cache em background
+        // Atualiza o cache em background (apenas para mesma origem ou imagens conhecidas)
         fetch(event.request).then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
                 caches.open(CACHE_NAME).then((cache) => {
@@ -73,6 +72,14 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request).then((networkResponse) => {
         if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+          // Para assets externos (como placehold.co), type pode ser 'cors'
+          if (networkResponse.type === 'cors' && (url.hostname === 'placehold.co' || url.hostname === 'cdn.tailwindcss.com')) {
+             const responseToCache = networkResponse.clone();
+             caches.open(CACHE_NAME).then((cache) => {
+               cache.put(event.request, responseToCache);
+             });
+             return networkResponse;
+          }
           return networkResponse;
         }
         const responseToCache = networkResponse.clone();
@@ -93,8 +100,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
+    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };
