@@ -1,11 +1,11 @@
 
-const CACHE_NAME = 'relp-cell-v23-ultra-pwa';
+const CACHE_NAME = 'relp-cell-v24-pwa-icons-fix';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
-  'https://placehold.co/512x512/4f46e5/ffffff.png?text=RC'
+  '/icons/icon-192.svg',
+  '/icons/icon-512.svg'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
@@ -83,7 +83,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// --- Funcionalidades Avançadas PWA (Para PWABuilder Score) ---
+// --- Funcionalidades Avançadas PWA ---
 
 // 1. Push Notifications
 self.addEventListener('push', (event) => {
@@ -91,8 +91,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=RC',
-    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
+    icon: '/icons/icon-192.svg',
+    badge: '/icons/icon-192.svg',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };
@@ -108,24 +108,4 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.openWindow(event.notification.data.url || '/')
   );
-});
-
-// 3. Background Sync
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-invoices') {
-    // Lógica futura para sincronizar faturas em background
-    console.log('[SW] Background Sync disparado para faturas.');
-  }
-});
-
-// 4. Periodic Background Sync
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'update-content') {
-    console.log('[SW] Periodic Sync disparado.');
-    event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.add('/'); // Atualiza a home periodicamente
-        })
-    );
-  }
 });
