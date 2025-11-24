@@ -1,11 +1,13 @@
 
-const CACHE_NAME = 'relp-cell-v24-pwa-icons-fix';
+const CACHE_NAME = 'relp-cell-v26-fix-tools';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icons/icon-192.svg',
-  '/icons/icon-512.svg'
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-192-maskable.png',
+  '/icons/icon-512-maskable.png'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
@@ -91,8 +93,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: '/icons/icon-192.svg',
-    badge: '/icons/icon-192.svg',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };

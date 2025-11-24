@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Ícones PWA - Relp Cell</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; text-align: center; background-color: #f8fafc; color: #334155; }
+        h1 { color: #4f46e5; margin-bottom: 10px; }
+        p { margin-bottom: 30px; line-height: 1.5; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; display: flex; flex-direction: column; align-items: center; }
+        canvas { margin-bottom: 15px; border-radius: 20%; border: 1px dashed #cbd5e1; }
+        button { background-color: #4f46e5; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s; width: 100%; }
+        button:hover { background-color: #4338ca; }
+        .note { font-size: 0.8rem; color: #64748b; margin-top: 40px; background: #e0e7ff; padding: 10px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <h1>Correção de Ícones PWA</h1>
+    <p>Como os arquivos gerados pela IA são baseados em texto, eles aparecem corrompidos (!).<br>Use esta ferramenta para gerar os <strong>PNGs binários reais</strong> e substitua-os na pasta <code>public/icons/</code>.</p>
+
+    <div class="grid">
+        <!-- 192x192 Any -->
+        <div class="card">
+            <canvas id="canvas192" width="192" height="192"></canvas>
+            <button onclick="download('canvas192', 'icon-192.png')">Baixar icon-192.png</button>
+        </div>
+
+        <!-- 512x512 Any -->
+        <div class="card">
+            <canvas id="canvas512" width="512" height="512"></canvas>
+            <button onclick="download('canvas512', 'icon-512.png')">Baixar icon-512.png</button>
+        </div>
+
+        <!-- 192x192 Maskable (Com Margem) -->
+        <div class="card">
+            <canvas id="canvas192m" width="192" height="192"></canvas>
+            <button onclick="download('canvas192m', 'icon-192-maskable.png')">Baixar Maskable 192</button>
+        </div>
+
+        <!-- 512x512 Maskable (Com Margem) -->
+        <div class="card">
+            <canvas id="canvas512m" width="512" height="512"></canvas>
+            <button onclick="download('canvas512m', 'icon-512-maskable.png')">Baixar Maskable 512</button>
+        </div>
+    </div>
+
+    <div class="note">
+        Após baixar, mova os arquivos para a pasta <strong>public/icons/</strong> do seu projeto, substituindo os existentes.
+    </div>
+
+    <script>
+        // O SVG Original do Logo
+        const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><defs><linearGradient id="relpGradient" x1="0" y1="0" x2="200" y2="200" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4f46e5" /><stop offset="100%" stop-color="#7c3aed" /></linearGradient><filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4" result="blur" /><feComposite in="SourceGraphic" in2="blur" operator="over" /></filter><style>@keyframes signal-pulse {0% { stroke-opacity: 0.2; stroke-width: 6; }50% { stroke-opacity: 1; stroke-width: 8; }100% { stroke-opacity: 0.2; stroke-width: 6; }}.signal-wave-1 {animation: signal-pulse 1.5s infinite ease-in-out;}.signal-wave-2 {animation: signal-pulse 1.5s infinite ease-in-out 0.4s;}</style></defs><rect x="40" y="20" width="120" height="160" rx="25" fill="url(#relpGradient)" filter="url(#glow)" /><rect x="55" y="45" width="90" height="70" rx="8" fill="white" fill-opacity="0.15" /><path d="M75 135 V 65 H 105 C 125 65, 125 85, 105 85 H 75 M 105 85 L 125 135" stroke="white" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" /><path class="signal-wave-1" d="M135 40 A 20 20 0 0 1 155 60" stroke="#4ade80" stroke-width="6" stroke-linecap="round" fill="none" /><path class="signal-wave-2" d="M145 30 A 35 35 0 0 1 170 65" stroke="#4ade80" stroke-width="6" stroke-linecap="round" fill="none" /><circle cx="100" cy="155" r="6" fill="white" fill-opacity="0.8" /></svg>`;
+
+        function drawIcon(canvasId, size, isMaskable = false) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            const blob = new Blob([svgContent], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+
+            img.onload = () => {
+                ctx.clearRect(0, 0, size, size);
+                
+                // Para ícones maskable, reduzimos um pouco o tamanho (80%) e centralizamos para garantir a área segura
+                if (isMaskable) {
+                    const padding = size * 0.1; // 10% de margem em cada lado
+                    const iconSize = size * 0.8;
+                    // Fundo branco para maskable (opcional, mas recomendado para evitar fundo preto no Android)
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0,0,size,size); 
+                    ctx.drawImage(img, padding, padding, iconSize, iconSize);
+                } else {
+                    ctx.drawImage(img, 0, 0, size, size);
+                }
+                
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        }
+
+        function download(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Renderiza todos ao carregar
+        window.onload = () => {
+            drawIcon('canvas192', 192, false);
+            drawIcon('canvas512', 512, false);
+            drawIcon('canvas192m', 192, true);
+            drawIcon('canvas512m', 512, true);
+        };
+    </script>
+</body>
+</html>
