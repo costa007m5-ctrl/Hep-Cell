@@ -1,12 +1,13 @@
 
-const CACHE_NAME = 'relp-cell-v28-cloud-icons';
+const CACHE_NAME = 'relp-cell-v30-png-icons';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
-  'https://placehold.co/512x512/4f46e5/ffffff.png?text=Relp',
-  'https://placehold.co/192x192/4f46e5/ffffff.png?text=Faturas'
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-192-maskable.png',
+  '/icons/icon-512-maskable.png'
 ];
 
 // Instalação: Cacheia os arquivos essenciais imediatamente
@@ -100,8 +101,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Relp Cell';
   const options = {
     body: data.body || 'Nova atualização disponível.',
-    icon: 'https://placehold.co/192x192/4f46e5/ffffff.png?text=Relp',
-    badge: 'https://placehold.co/96x96/4f46e5/ffffff.png?text=R',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/' }
   };
