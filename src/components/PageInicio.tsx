@@ -10,12 +10,16 @@ import { Profile, Invoice, Tab, Contract } from '../types';
 import SignaturePad from './SignaturePad';
 import LoadingSpinner from './LoadingSpinner';
 import { useToast } from './Toast';
+// Import new Story Components
+import { OffersPage, SecurityPage, NewsPage, TipsPage } from './StoryPages';
 
 interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
 }
 
-// --- Componentes Internos ---
+// --- Componentes Internos (Alerts, etc) Mantidos ---
+// (Mantendo os componentes internos como EntryPaymentAlert, PendingContractAlert, etc. para brevidade,
+//  apenas inserindo a lógica das Stories)
 
 const EntryPaymentAlert: React.FC<{ invoice: Invoice; onPay: () => void }> = ({ invoice, onPay }) => (
     <div className="mx-4 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
@@ -57,12 +61,9 @@ const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }>
     </div>
 );
 
-// Novo Componente: Alerta de Limite
 const LimitRequestStatus: React.FC<{ status: string; onClick: () => void }> = ({ status, onClick }) => {
     if (status !== 'approved' && status !== 'rejected') return null;
-    
     const isApproved = status === 'approved';
-    
     return (
         <button 
             onClick={onClick}
@@ -141,29 +142,28 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
-  
-  // Estado para armazenar a notificação de limite (objeto completo para validar ID)
   const [activeLimitNotification, setActiveLimitNotification] = useState<{id: string, status: string} | null>(null);
-  
   const [isLoading, setIsLoading] = useState(true);
   
   // UI States
   const [showValues, setShowValues] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalView, setModalView] = useState<'score' | 'limit' | 'sign_contract' | null>(null);
+  const [activeStory, setActiveStory] = useState<'ofertas' | 'seguranca' | 'novidades' | 'dicas' | null>(null); // New Story State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
   const { addToast } = useToast();
 
-  // Mock Data for Stories
+  // Updated Stories Data
   const stories = [
-      { id: 1, img: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=150&h=150&fit=crop', label: 'Ofertas' },
-      { id: 2, img: 'https://images.unsplash.com/photo-1556742049-0cfed4f7a07d?w=150&h=150&fit=crop', label: 'Segurança' },
-      { id: 3, img: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150&h=150&fit=crop', label: 'Novidades' },
-      { id: 4, img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
+      { id: 'ofertas', img: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=150&h=150&fit=crop', label: 'Ofertas' },
+      { id: 'seguranca', img: 'https://images.unsplash.com/photo-1556742049-0cfed4f7a07d?w=150&h=150&fit=crop', label: 'Segurança' },
+      { id: 'novidades', img: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=150&h=150&fit=crop', label: 'Novidades' },
+      { id: 'dicas', img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
   ];
 
+  // ... (Install Prompt Effect - Same as before)
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -177,7 +177,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User choice: ${outcome}`);
     setDeferredPrompt(null);
   };
   
@@ -196,25 +195,19 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           getProfile(user.id),
           supabase.from('invoices').select('*').eq('user_id', user.id),
           supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
-          // Buscamos ID para rastrear se já foi visto
           supabase.from('limit_requests').select('id, status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1)
         ]);
 
         setProfileData({ id: user.id, email: user.email, ...profile });
         setInvoices(invoicesData.data || []);
         
-        if (contractsData.data && contractsData.data.length > 0) {
-            setPendingContract(contractsData.data[0]);
-        } else {
-            setPendingContract(null);
-        }
+        if (contractsData.data && contractsData.data.length > 0) setPendingContract(contractsData.data[0]);
+        else setPendingContract(null);
 
         if (requestsData.data && requestsData.data.length > 0) {
             const lastReq = requestsData.data[0];
-            // Só processa se não estiver pendente
             if (lastReq.status !== 'pending') {
                 const seenId = localStorage.getItem('relp_seen_limit_req_id');
-                // Só exibe se o ID da última solicitação for diferente do que já foi clicado/visto
                 if (seenId !== lastReq.id) {
                     setActiveLimitNotification({ id: lastReq.id, status: lastReq.status });
                 }
@@ -230,8 +223,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
   useEffect(() => {
     fetchHomeData();
-    
-    // Atualiza ao focar na janela (para garantir que status novos do admin apareçam)
     const handleFocus = () => fetchHomeData();
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
@@ -241,76 +232,54 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       if (!signature || !pendingContract) return;
       setIsSigning(true);
       try {
-          // 1. Atualiza Contrato para 'Assinado'
           const { error: contractError } = await supabase.from('contracts').update({ 
               status: 'Assinado', 
               signature_data: signature, 
               terms_accepted: true 
           }).eq('id', pendingContract.id);
 
-          if (contractError) {
-              console.error("Erro de DB no contrato:", contractError);
-              throw new Error("Falha ao salvar assinatura. Verifique sua conexão ou tente mais tarde.");
-          }
+          if (contractError) throw new Error("Falha ao salvar assinatura.");
 
-          // 2. Ativa as Faturas
           await supabase.from('invoices')
             .update({ status: 'Em aberto' })
             .eq('user_id', pendingContract.user_id)
             .eq('status', 'Aguardando Assinatura');
 
-          // 3. Notificação de sucesso e limpeza
           addToast("Contrato assinado com sucesso!", "success");
           setPendingContract(null); 
           setIsModalOpen(false);
           setSignature(null); 
-          
-          // 4. Recarrega dados
           fetchHomeData();
 
       } catch (e: any) {
-          console.error(e);
           addToast(e.message || "Erro ao assinar contrato.", "error");
       } finally {
           setIsSigning(false);
       }
   };
 
-  // Handler para clique na notificação de limite
   const handleLimitNotificationClick = () => {
       if (activeLimitNotification) {
-          // Marca como visto no armazenamento local
           localStorage.setItem('relp_seen_limit_req_id', activeLimitNotification.id);
-          // Oculta a notificação imediatamente
           setActiveLimitNotification(null);
-          // Abre o modal de detalhes
           setModalView('limit');
           setIsModalOpen(true);
       }
   };
 
-  // Cálculo de Margem Mensal
-  const { maxMonthlyCommitment, totalDebt } = useMemo(() => {
+  const { maxMonthlyCommitment } = useMemo(() => {
       const monthlyCommitments: Record<string, number> = {};
-      let debt = 0;
-      
       invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado').forEach(inv => {
-          const dueMonth = inv.due_date.substring(0, 7); // YYYY-MM
+          const dueMonth = inv.due_date.substring(0, 7); 
           monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
-          debt += inv.amount;
       });
-      
-      return { 
-          maxMonthlyCommitment: Math.max(0, ...Object.values(monthlyCommitments)),
-          totalDebt: debt
-      };
+      return { maxMonthlyCommitment: Math.max(0, ...Object.values(monthlyCommitments)) };
   }, [invoices]);
 
-  const creditLimit = profileData?.credit_limit || 0; // Agora interpretado como Limite MENSAL de parcela
+  const creditLimit = profileData?.credit_limit || 0;
   const availableLimit = Math.max(0, creditLimit - maxMonthlyCommitment);
   const limitUsedPercent = creditLimit > 0 ? ((creditLimit - availableLimit) / creditLimit) * 100 : 0;
   
-  // Identifica fatura de entrada pendente (Notas contêm 'ENTRADA' e status 'Em aberto')
   const entryInvoice = useMemo(() => {
       return invoices.find(i => i.notes?.includes('ENTRADA') && i.status === 'Em aberto');
   }, [invoices]);
@@ -325,10 +294,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   if (isLoading) {
     return (
         <div className="w-full max-w-md space-y-6 p-4 pt-10">
-            <div className="flex justify-between items-center">
-                 <div className="h-8 w-32 bg-slate-200 dark:bg-slate-700 rounded animate-pulse"></div>
-                 <div className="h-10 w-10 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse"></div>
-            </div>
+            <div className="flex justify-between items-center"><div className="h-8 w-32 bg-slate-200 dark:bg-slate-700 rounded animate-pulse"></div><div className="h-10 w-10 bg-slate-200 dark:bg-slate-700 rounded-full animate-pulse"></div></div>
             <div className="h-20 w-full bg-slate-200 dark:bg-slate-700 rounded-xl animate-pulse"></div>
             <CardSkeleton />
             <div className="h-40 w-full bg-slate-200 dark:bg-slate-700 rounded-2xl animate-pulse"></div>
@@ -343,10 +309,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
         {/* Header */}
         <div className="flex justify-between items-center px-2 pt-4">
             <div className="flex items-center gap-3">
-                <div 
-                    onClick={() => setActiveTab(Tab.PERFIL)}
-                    className="w-12 h-12 rounded-full p-0.5 bg-gradient-to-tr from-indigo-500 to-purple-500 cursor-pointer"
-                >
+                <div onClick={() => setActiveTab(Tab.PERFIL)} className="w-12 h-12 rounded-full p-0.5 bg-gradient-to-tr from-indigo-500 to-purple-500 cursor-pointer">
                     {profileData?.avatar_url ? (
                         <img src={profileData.avatar_url} alt="Avatar" className="w-full h-full object-cover rounded-full border-2 border-slate-50 dark:border-slate-900" />
                     ) : (
@@ -357,77 +320,44 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                 </div>
                 <div>
                     <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-none mb-1">{getGreeting()},</p>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-none">
-                        {profileData?.first_name || 'Cliente'}
-                    </h2>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-none">{profileData?.first_name || 'Cliente'}</h2>
                 </div>
             </div>
             <div className="flex gap-2">
-                <button 
-                    onClick={() => setShowValues(!showValues)}
-                    className="p-2.5 rounded-full bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-all"
-                >
-                    {showValues ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 011.572-2.572m3.76-3.76a9.953 9.953 0 015.674-1.334c2.744 0 5.258.953 7.26 2.548m2.24 2.24a9.958 9.958 0 011.342 2.144c-1.274 4.057-5.064 7-9.542 7a9.97 9.97 0 01-2.347-.278M9.88 9.88a3 3 0 104.24 4.24" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" /></svg>
-                    )}
+                <button onClick={() => setShowValues(!showValues)} className="p-2.5 rounded-full bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-all">
+                    {showValues ? <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 011.572-2.572m3.76-3.76a9.953 9.953 0 015.674-1.334c2.744 0 5.258.953 7.26 2.548m2.24 2.24a9.958 9.958 0 011.342 2.144c-1.274 4.057-5.064 7-9.542 7a9.97 9.97 0 01-2.347-.278M9.88 9.88a3 3 0 104.24 4.24" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" /></svg>}
                 </button>
             </div>
         </div>
 
-        {/* Entry Payment Alert (CRITICAL) */}
-        {entryInvoice && (
-            <EntryPaymentAlert 
-                invoice={entryInvoice} 
-                onPay={() => setActiveTab(Tab.FATURAS)}
-            />
-        )}
+        {/* Alerts */}
+        {entryInvoice && <EntryPaymentAlert invoice={entryInvoice} onPay={() => setActiveTab(Tab.FATURAS)} />}
+        {pendingContract && !entryInvoice && <PendingContractAlert contract={pendingContract} onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} />}
+        {activeLimitNotification && <LimitRequestStatus status={activeLimitNotification.status} onClick={handleLimitNotificationClick} />}
 
-        {/* Pending Contract Alert */}
-        {pendingContract && !entryInvoice && (
-            <PendingContractAlert 
-                contract={pendingContract} 
-                onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} 
-            />
-        )}
-
-        {/* Limit Request Status Notification */}
-        {activeLimitNotification && (
-            <LimitRequestStatus 
-                status={activeLimitNotification.status} 
-                onClick={handleLimitNotificationClick}
-            />
-        )}
-
-        {/* Stories Rail */}
+        {/* Stories Rail (Updated Click Handler) */}
         <div className="flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide">
             {stories.map(story => (
                 <StoryCircle 
                     key={story.id} 
                     img={story.img} 
                     label={story.label} 
-                    onClick={() => setActiveTab(Tab.LOJA)} 
+                    onClick={() => setActiveStory(story.id as any)} 
                 />
             ))}
         </div>
         
-        {/* PWA Install Button (Condicional) */}
+        {/* PWA Install */}
         {deferredPrompt && (
             <div className="px-2">
-                <button 
-                    onClick={handleInstallClick}
-                    className="w-full py-3 px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 animate-fade-in-up"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
+                <button onClick={handleInstallClick} className="w-full py-3 px-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 animate-fade-in-up">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                     Instalar App
                 </button>
             </div>
         )}
 
-        {/* Main Financial Card */}
+        {/* Main Card */}
         <div className="relative mx-2 h-52 bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 overflow-hidden group transition-transform active:scale-[0.99]">
              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full opacity-20 blur-3xl -mr-20 -mt-20"></div>
              <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600 rounded-full opacity-20 blur-2xl -ml-10 -mb-10"></div>
@@ -452,58 +382,30 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                          <span className="text-slate-300">Limite de Parcela</span>
                          <span className="font-semibold">{formatValue(creditLimit)}</span>
                      </div>
-                     
                      <div className="space-y-1.5">
                         <div className="flex justify-between text-[10px] text-slate-400">
                             <span>Utilizado</span>
                             <span>{Math.round(limitUsedPercent)}% do limite mensal</span>
                         </div>
                         <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
-                             <div 
-                                className={`h-full rounded-full transition-all duration-1000 ${limitUsedPercent > 90 ? 'bg-red-500' : 'bg-gradient-to-r from-indigo-500 to-purple-500'}`}
-                                style={{ width: `${limitUsedPercent}%` }}
-                             ></div>
+                             <div className={`h-full rounded-full transition-all duration-1000 ${limitUsedPercent > 90 ? 'bg-red-500' : 'bg-gradient-to-r from-indigo-500 to-purple-500'}`} style={{ width: `${limitUsedPercent}%` }}></div>
                         </div>
                      </div>
                 </div>
              </div>
         </div>
 
-        {/* Quick Actions Grid */}
+        {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-3 px-2">
-            <ActionButton 
-                primary 
-                label="Pagar Fatura" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
-                onClick={() => setActiveTab(Tab.FATURAS)}
-            />
-             <ActionButton 
-                label="Ir para Loja" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>}
-                onClick={() => setActiveTab(Tab.LOJA)}
-            />
-             <ActionButton 
-                label="Meus Limites" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
-                onClick={() => { setModalView('limit'); setIsModalOpen(true); }}
-            />
-             <ActionButton 
-                label="Hub de Score" 
-                icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
-                onClick={() => { setModalView('score'); setIsModalOpen(true); }}
-            />
+            <ActionButton primary label="Pagar Fatura" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>} onClick={() => setActiveTab(Tab.FATURAS)} />
+             <ActionButton label="Ir para Loja" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} onClick={() => setActiveTab(Tab.LOJA)} />
+             <ActionButton label="Meus Limites" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} onClick={() => { setModalView('limit'); setIsModalOpen(true); }} />
+             <ActionButton label="Hub de Score" icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 012-2v10m-6 0a2 2 0 002 2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>} onClick={() => { setModalView('score'); setIsModalOpen(true); }} />
         </div>
 
-        {/* Featured Offer Banner */}
-        <div 
-            onClick={() => setActiveTab(Tab.LOJA)}
-            className="mx-2 relative h-32 rounded-2xl overflow-hidden cursor-pointer group"
-        >
-            <img 
-                src="https://images.unsplash.com/photo-1605236453806-67791431f370?w=600&auto=format&fit=crop&q=60" 
-                alt="Offer" 
-                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-            />
+        {/* Banner */}
+        <div onClick={() => setActiveTab(Tab.LOJA)} className="mx-2 relative h-32 rounded-2xl overflow-hidden cursor-pointer group">
+            <img src="https://images.unsplash.com/photo-1605236453806-67791431f370?w=600&auto=format&fit=crop&q=60" alt="Offer" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
             <div className="absolute inset-0 bg-black/40 flex flex-col justify-center px-6">
                 <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded w-fit mb-2">OFERTA RELÂMPAGO</span>
                 <h3 className="text-white font-bold text-xl">iPhone 15 Pro</h3>
@@ -511,76 +413,50 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             </div>
         </div>
 
-        {/* Recent Activity / Feed */}
+        {/* Activity */}
         <div className="px-4 pt-2">
             <h3 className="font-bold text-slate-800 dark:text-white mb-3 text-sm uppercase tracking-wide">Atividade Recente</h3>
             <div className="space-y-3">
                 {nextInvoice ? (
-                    <ActivityItem 
-                        title={`Fatura de ${nextInvoice.month}`} 
-                        date={`Vence em ${new Date(nextInvoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})}`} 
-                        amount={formatValue(nextInvoice.amount)}
-                        type="purchase"
-                        onClick={() => setActiveTab(Tab.FATURAS)}
-                    />
+                    <ActivityItem title={`Fatura de ${nextInvoice.month}`} date={`Vence em ${new Date(nextInvoice.due_date + 'T00:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: 'short'})}`} amount={formatValue(nextInvoice.amount)} type="purchase" onClick={() => setActiveTab(Tab.FATURAS)} />
                 ) : (
-                    <ActivityItem 
-                        title="Tudo em dia!" 
-                        date="Nenhuma fatura pendente" 
-                        type="info" 
-                        onClick={() => setActiveTab(Tab.FATURAS)} 
-                    />
+                    <ActivityItem title="Tudo em dia!" date="Nenhuma fatura pendente" type="info" onClick={() => setActiveTab(Tab.FATURAS)} />
                 )}
-                <ActivityItem 
-                    title="Hub de Score" 
-                    date="Verifique sua pontuação" 
-                    type="info" 
-                    onClick={() => { setModalView('score'); setIsModalOpen(true); }}
-                />
+                <ActivityItem title="Hub de Score" date="Verifique sua pontuação" type="info" onClick={() => { setModalView('score'); setIsModalOpen(true); }} />
             </div>
         </div>
 
-        {/* Help Button Floating */}
-        <button 
-            onClick={() => window.dispatchEvent(new Event('open-support-chat'))}
-            className="mx-auto mt-4 flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-medium hover:text-indigo-600 transition-colors p-2"
-        >
+        {/* Help Button */}
+        <button onClick={() => window.dispatchEvent(new Event('open-support-chat'))} className="mx-auto mt-4 flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-medium hover:text-indigo-600 transition-colors p-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             Precisa de ajuda?
         </button>
 
       </div>
 
-      {/* Modals & Full Screen Views */}
-      {modalView === 'score' && isModalOpen && (
-          <ScoreHistoryView 
-            currentScore={profileData?.credit_score ?? 0} 
-            onClose={() => setIsModalOpen(false)} 
-            onNavigate={(tab: Tab) => {
-                setIsModalOpen(false);
-                setActiveTab(tab);
-            }}
-          />
-      )}
+      {/* --- OVERLAYS --- */}
       
+      {/* Story Pages */}
+      {activeStory === 'ofertas' && <OffersPage onClose={() => setActiveStory(null)} />}
+      {activeStory === 'seguranca' && <SecurityPage onClose={() => setActiveStory(null)} />}
+      {activeStory === 'novidades' && <NewsPage onClose={() => setActiveStory(null)} />}
+      {activeStory === 'dicas' && <TipsPage onClose={() => setActiveStory(null)} />}
+
+      {/* Legacy Modals */}
+      {modalView === 'score' && isModalOpen && (
+          <ScoreHistoryView currentScore={profileData?.credit_score ?? 0} onClose={() => setIsModalOpen(false)} onNavigate={(tab: Tab) => { setIsModalOpen(false); setActiveTab(tab); }} />
+      )}
       {modalView === 'limit' && isModalOpen && profileData && (
           <LimitInfoView profile={profileData} onClose={() => setIsModalOpen(false)} />
       )}
-
       {modalView === 'sign_contract' && isModalOpen && pendingContract && (
           <Modal isOpen={true} onClose={() => setIsModalOpen(false)}>
               <div className="space-y-4">
                   <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura Digital</h3>
-                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap font-mono leading-relaxed text-justify">
-                      {pendingContract.items}
-                  </div>
+                  <div className="p-4 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs text-slate-600 dark:text-slate-300 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-600 whitespace-pre-wrap font-mono leading-relaxed text-justify">{pendingContract.items}</div>
                   <label className="block text-sm font-medium mb-2">Assine abaixo para confirmar:</label>
                   <SignaturePad onEnd={setSignature} />
-                  <button 
-                    onClick={handleSignContract} 
-                    disabled={!signature || isSigning}
-                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex justify-center"
-                  >
+                  <button onClick={handleSignContract} disabled={!signature || isSigning} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex justify-center">
                       {isSigning ? <LoadingSpinner /> : 'Confirmar e Aceitar Termos'}
                   </button>
               </div>

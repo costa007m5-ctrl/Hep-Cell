@@ -1,5 +1,6 @@
 
 
+
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 export enum PaymentStatus {
@@ -81,8 +82,8 @@ export interface Profile {
   notify_promotions?: boolean;
   avatar_url?: string | null;
   preferred_due_day?: number;
-  salary?: number; // Adicionado
-  internal_notes?: string; // Adicionado
+  salary?: number; 
+  internal_notes?: string; 
 }
 
 export interface Product {
@@ -150,7 +151,7 @@ export interface LimitRequest {
     current_limit: number;
     justification: string | null;
     status: 'pending' | 'approved' | 'rejected';
-    admin_response_reason?: string; // Novo campo para feedback
+    admin_response_reason?: string; 
     created_at: string;
     updated_at?: string;
 }
@@ -166,4 +167,29 @@ export interface Contract {
     signature_data?: string | null;
     terms_accepted?: boolean;
     created_at: string;
+}
+
+// Novos Tipos para Enquetes e Logs
+export interface PollOption {
+    id: string;
+    poll_id: string;
+    text: string;
+    votes: number;
+}
+
+export interface Poll {
+    id: string;
+    question: string;
+    active: boolean;
+    created_at: string;
+    options?: PollOption[];
+}
+
+export interface ChangelogItem {
+    id: string;
+    version: string;
+    title: string;
+    description: string;
+    date: string;
+    type: 'feature' | 'fix' | 'improvement';
 }

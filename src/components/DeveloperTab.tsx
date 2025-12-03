@@ -295,7 +295,62 @@ const DeveloperTab: React.FC = () => {
     const SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
--- Tabela de Perfis (Com código de indicação)
+-- Tabela de Enquetes (Polls)
+CREATE TABLE IF NOT EXISTS "public"."polls" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "question" "text" NOT NULL,
+    "active" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "polls_pkey" PRIMARY KEY ("id")
+);
+ALTER TABLE "public"."polls" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public view polls" ON "public"."polls";
+CREATE POLICY "Public view polls" ON "public"."polls" FOR SELECT USING (true); -- Público vê
+
+-- Tabela de Opções de Enquete
+CREATE TABLE IF NOT EXISTS "public"."poll_options" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "poll_id" "uuid" NOT NULL,
+    "text" "text" NOT NULL,
+    "votes" integer DEFAULT 0,
+    CONSTRAINT "poll_options_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "poll_options_poll_id_fkey" FOREIGN KEY ("poll_id") REFERENCES "public"."polls"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."poll_options" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public view poll options" ON "public"."poll_options";
+CREATE POLICY "Public view poll options" ON "public"."poll_options" FOR SELECT USING (true);
+
+-- Tabela de Votos (Para evitar voto duplo)
+CREATE TABLE IF NOT EXISTS "public"."poll_votes" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "poll_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "option_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "poll_votes_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "poll_votes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."poll_votes" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users vote once" ON "public"."poll_votes";
+CREATE POLICY "Users vote once" ON "public"."poll_votes" FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users view own votes" ON "public"."poll_votes";
+CREATE POLICY "Users view own votes" ON "public"."poll_votes" FOR SELECT USING (auth.uid() = user_id);
+
+-- Tabela Changelog (Implementações Reais)
+CREATE TABLE IF NOT EXISTS "public"."app_changelog" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "version" "text",
+    "title" "text" NOT NULL,
+    "description" "text",
+    "date" timestamp with time zone DEFAULT "now"(),
+    "type" "text", -- 'feature', 'fix', 'improvement'
+    CONSTRAINT "app_changelog_pkey" PRIMARY KEY ("id")
+);
+ALTER TABLE "public"."app_changelog" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public read changelog" ON "public"."app_changelog";
+CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USING (true);
+
+-- Tabela de Perfis
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
@@ -306,7 +361,7 @@ CREATE TABLE IF NOT EXISTS "public"."referrals" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "referrer_id" "uuid" NOT NULL,
     "referee_id" "uuid" NOT NULL,
-    "status" "text" DEFAULT 'registered', -- registered, purchased, paid
+    "status" "text" DEFAULT 'registered',
     "reward_amount" numeric(10, 2) DEFAULT 0,
     "created_at" timestamp with time zone DEFAULT "now"(),
     CONSTRAINT "referrals_pkey" PRIMARY KEY ("id"),
@@ -315,7 +370,6 @@ CREATE TABLE IF NOT EXISTS "public"."referrals" (
 );
 ALTER TABLE "public"."referrals" ENABLE ROW LEVEL SECURITY;
 
--- Policies para Indicações (Permitir usuários verem suas próprias indicações)
 DROP POLICY IF EXISTS "Users view own referrals" ON "public"."referrals";
 CREATE POLICY "Users view own referrals" ON "public"."referrals" FOR SELECT USING (auth.uid() = referrer_id); 
 
@@ -331,7 +385,6 @@ ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_r
 ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
 ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
 
--- Policies para Limit Requests
 DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";
 DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_requests";
 CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
@@ -354,7 +407,6 @@ CREATE TABLE IF NOT EXISTS "public"."contracts" (
 );
 ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
 
--- Policies CRÍTICAS para Contratos
 DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
 DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
 
@@ -389,7 +441,7 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
                  <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-700 mb-6">
                     <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Atualização do Sistema</h3>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                        Clique no botão abaixo para garantir que a tabela <strong>referrals</strong> e a coluna <strong>referral_code</strong> estejam criadas corretamente no banco de dados. Isso é necessário para o sistema de indicação funcionar.
+                        Clique no botão abaixo para criar as novas tabelas de <strong>Enquetes (Polls)</strong> e <strong>Histórico de Versões (Changelog)</strong> no banco de dados. Isso habilitará as novas funcionalidades na aba Novidades.
                     </p>
                 </div>
 
@@ -412,7 +464,7 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
                     
                     <CodeBlock
                         title="Estrutura das Tabelas"
-                        explanation="Inclui tabelas de Contratos, Indicações e Limit Requests com as Policies corretas."
+                        explanation="Inclui tabelas de Enquetes, Changelog, Contratos, etc."
                         code={SETUP_SQL}
                     />
                 </div>
