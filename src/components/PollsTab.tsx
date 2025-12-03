@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -25,6 +24,7 @@ interface ChangelogItem {
     description: string;
     date: string;
     type: 'feature' | 'fix' | 'improvement';
+    is_public: boolean;
 }
 
 const PollsTab: React.FC = () => {
@@ -34,10 +34,11 @@ const PollsTab: React.FC = () => {
     const [newQuestion, setNewQuestion] = useState('');
     const [newOptions, setNewOptions] = useState(['', '']);
     const [isCreatingPoll, setIsCreatingPoll] = useState(false);
+    const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
     // --- Changelog States ---
     const [changelog, setChangelog] = useState<ChangelogItem[]>([]);
-    const [newLog, setNewLog] = useState({ version: '', title: '', description: '', type: 'feature' });
+    const [newLog, setNewLog] = useState({ version: '', title: '', description: '', type: 'feature', is_public: true });
     const [isCreatingLog, setIsCreatingLog] = useState(false);
 
     useEffect(() => {
@@ -79,6 +80,32 @@ const PollsTab: React.FC = () => {
         setNewOptions(updated);
     };
 
+    const handleGenerateAiPoll = async () => {
+        setIsGeneratingAI(true);
+        const topic = prompt("Sobre qual assunto você quer gerar a enquete? (Ex: Atendimento, Novos Produtos, Feedback)");
+        
+        try {
+            const response = await fetch('/api/admin/generate-poll', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic: topic || '' }) // Envia vazio se o usuário cancelar, a IA gera genérico
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                setNewQuestion(data.question);
+                setNewOptions(data.options || ['', '']);
+            } else {
+                alert("Erro ao gerar com IA: " + (data.error || 'Desconhecido'));
+            }
+        } catch (e) {
+            alert("Erro de conexão ao gerar com IA.");
+        } finally {
+            setIsGeneratingAI(false);
+        }
+    };
+
     const handleCreatePoll = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newQuestion || newOptions.some(o => !o.trim())) {
@@ -87,8 +114,8 @@ const PollsTab: React.FC = () => {
         }
         setIsCreatingPoll(true);
         try {
-            // 1. Desativa polls anteriores (opcional, regra de negócio: apenas 1 ativa por vez)
-            await supabase.from('polls').update({ active: false }).neq('id', '00000000-0000-0000-0000-000000000000'); // update all
+            // 1. Desativa polls anteriores
+            await supabase.from('polls').update({ active: false }).neq('id', '00000000-0000-0000-0000-000000000000'); 
 
             // 2. Cria Poll
             const { data: poll, error } = await supabase.from('polls').insert({ question: newQuestion, active: true }).select().single();
@@ -120,7 +147,7 @@ const PollsTab: React.FC = () => {
         setIsCreatingLog(true);
         try {
             await supabase.from('app_changelog').insert(newLog);
-            setNewLog({ version: '', title: '', description: '', type: 'feature' });
+            setNewLog({ version: '', title: '', description: '', type: 'feature', is_public: true });
             fetchChangelog();
         } catch (e) {
             alert("Erro ao salvar log.");
@@ -142,7 +169,23 @@ const PollsTab: React.FC = () => {
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Gerenciar Enquetes</h2>
                 
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                    <h3 className="font-bold mb-4 text-slate-800 dark:text-white">Nova Enquete</h3>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-slate-800 dark:text-white">Nova Enquete</h3>
+                        <button 
+                            type="button" 
+                            onClick={handleGenerateAiPoll} 
+                            disabled={isGeneratingAI}
+                            className="text-xs bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:shadow-md transition-all active:scale-95 disabled:opacity-50"
+                        >
+                            {isGeneratingAI ? <LoadingSpinner /> : (
+                                <>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
+                                    Sugestão com IA
+                                </>
+                            )}
+                        </button>
+                    </div>
+                    
                     <form onSubmit={handleCreatePoll} className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium mb-1">Pergunta</label>
@@ -225,13 +268,26 @@ const PollsTab: React.FC = () => {
                             <label className="block text-sm font-medium mb-1">Descrição</label>
                             <textarea required rows={2} value={newLog.description} onChange={e => setNewLog({...newLog, description: e.target.value})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600"></textarea>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium mb-1">Tipo</label>
-                            <select value={newLog.type} onChange={e => setNewLog({...newLog, type: e.target.value as any})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600">
-                                <option value="feature">Nova Funcionalidade</option>
-                                <option value="improvement">Melhoria</option>
-                                <option value="fix">Correção de Bug</option>
-                            </select>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Tipo</label>
+                                <select value={newLog.type} onChange={e => setNewLog({...newLog, type: e.target.value as any})} className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-600">
+                                    <option value="feature">Nova Funcionalidade</option>
+                                    <option value="improvement">Melhoria</option>
+                                    <option value="fix">Correção de Bug</option>
+                                </select>
+                            </div>
+                            <div className="flex items-end">
+                                <label className="flex items-center space-x-2 cursor-pointer p-2 border rounded-lg w-full bg-slate-50 dark:bg-slate-900/50 dark:border-slate-600">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={newLog.is_public}
+                                        onChange={e => setNewLog({...newLog, is_public: e.target.checked})}
+                                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Visível para Clientes?</span>
+                                </label>
+                            </div>
                         </div>
                         <button 
                             type="submit" 
@@ -245,7 +301,10 @@ const PollsTab: React.FC = () => {
 
                 <div className="space-y-3">
                     {changelog.map(log => (
-                        <div key={log.id} className="flex gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <div key={log.id} className="flex gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 relative">
+                            {!log.is_public && (
+                                <span className="absolute top-2 right-2 text-[9px] bg-slate-200 dark:bg-slate-700 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Interno</span>
+                            )}
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white shrink-0 ${
                                 log.type === 'feature' ? 'bg-purple-500' : log.type === 'fix' ? 'bg-red-500' : 'bg-blue-500'
                             }`}>
@@ -257,9 +316,12 @@ const PollsTab: React.FC = () => {
                                     <button onClick={() => handleDeleteLog(log.id)} className="text-slate-400 hover:text-red-500"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg></button>
                                 </div>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{log.description}</p>
-                                <div className="flex gap-2 mt-2">
-                                    {log.version && <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded font-mono">{log.version}</span>}
-                                    <span className="text-[10px] text-slate-400">{new Date(log.date).toLocaleDateString()}</span>
+                                <div className="flex gap-2 mt-2 items-center">
+                                    <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${log.type === 'feature' ? 'bg-purple-100 text-purple-700' : log.type === 'fix' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                        {log.type === 'feature' ? 'NOVIDADE' : log.type === 'fix' ? 'CORREÇÃO' : 'MELHORIA'}
+                                    </span>
+                                    {log.version && <span className="text-[9px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded font-mono text-slate-500">{log.version}</span>}
+                                    <span className="text-[9px] text-slate-400 ml-auto">{new Date(log.date).toLocaleDateString()}</span>
                                 </div>
                             </div>
                         </div>

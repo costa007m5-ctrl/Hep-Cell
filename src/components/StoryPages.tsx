@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useToast } from './Toast';
 import LoadingSpinner from './LoadingSpinner';
@@ -326,7 +325,7 @@ export const SecurityPage: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     );
 };
 
-// --- 3. NOVIDADES VIEW (Database Integrated) ---
+// --- 3. NOVIDADES VIEW (Redesigned & Filtered) ---
 export const NewsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const { addToast } = useToast();
     const [changelog, setChangelog] = useState<any[]>([]);
@@ -347,10 +346,11 @@ export const NewsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 
                 if (activePolls) setPolls(activePolls);
 
-                // 2. Busca Histórico de Versões Real
+                // 2. Busca Histórico de Versões Filtrado (Apenas Públicos)
                 const { data: logs } = await supabase
                     .from('app_changelog')
                     .select('*')
+                    .eq('is_public', true) // Filtro adicionado
                     .order('date', { ascending: false });
                 
                 if (logs) setChangelog(logs);
@@ -377,9 +377,7 @@ export const NewsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                // Registra voto
                 await supabase.from('poll_votes').insert({ poll_id: pollId, option_id: optionId, user_id: user.id });
-                // Incrementa contador
                 await supabase.rpc('increment_poll_vote', { option_id: optionId });
                 
                 setVotedPolls(prev => new Set(prev).add(pollId));
@@ -387,6 +385,15 @@ export const NewsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             }
         } catch (e) {
             addToast("Erro ao registrar voto.", "error");
+        }
+    };
+
+    const getTypeIcon = (type: string) => {
+        switch(type) {
+            case 'feature': return <span className="text-purple-600 bg-purple-100 p-2 rounded-lg">✨</span>;
+            case 'fix': return <span className="text-red-600 bg-red-100 p-2 rounded-lg">🔧</span>;
+            case 'improvement': return <span className="text-blue-600 bg-blue-100 p-2 rounded-lg">🚀</span>;
+            default: return <span className="text-slate-600 bg-slate-100 p-2 rounded-lg">📢</span>;
         }
     };
 
@@ -401,52 +408,78 @@ export const NewsPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             <div className="p-4 space-y-8">
                 
-                {/* Enquetes Ativas */}
+                {/* Enquetes Ativas (Card Moderno) */}
                 {polls.map(poll => (
-                    <div key={poll.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                        <h3 className="font-bold text-lg mb-3 text-slate-800 dark:text-white flex items-center gap-2">
-                            🗳️ {poll.question}
-                        </h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Sua opinião ajuda a melhorar o app.</p>
+                    <div key={poll.id} className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-3xl shadow-lg text-white relative overflow-hidden">
+                        {/* Background Decor */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
                         
-                        <div className="space-y-2">
-                            {poll.poll_options?.map((opt: any) => (
-                                <button 
-                                    key={opt.id}
-                                    onClick={() => handleVote(poll.id, opt.id)}
-                                    disabled={votedPolls.has(poll.id)}
-                                    className={`w-full p-3 rounded-xl border text-left flex justify-between items-center transition-all ${votedPolls.has(poll.id) ? 'bg-slate-100 dark:bg-slate-900 border-transparent opacity-70 cursor-default' : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-900/10 hover:border-purple-200 text-slate-700 dark:text-slate-300'}`}
-                                >
-                                    <span className="text-sm font-bold">{opt.text}</span>
-                                    {votedPolls.has(poll.id) && <span className="text-xs bg-slate-200 dark:bg-slate-800 px-2 py-1 rounded">{opt.votes} votos</span>}
-                                </button>
-                            ))}
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-2 mb-2 opacity-90">
+                                <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Enquete Ativa</span>
+                            </div>
+                            <h3 className="font-bold text-xl mb-2 leading-tight">
+                                {poll.question}
+                            </h3>
+                            <p className="text-xs text-indigo-100 mb-5">Sua opinião define o futuro do app.</p>
+                            
+                            <div className="space-y-2">
+                                {poll.poll_options?.map((opt: any) => (
+                                    <button 
+                                        key={opt.id}
+                                        onClick={() => handleVote(poll.id, opt.id)}
+                                        disabled={votedPolls.has(poll.id)}
+                                        className={`w-full p-3 rounded-xl text-left flex justify-between items-center transition-all ${votedPolls.has(poll.id) ? 'bg-white/10 cursor-default' : 'bg-white/10 hover:bg-white/20 active:scale-[0.98]'}`}
+                                    >
+                                        <span className="text-sm font-bold">{opt.text}</span>
+                                        {votedPolls.has(poll.id) && <span className="text-xs bg-white/20 px-2 py-1 rounded">{opt.votes}</span>}
+                                    </button>
+                                ))}
+                            </div>
+                            {votedPolls.has(poll.id) && <p className="text-xs text-green-300 mt-3 font-bold text-center animate-fade-in">Obrigado por votar!</p>}
                         </div>
-                        {votedPolls.has(poll.id) && <p className="text-xs text-green-600 mt-3 font-medium text-center animate-fade-in">Obrigado por votar!</p>}
                     </div>
                 ))}
 
-                {/* Changelog Real */}
+                {/* Timeline de Novidades (Redesign Elegante) */}
                 <div className="space-y-6">
-                    <h3 className="font-bold text-slate-900 dark:text-white px-1">Linha do Tempo (Atualizações)</h3>
+                    <div className="flex items-center justify-between px-1">
+                        <h3 className="font-bold text-slate-900 dark:text-white text-lg">Linha do Tempo</h3>
+                        <span className="text-xs text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">Atualizações</span>
+                    </div>
+
                     {loading ? <LoadingSpinner /> : (
-                        <div className="relative border-l-2 border-slate-200 dark:border-slate-700 ml-3 space-y-8 pb-4">
+                        <div className="relative space-y-8 pl-4">
+                            {/* Linha Vertical Conectora */}
+                            <div className="absolute top-2 bottom-2 left-[27px] w-[2px] bg-slate-200 dark:bg-slate-700"></div>
+
                             {changelog.map((item) => (
-                                <div key={item.id} className="relative pl-6">
-                                    <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white dark:border-slate-900 ${item.type === 'feature' ? 'bg-purple-500' : item.type === 'fix' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
-                                    <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${item.type === 'feature' ? 'bg-purple-100 text-purple-700' : item.type === 'fix' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {item.type === 'feature' ? 'NOVIDADE' : item.type === 'fix' ? 'CORREÇÃO' : 'MELHORIA'}
-                                            </span>
-                                            <span className="text-[10px] text-slate-400">{new Date(item.date).toLocaleDateString()}</span>
+                                <div key={item.id} className="relative pl-12 group">
+                                    {/* Ícone na Linha do Tempo */}
+                                    <div className="absolute left-3 top-0 bg-white dark:bg-slate-900 z-10">
+                                        {getTypeIcon(item.type)}
+                                    </div>
+
+                                    {/* Card de Conteúdo */}
+                                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <h4 className="font-bold text-slate-900 dark:text-white text-base">{item.title}</h4>
+                                                <p className="text-xs text-slate-400 mt-0.5">{new Date(item.date).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                                            </div>
+                                            {item.version && <span className="text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-md">{item.version}</span>}
                                         </div>
-                                        <h4 className="font-bold text-slate-800 dark:text-white text-sm mb-1">{item.title}</h4>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{item.description}</p>
-                                        {item.version && <span className="inline-block mt-2 text-[9px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-900 px-1 rounded">v{item.version}</span>}
+                                        
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                            {item.description}
+                                        </p>
                                     </div>
                                 </div>
                             ))}
+                            
+                            {changelog.length === 0 && (
+                                <p className="text-center text-slate-400 py-10">Nenhuma novidade recente.</p>
+                            )}
                         </div>
                     )}
                 </div>
