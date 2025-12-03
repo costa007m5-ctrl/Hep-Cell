@@ -15,6 +15,94 @@ function getMercadoPagoClient() {
     return new MercadoPagoConfig({ accessToken });
 }
 
+async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
+    try { await supabase.from('action_logs').insert({ action_type, status, description, details }); } catch (e) { console.error('Log failed', e); }
+}
+
+// ... Handlers de Create (Pix/Boleto/Pref) podem ser mantidos ou importados de admin.ts se centralizados ...
+// Para manter compatibilidade com chamadas diretas do frontend:
+async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
+    // ... Implementação padrão redirect ...
+    const client = getMercadoPagoClient();
+    const { id, description, amount, redirect, payerEmail, back_urls } = req.body;
+    try {
+        const preference = new Preference(client);
+        const result = await preference.create({
+            body: {
+                items: [{ id, title: description, quantity: 1, unit_price: Number(amount), currency_id: 'BRL' }],
+                external_reference: id,
+                payer: { email: payerEmail },
+                back_urls: back_urls || { success: 'https://relpcell.com', failure: 'https://relpcell.com' },
+                auto_return: 'approved'
+            }
+        });
+        res.json({ id: result.id, init_point: result.init_point });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+}
+
+async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
+    // Implementação simplificada para chamadas diretas
+    const client = getMercadoPagoClient();
+    const { invoiceId, amount, description, payerEmail, firstName, lastName, identificationNumber } = req.body;
+    try {
+        const payment = new Payment(client);
+        const result = await payment.create({
+            body: {
+                transaction_amount: Number(amount),
+                description,
+                payment_method_id: 'pix',
+                payer: {
+                    email: payerEmail,
+                    first_name: firstName,
+                    last_name: lastName,
+                    identification: { type: 'CPF', number: identificationNumber }
+                },
+                external_reference: invoiceId
+            }
+        });
+        res.json({ 
+            paymentId: result.id, 
+            qrCode: result.point_of_interaction?.transaction_data?.qr_code, 
+            qrCodeBase64: result.point_of_interaction?.transaction_data?.qr_code_base64 
+        });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+}
+
+async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
+    const client = getMercadoPagoClient();
+    const { invoiceId, amount, description, payer } = req.body;
+    try {
+        const payment = new Payment(client);
+        const result = await payment.create({
+            body: {
+                transaction_amount: Number(amount),
+                description,
+                payment_method_id: 'bolbradesco',
+                payer: {
+                    email: payer.email,
+                    first_name: payer.firstName,
+                    last_name: payer.lastName,
+                    identification: { type: 'CPF', number: payer.identificationNumber },
+                    address: {
+                        zip_code: payer.zipCode,
+                        street_name: payer.streetName,
+                        street_number: payer.streetNumber,
+                        neighborhood: payer.neighborhood,
+                        city: payer.city,
+                        federal_unit: payer.federalUnit
+                    }
+                },
+                external_reference: invoiceId
+            }
+        });
+        res.json({ 
+            paymentId: result.id, 
+            boletoUrl: result.transaction_details?.external_resource_url,
+            boletoBarcode: result.barcode?.content 
+        });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+}
+
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
@@ -36,10 +124,19 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                 if (invoices && invoices.length > 0) {
                     const invoice = invoices[0];
                     
-                    // 1. Cashback Lógica (Simplificada)
-                    // ... (Lógica de cashback existente) ...
+                    // 1. Cashback
+                    const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
+                    const cashbackPercent = parseFloat(setting?.value || '1.5');
+                    const amountPaid = paymentDetails.transaction_amount || invoice.amount;
+                    const coinsEarned = Math.floor(amountPaid * (cashbackPercent / 100) * 100);
 
-                    // 2. Gerar Parcelas Restantes do Crediário
+                    if (coinsEarned > 0) {
+                        const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
+                        await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
+                        await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
+                    }
+
+                    // 2. Gerar Parcelas Restantes (Lógica de Webhook)
                     if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
                         const parts = invoice.notes.split('|');
                         // ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
@@ -56,8 +153,8 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
 
                                 for (let i = 1; i <= count; i++) {
                                     const dueDate = new Date();
-                                    dueDate.setDate(dueDay);
                                     dueDate.setMonth(today.getMonth() + i);
+                                    dueDate.setDate(dueDay);
                                     
                                     invoicesToCreate.push({
                                         user_id: invoice.user_id,
@@ -70,6 +167,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                                 }
                                 
                                 await supabase.from('invoices').insert(invoicesToCreate);
+                                await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas após entrada paga.`);
                             }
                         }
                     }
@@ -83,14 +181,13 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... Resto do arquivo com handlers de criação de pagamento (Pix, Boleto) ...
-// Mantendo a estrutura existente para não quebrar outras funções
-async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) { /* ... */ }
-async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) { /* ... */ }
-async function handleCreatePreference(req: VercelRequest, res: VercelResponse) { /* ... */ }
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.url?.includes('webhook')) return await handleWebhook(req, res);
-  // ... switch cases para outros endpoints ...
+  const path = req.url || '';
+  
+  if (path.includes('webhook')) return await handleWebhook(req, res);
+  if (path.includes('create-preference')) return await handleCreatePreference(req, res);
+  if (path.includes('create-pix-payment')) return await handleCreatePixPayment(req, res);
+  if (path.includes('create-boleto-payment')) return await handleCreateBoletoPayment(req, res);
+
   return res.status(404).json({error: 'Not found'});
 }

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile, Product, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -91,6 +91,13 @@ const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data
                     </div>
                 )}
 
+                {data.type === 'error' && (
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-700 rounded-xl">
+                        <p className="font-bold">Atenção</p>
+                        <p className="text-xs">{data.message}</p>
+                    </div>
+                )}
+
                 <button onClick={onClose} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700">Fechar</button>
             </div>
         </Modal>
@@ -165,6 +172,7 @@ const NewSaleTab: React.FC = () => {
         if (code === 'RELP10') return cartSubTotal * 0.10;
         if (code === 'BOASVINDAS') return 20;
         if (code === 'PROMO5') return cartSubTotal * 0.05;
+        // Simulando lógica de desconto
         return 0;
     }, [couponCode, cartSubTotal]);
 
@@ -221,7 +229,7 @@ const NewSaleTab: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: selectedProfile.id,
-                    totalAmount: cartSubTotal, // Backend applies coupon to this
+                    totalAmount: cartSubTotal, 
                     installments: installments,
                     productName: itemsDescription.substring(0, 100),
                     saleType: saleType,
@@ -230,7 +238,7 @@ const NewSaleTab: React.FC = () => {
                     coinsUsed: 0,
                     dueDay: dueDay,
                     couponCode: couponCode,
-                    signature: signature // Null for direct sale
+                    signature: signature
                 }),
             });
 
@@ -260,9 +268,9 @@ const NewSaleTab: React.FC = () => {
             return;
         }
         if (saleType === 'crediario') {
-            setIsSignatureOpen(true); // Open signature modal first
+            setIsSignatureOpen(true); 
         } else {
-            handleProcessSale(); // Direct sale
+            handleProcessSale(); 
         }
     };
 

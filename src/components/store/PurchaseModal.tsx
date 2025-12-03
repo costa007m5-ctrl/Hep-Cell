@@ -6,6 +6,7 @@ import Alert from '../Alert';
 import SignaturePad from '../SignaturePad';
 import jsPDF from 'jspdf';
 import { supabase } from '../../services/clients';
+import Modal from '../Modal';
 
 interface PurchaseModalProps {
     product: Product;
@@ -14,25 +15,56 @@ interface PurchaseModalProps {
     onSuccess: () => void;
 }
 
-type Step = 'config' | 'contract' | 'summary';
 type SaleType = 'crediario' | 'direct';
 type PaymentMethod = 'pix' | 'boleto' | 'redirect';
 
-const COMPANY_DATA = {
-    razaoSocial: "RELP CELL ELETRONICOS LTDA",
-    cnpj: "43.735.304/0001-00",
-    endereco: "Avenida Principal, 123, Centro, Macapá - AP",
-    telefone: "(96) 99171-8167"
+const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data, onClose }) => {
+    return (
+        <Modal isOpen={true} onClose={onClose}>
+            <div className="text-center space-y-4">
+                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto text-green-600">
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Pedido Realizado!</h3>
+                <p className="text-sm text-slate-500">Realize o pagamento abaixo para confirmar sua compra.</p>
+                
+                {data.type === 'pix' && (
+                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.qrCode)}`} className="mx-auto w-32 h-32 rounded-lg mix-blend-multiply dark:mix-blend-normal" alt="QR Code" />
+                        <p className="text-[10px] font-mono text-slate-500 mt-2 break-all bg-white dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 select-all">{data.qrCode}</p>
+                        <p className="text-xs font-bold text-indigo-600 mt-2">Pagamento Pix</p>
+                    </div>
+                )}
+                
+                {data.type === 'boleto' && (
+                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <p className="font-bold text-sm text-slate-700 dark:text-white">Código de Barras</p>
+                        <p className="text-xs font-mono text-slate-500 mt-1 break-all select-all bg-white dark:bg-slate-900 p-2 rounded">{data.barcode}</p>
+                        <a href={data.url} target="_blank" rel="noreferrer" className="text-indigo-600 text-xs underline mt-2 block font-bold">Imprimir Boleto</a>
+                    </div>
+                )}
+
+                {data.type === 'redirect' && (
+                    <div className="space-y-2">
+                        <a href={data.url} target="_blank" rel="noreferrer" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold block hover:bg-blue-700">Pagar no Mercado Pago</a>
+                    </div>
+                )}
+
+                <button onClick={onClose} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700">Fechar</button>
+            </div>
+        </Modal>
+    );
 };
 
 const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose, onSuccess }) => {
-    const [step, setStep] = useState<Step>('config');
-    const [saleType, setSaleType] = useState<SaleType>('crediario');
+    const [saleType, setSaleType] = useState<SaleType>('direct');
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
     
     const [downPayment, setDownPayment] = useState<string>('');
     const [installments, setInstallments] = useState<number>(1);
-    const [selectedDueDay, setSelectedDueDay] = useState<number>(10); 
+    const [couponCode, setCouponCode] = useState('');
+    const [signature, setSignature] = useState<string | null>(null);
+    const [selectedDueDay, setSelectedDueDay] = useState(10);
     
     // Coins
     const [useCoins, setUseCoins] = useState(false);
@@ -40,11 +72,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [paymentResult, setPaymentResult] = useState<any>(null);
+    
+    // Configurações
     const [interestRate, setInterestRate] = useState(0);
     const [minEntryPercentage, setMinEntryPercentage] = useState(0.15);
-    const [signature, setSignature] = useState<string | null>(null);
-    const [termsAccepted, setTermsAccepted] = useState(false);
-    
     const [usedMonthlyLimit, setUsedMonthlyLimit] = useState(0);
     const [isLoadingLimit, setIsLoadingLimit] = useState(true);
 
@@ -78,7 +110,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 setUsedMonthlyLimit(maxMonthly);
 
             } catch (e) {
-                console.error("Erro ao carregar dados iniciais", e);
+                console.error("Erro ao carregar dados", e);
             } finally {
                 setIsLoadingLimit(false);
             }
@@ -86,62 +118,35 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         fetchInitialData();
     }, [profile.id]);
 
-    const MAX_INSTALLMENTS_CREDIARIO = 12;
-    const monthlyLimitTotal = profile.credit_limit ?? 0;
-    const availableMonthlyLimit = Math.max(0, monthlyLimitTotal - usedMonthlyLimit);
-    
+    const availableMonthlyLimit = Math.max(0, (profile.credit_limit || 0) - usedMonthlyLimit);
     const downPaymentValue = parseFloat(downPayment) || 0;
     
-    // Lógica de Coins na Entrada
+    // Coins logic
     const coinsValue = coinsBalance / 100;
-    const coinsDiscount = useCoins ? Math.min(downPaymentValue, coinsValue) : 0;
+    const coinsDiscount = useCoins ? Math.min(downPaymentValue > 0 ? downPaymentValue : product.price, coinsValue) : 0;
     const effectiveCashDownPayment = Math.max(0, downPaymentValue - coinsDiscount);
     
     const principalAmount = Math.max(0, product.price - downPaymentValue);
     
-    const currentInterestRate = useMemo(() => {
-        if (saleType === 'crediario') return interestRate;
-        return 0;
-    }, [saleType, interestRate]);
-
     const totalFinancedWithInterest = useMemo(() => {
-        if (installments <= 1 || currentInterestRate <= 0) return principalAmount;
-        const rateDecimal = currentInterestRate / 100;
-        return principalAmount * Math.pow(1 + rateDecimal, installments);
-    }, [principalAmount, installments, currentInterestRate]);
+        if (installments <= 1) return principalAmount;
+        return principalAmount * Math.pow(1 + (interestRate/100), installments);
+    }, [principalAmount, installments, interestRate]);
 
     const installmentValue = totalFinancedWithInterest / installments;
     
     const validationStatus = useMemo(() => {
-        if (saleType !== 'crediario') return { isValid: true, message: null, mandatoryEntry: 0, limitGapEntry: 0 };
+        if (saleType !== 'crediario') return { isValid: true };
         
-        const regulatoryEntry = product.price * minEntryPercentage;
-        const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
-        const maxPrincipalAllowed = (availableMonthlyLimit * installments) / interestFactor;
-        const limitGapEntry = Math.max(0, product.price - maxPrincipalAllowed);
-        const requiredEntry = Math.max(regulatoryEntry, limitGapEntry);
+        if (installmentValue > availableMonthlyLimit) return { isValid: false, message: 'Limite excedido.' };
+        if (downPaymentValue < (product.price * minEntryPercentage)) return { isValid: false, message: 'Entrada baixa.' };
         
-        if (downPaymentValue < requiredEntry) {
-            return { 
-                isValid: false, 
-                message: `Entrada insuficiente.`,
-                mandatoryEntry: regulatoryEntry,
-                limitGapEntry: limitGapEntry,
-                requiredTotal: requiredEntry
-            };
-        }
-        return { isValid: true, message: 'Entrada Aprovada', mandatoryEntry: regulatoryEntry, limitGapEntry: limitGapEntry, requiredTotal: requiredEntry };
-    }, [saleType, product.price, availableMonthlyLimit, installments, interestRate, downPaymentValue, minEntryPercentage]);
-
-    const handleNextStep = () => {
-        if (saleType === 'crediario' && !validationStatus.isValid) return;
-        if (principalAmount < 0) return;
-        setStep(saleType === 'crediario' ? 'contract' : 'summary');
-    };
+        return { isValid: true };
+    }, [saleType, product.price, availableMonthlyLimit, installmentValue, downPaymentValue, minEntryPercentage]);
 
     const handleConfirmPurchase = async () => {
-        if (saleType === 'crediario' && (!signature || !termsAccepted)) {
-            setError('É necessário assinar e aceitar os termos.');
+        if (saleType === 'crediario' && !signature) {
+            setError('Assinatura necessária.');
             return;
         }
 
@@ -161,14 +166,16 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     signature: signature,
                     saleType: saleType,
                     paymentMethod: paymentMethod,
-                    downPayment: effectiveCashDownPayment, // Valor líquido em dinheiro
-                    coinsUsed: coinsUsedAmount, // Coins a descontar
+                    downPayment: effectiveCashDownPayment,
+                    coinsUsed: coinsUsedAmount,
                     dueDay: selectedDueDay
                 }),
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Erro ao processar compra.');
-            onSuccess();
+            
+            setPaymentResult(result.paymentData);
+            // On success, show modal, then call parent onSuccess when closed
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -176,115 +183,100 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         }
     };
 
-    const renderConfigStep = () => (
-        <div className="space-y-6">
-            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                <button onClick={() => { setSaleType('crediario'); setInstallments(1); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'crediario' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Crediário Próprio</button>
-                <button onClick={() => { setSaleType('direct'); setInstallments(1); setDownPayment(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'direct' ? 'bg-white dark:bg-slate-700 text-green-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Pagamento Direto</button>
-            </div>
-
-            {saleType === 'crediario' && (
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Valor da Entrada (R$)</label>
-                        <div className="relative">
-                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">R$</span>
-                            <input type="number" value={downPayment} onChange={(e) => setDownPayment(e.target.value)} placeholder="0,00" className="block w-full pl-10 pr-3 py-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 transition-all" />
-                        </div>
-                        
-                        {/* Coin Switch */}
-                        {coinsBalance > 0 && downPaymentValue > 0 && (
-                            <div className="mt-3 flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/10 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800">
-                                <div>
-                                    <p className="text-xs font-bold text-yellow-800 dark:text-yellow-200 flex items-center gap-1">
-                                        <span className="w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center text-[8px] text-yellow-900 border border-yellow-200">RC</span>
-                                        Usar meus Coins
-                                    </p>
-                                    <p className="text-[10px] text-yellow-700 dark:text-yellow-300">Saldo: R$ {coinsValue.toFixed(2)}</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    {useCoins && <span className="text-xs font-bold text-green-600">- R$ {coinsDiscount.toFixed(2)}</span>}
-                                    <input 
-                                        type="checkbox" 
-                                        checked={useCoins} 
-                                        onChange={e => setUseCoins(e.target.checked)} 
-                                        className="w-5 h-5 text-yellow-600 rounded focus:ring-yellow-500" 
-                                    />
-                                </div>
-                            </div>
-                        )}
-                        
-                        {useCoins && coinsDiscount > 0 && (
-                            <p className="text-xs text-green-600 font-bold mt-1 text-right">
-                                A pagar em dinheiro: R$ {effectiveCashDownPayment.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                            </p>
-                        )}
-
-                        <p className="text-xs text-slate-500 mt-2 text-right">Saldo a financiar: {principalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                    </div>
-                    
-                    {/* ... Resto do formulário (Parcelas, Dia Vencimento) ... */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Parcelamento</label>
-                        <div className="grid grid-cols-4 gap-2">
-                            {Array.from({ length: MAX_INSTALLMENTS_CREDIARIO }, (_, i) => i + 1).map((num) => (
-                                <button key={num} onClick={() => setInstallments(num)} className={`py-2 rounded-lg text-sm font-medium transition-all ${installments === num ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>{num}x</button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Resumo Dinâmico e Validação */}
-            <div className={`p-4 rounded-xl border-2 transition-all ${!validationStatus.isValid && saleType === 'crediario' ? 'border-red-100 bg-red-50 dark:bg-red-900/20' : 'border-green-100 bg-green-50 dark:bg-green-900/20'}`}>
-                {saleType === 'crediario' ? (
-                    <div className="flex justify-between items-end">
-                        <div>
-                            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Valor da Parcela</p>
-                            <p className="text-2xl font-bold text-slate-900 dark:text-white">{installmentValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                        </div>
-                        {!validationStatus.isValid ? 
-                            <span className="px-2 py-1 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 text-xs rounded-md font-bold">Entrada Baixa</span> : 
-                            <span className="px-2 py-1 bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded-md font-bold">Aprovado</span>
-                        }
-                    </div>
-                ) : (
-                    <div className="text-center">
-                        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Total a Pagar</p>
-                        <p className="text-2xl font-bold text-slate-900 dark:text-white">{product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-
-    // ... (Steps de contrato e resumo mantidos, apenas chamam handleConfirmPurchase atualizado) ...
-    // Para simplificar, vou manter apenas o renderConfigStep e a estrutura principal, assumindo que os outros métodos são similares ao anterior mas com os novos dados.
-
     return (
-        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
-            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">{step === 'config' ? 'Configurar' : 'Confirmar'}</h2>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Confirmar Pedido</h2>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">✕</button>
                 </div>
-                <div className="p-6 overflow-y-auto flex-1">
-                    {step === 'config' && renderConfigStep()}
-                    {/* Placeholder para outros steps para manter o arquivo curto, assuma implementação padrão */}
-                    {step !== 'config' && <p className="text-center">Confirme os dados na próxima etapa.</p>}
-                    {error && <div className="mt-4"><Alert message={error} type="error" /></div>}
-                </div>
-                <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex gap-3">
-                    {step !== 'config' ? <button onClick={() => setStep('config')} className="flex-1 py-3 border rounded-xl font-bold">Voltar</button> : null}
+
+                <div className="space-y-6">
+                    {/* Opções de Venda */}
+                    <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                        <button onClick={() => { setSaleType('crediario'); setInstallments(1); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'crediario' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Crediário</button>
+                        <button onClick={() => { setSaleType('direct'); setInstallments(1); setDownPayment(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'direct' ? 'bg-white dark:bg-slate-700 text-green-600 shadow-sm' : 'text-slate-500'}`}>À Vista</button>
+                    </div>
+
+                    {/* Inputs */}
+                    {saleType === 'crediario' && (
+                        <>
+                            <div>
+                                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Entrada (R$)</label>
+                                <input type="number" value={downPayment} onChange={e => setDownPayment(e.target.value)} className="w-full p-3 border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-bold" placeholder="0.00" />
+                            </div>
+                            
+                            {/* Coins Switch */}
+                            {coinsBalance > 0 && (
+                                <div className="flex items-center justify-between bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center text-[10px] text-yellow-900 font-bold">RC</span>
+                                        <div>
+                                            <p className="text-xs font-bold text-yellow-900">Usar Coins</p>
+                                            <p className="text-[10px] text-yellow-700">Saldo: R$ {coinsValue.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {useCoins && <span className="text-xs text-green-600 font-bold">- R$ {coinsDiscount.toFixed(2)}</span>}
+                                        <input type="checkbox" checked={useCoins} onChange={e => setUseCoins(e.target.checked)} className="w-5 h-5 text-yellow-600 rounded" />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Parcelas</label>
+                                <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-3 border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-bold">
+                                    {Array.from({length:12},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}x de R$ {(totalFinancedWithInterest/n).toFixed(2)}</option>)}
+                                </select>
+                            </div>
+                        </>
+                    )}
+
+                    {/* Pagamento */}
+                    <div>
+                        <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Forma de Pagamento</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700' : ''}`}>Pix</button>
+                            <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700' : ''}`}>Boleto</button>
+                            <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700' : ''}`}>Link</button>
+                        </div>
+                    </div>
+
+                    {/* Resumo */}
+                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className="flex justify-between text-sm">
+                            <span>Total</span>
+                            <span className="font-bold">R$ {product.price.toFixed(2)}</span>
+                        </div>
+                        {saleType === 'crediario' && (
+                            <div className="flex justify-between text-sm mt-2 pt-2 border-t dark:border-slate-700">
+                                <span>Financiado</span>
+                                <span className="font-bold text-indigo-600">R$ {totalFinancedWithInterest.toFixed(2)}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Assinatura */}
+                    {saleType === 'crediario' && (
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Assinatura</label>
+                            <SignaturePad onEnd={setSignature} />
+                        </div>
+                    )}
+
+                    {error && <Alert message={error} type="error" />}
+
                     <button 
-                        onClick={step === 'config' ? handleNextStep : handleConfirmPurchase} 
-                        disabled={(saleType === 'crediario' && step === 'config' && !validationStatus.isValid) || isProcessing || isLoadingLimit} 
-                        className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold disabled:opacity-50"
+                        onClick={handleConfirmPurchase} 
+                        disabled={isProcessing || (saleType === 'crediario' && !validationStatus.isValid)} 
+                        className="w-full py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50"
                     >
-                        {isProcessing ? <LoadingSpinner /> : (step === 'config' ? 'Continuar' : 'Finalizar')}
+                        {isProcessing ? <LoadingSpinner /> : 'Finalizar Pedido'}
                     </button>
                 </div>
             </div>
+
+            {paymentResult && <PaymentResultModal data={paymentResult} onClose={() => { setPaymentResult(null); onSuccess(); }} />}
         </div>
     );
 };
