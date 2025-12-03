@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useToast } from './Toast';
 import LoadingSpinner from './LoadingSpinner';
@@ -31,8 +30,9 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const [flashProducts, setFlashProducts] = useState<Product[]>([]);
     const [recommendedProducts, setRecommendedProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
-    const [dailyCheckIn, setDailyCheckIn] = useState(false);
+    const [canCheckIn, setCanCheckIn] = useState(false);
     const [coins, setCoins] = useState(0);
+    const [checkInTimer, setCheckInTimer] = useState("");
     
     // Purchase Logic
     const [showPurchaseModal, setShowPurchaseModal] = useState(false);
@@ -42,6 +42,9 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     // Live Data Simulation
     const viewersCount = useMemo(() => Math.floor(Math.random() * 40) + 12, []);
     const soldPercentage = useMemo(() => Math.floor(Math.random() * 30) + 60, []);
+
+    // 7 dias em milissegundos
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
     useEffect(() => {
         const timer = setInterval(() => setTimeLeft(prev => prev > 0 ? prev - 1 : 86400), 1000);
@@ -69,9 +72,19 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                         setUserProfile({ ...profile, id: user.id, email: user.email });
                         setCoins(profile.coins_balance || 0);
                         
-                        const lastCheckIn = localStorage.getItem(`relp_checkin_${user.id}`);
-                        const today = new Date().toDateString();
-                        if (lastCheckIn === today) setDailyCheckIn(true);
+                        // Lógica de 7 Dias para Check-in
+                        const lastCheckIn = localStorage.getItem(`relp_checkin_ts_${user.id}`);
+                        const now = Date.now();
+                        
+                        if (!lastCheckIn || (now - parseInt(lastCheckIn)) > SEVEN_DAYS_MS) {
+                            setCanCheckIn(true);
+                        } else {
+                            setCanCheckIn(false);
+                            // Calcula tempo restante para exibir (opcional)
+                            const nextCheckIn = parseInt(lastCheckIn) + SEVEN_DAYS_MS;
+                            const daysLeft = Math.ceil((nextCheckIn - now) / (1000 * 60 * 60 * 24));
+                            setCheckInTimer(`${daysLeft} dias`);
+                        }
                     }
                 }
             } catch (error) {
@@ -99,10 +112,20 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         setShowPurchaseModal(true);
     };
 
+    // Função para gerar coins aleatórios ponderados
+    const getRandomCoins = () => {
+        const rand = Math.random() * 100;
+        if (rand < 50) return Math.floor(Math.random() * 10) + 1; // 1-10 (50%)
+        if (rand < 80) return Math.floor(Math.random() * 20) + 11; // 11-30 (30%)
+        if (rand < 95) return Math.floor(Math.random() * 30) + 31; // 31-60 (15%)
+        return Math.floor(Math.random() * 15) + 61; // 61-75 (5%) - Jackpot
+    };
+
     const handleDailyCheckIn = async () => {
-        if (dailyCheckIn || !userProfile) return;
-        setDailyCheckIn(true);
-        const reward = 50;
+        if (!canCheckIn || !userProfile) return;
+        setCanCheckIn(false);
+        
+        const reward = getRandomCoins();
         
         // Atualiza UI instantaneamente
         setCoins(prev => prev + reward);
@@ -113,11 +136,16 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             await fetch('/api/admin/manage-coins', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: userProfile.id, amount: reward, type: 'credit', description: 'Check-in Diário' })
+                body: JSON.stringify({ userId: userProfile.id, amount: reward, type: 'credit', description: 'Resgate Semanal' })
             });
-            localStorage.setItem(`relp_checkin_${userProfile.id}`, new Date().toDateString());
+            
+            // Salva timestamp atual
+            localStorage.setItem(`relp_checkin_ts_${userProfile.id}`, Date.now().toString());
+            setCheckInTimer("7 dias");
+            
         } catch (e) {
             console.error("Erro ao salvar checkin", e);
+            // Reverte em caso de erro crítico (opcional)
         }
         
         if(navigator.vibrate) navigator.vibrate([50, 50, 50]);
@@ -152,10 +180,15 @@ export const OffersPage: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </div>
                 <button 
                     onClick={handleDailyCheckIn}
-                    disabled={dailyCheckIn}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all transform active:scale-95 ${dailyCheckIn ? 'bg-green-500/20 text-green-400 cursor-default' : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-slate-900 hover:shadow-lg hover:shadow-orange-500/50'}`}
+                    disabled={!canCheckIn}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all transform active:scale-95 flex items-center gap-1 ${!canCheckIn ? 'bg-green-500/20 text-green-400 cursor-default' : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-slate-900 hover:shadow-lg hover:shadow-orange-500/50'}`}
                 >
-                    {dailyCheckIn ? 'Check-in Feito ✓' : 'Resgatar Diário (+50)'}
+                    {!canCheckIn ? (
+                        <>
+                            <span>Volte em {checkInTimer}</span>
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </>
+                    ) : 'Resgatar Coins (1-75)'}
                 </button>
             </div>
 

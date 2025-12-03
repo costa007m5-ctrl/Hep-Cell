@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -113,7 +112,129 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 
 // --- Handlers ---
 
-// Novo: Gerenciar Moedas (Crédito/Débito manual ou via sistema)
+// Implementação da Lógica de Venda (Create Sale)
+async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { 
+            userId, 
+            totalAmount, 
+            installments, 
+            productName, 
+            saleType, // 'crediario' | 'direct'
+            paymentMethod, 
+            downPayment, // Valor da entrada (dinheiro/pix/cartão)
+            coinsUsed, // Quantidade de moedas usadas
+            dueDay, // Dia de vencimento preferido
+            sellerName,
+            tradeInValue
+        } = req.body;
+
+        if (!userId || !totalAmount) return res.status(400).json({ error: "Dados incompletos." });
+
+        // 1. Processar Coins (Se houver uso)
+        if (coinsUsed > 0) {
+            const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
+            if (profile && profile.coins_balance >= coinsUsed) {
+                await supabase.from('profiles').update({ coins_balance: profile.coins_balance - coinsUsed }).eq('id', userId);
+                await logAction(supabase, 'COIN_USAGE', 'SUCCESS', `Usou ${coinsUsed} coins na compra de ${productName}`, { userId });
+            } else {
+                return res.status(400).json({ error: "Saldo de coins insuficiente." });
+            }
+        }
+
+        // 2. Criar registro do Contrato/Venda
+        const { data: contract, error: contractError } = await supabase.from('contracts').insert({
+            user_id: userId,
+            title: `Compra: ${productName}`,
+            items: `${productName} (Vendedor: ${sellerName || 'Sistema'})`,
+            total_value: totalAmount,
+            installments: installments,
+            status: saleType === 'crediario' ? 'Ativo' : 'Ativo', // Venda direta já nasce ativa
+            terms_accepted: true
+        }).select().single();
+
+        if (contractError) throw contractError;
+
+        const invoicesToCreate = [];
+        const today = new Date();
+
+        // 3. Gerar Fatura de Entrada (se houver valor em dinheiro/pix)
+        if (downPayment > 0) {
+            invoicesToCreate.push({
+                user_id: userId,
+                month: `Entrada - ${productName}`,
+                due_date: today.toISOString().split('T')[0],
+                amount: downPayment,
+                status: 'Paga', // Entrada no caixa é paga na hora
+                payment_method: 'dinheiro_ou_pix_presencial',
+                payment_date: today.toISOString(),
+                notes: `Entrada da compra ${contract.id}`
+            });
+        }
+
+        // 4. Gerar Parcelas (Se for crediário)
+        if (saleType === 'crediario' && installments > 0) {
+            const installmentValue = totalAmount / installments; // Total financiado / parcelas
+            
+            for (let i = 1; i <= installments; i++) {
+                // Calcular data de vencimento
+                const dueDate = new Date();
+                dueDate.setDate(dueDay || 10); // Dia fixo ou 10
+                dueDate.setMonth(today.getMonth() + i); // Próximos meses
+                
+                // Ajuste de ano se virar
+                if (dueDate.getMonth() !== (today.getMonth() + i) % 12) {
+                    // Caso pule mês (ex: 31 jan -> 28 fev), ajusta para o último dia
+                    dueDate.setDate(0); 
+                }
+
+                const monthName = dueDate.toLocaleString('pt-BR', { month: 'long' });
+                const monthCapitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+
+                invoicesToCreate.push({
+                    user_id: userId,
+                    month: `Parcela ${i}/${installments} - ${monthCapitalized}`,
+                    due_date: dueDate.toISOString().split('T')[0],
+                    amount: installmentValue,
+                    status: 'Em aberto',
+                    notes: `Parcela referente a ${productName}`
+                });
+            }
+        } 
+        // 5. Se for Venda Direta total (sem entrada separada, tudo pago)
+        else if (saleType === 'direct' && downPayment >= totalAmount) {
+             // Já cobrido pela lógica de Entrada acima se downPayment == totalAmount.
+             // Se downPayment for 0 e totalAmount > 0 (ex: pagou tudo com coins?), criar invoice zerada ou paga.
+             if (downPayment === 0) {
+                 invoicesToCreate.push({
+                    user_id: userId,
+                    month: `Compra à Vista - ${productName}`,
+                    due_date: today.toISOString().split('T')[0],
+                    amount: totalAmount, // Valor original
+                    status: 'Paga',
+                    payment_method: 'coins_ou_total',
+                    payment_date: today.toISOString(),
+                    notes: 'Pago integralmente (Coins/Outros)'
+                });
+             }
+        }
+
+        if (invoicesToCreate.length > 0) {
+            const { error: invError } = await supabase.from('invoices').insert(invoicesToCreate);
+            if (invError) throw invError;
+        }
+
+        await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para ${userId}: ${productName}`, { contractId: contract.id });
+
+        return res.status(200).json({ success: true, message: "Venda realizada com sucesso!", status: 'Concluído' });
+
+    } catch (e: any) {
+        console.error("Erro venda:", e);
+        return res.status(500).json({ error: e.message });
+    }
+}
+
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, description, type } = req.body; // type: 'credit' or 'debit'
@@ -244,10 +365,8 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const FULL_SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
--- Adicionar Coluna Coins Balance se não existir
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "coins_balance" integer DEFAULT 0;
 
--- Tabela de Enquetes (Polls)
 CREATE TABLE IF NOT EXISTS "public"."polls" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "question" "text" NOT NULL,
@@ -307,7 +426,6 @@ CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USI
 DROP POLICY IF EXISTS "Admin manage changelog" ON "public"."app_changelog";
 CREATE POLICY "Admin manage changelog" ON "public"."app_changelog" FOR ALL USING (auth.role() = 'authenticated');
 
--- [TABELAS EXISTENTES - Reafirmação]
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "coins_balance" integer DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "coins_balance" integer DEFAULT 0;
 
@@ -481,6 +599,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         if (req.method === 'POST') {
+            if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
