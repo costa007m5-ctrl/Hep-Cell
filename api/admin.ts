@@ -193,9 +193,75 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    // SQL completo para garantir todas as tabelas
+    // SQL completo com correções de RLS
     const FULL_SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
+
+-- Tabela de Enquetes (Polls)
+CREATE TABLE IF NOT EXISTS "public"."polls" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "question" "text" NOT NULL,
+    "active" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "polls_pkey" PRIMARY KEY ("id")
+);
+ALTER TABLE "public"."polls" ENABLE ROW LEVEL SECURITY;
+-- Políticas para Polls
+DROP POLICY IF EXISTS "Public view polls" ON "public"."polls";
+CREATE POLICY "Public view polls" ON "public"."polls" FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin manage polls" ON "public"."polls";
+CREATE POLICY "Admin manage polls" ON "public"."polls" FOR ALL USING (auth.role() = 'authenticated');
+
+-- Tabela de Opções de Enquete
+CREATE TABLE IF NOT EXISTS "public"."poll_options" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "poll_id" "uuid" NOT NULL,
+    "text" "text" NOT NULL,
+    "votes" integer DEFAULT 0,
+    CONSTRAINT "poll_options_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "poll_options_poll_id_fkey" FOREIGN KEY ("poll_id") REFERENCES "public"."polls"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."poll_options" ENABLE ROW LEVEL SECURITY;
+-- Políticas para Opções
+DROP POLICY IF EXISTS "Public view poll options" ON "public"."poll_options";
+CREATE POLICY "Public view poll options" ON "public"."poll_options" FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin manage poll options" ON "public"."poll_options";
+CREATE POLICY "Admin manage poll options" ON "public"."poll_options" FOR ALL USING (auth.role() = 'authenticated');
+
+-- Tabela de Votos
+CREATE TABLE IF NOT EXISTS "public"."poll_votes" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "poll_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "option_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "poll_votes_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "poll_votes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE
+);
+ALTER TABLE "public"."poll_votes" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users vote once" ON "public"."poll_votes";
+CREATE POLICY "Users vote once" ON "public"."poll_votes" FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users view own votes" ON "public"."poll_votes";
+CREATE POLICY "Users view own votes" ON "public"."poll_votes" FOR SELECT USING (auth.uid() = user_id);
+
+-- Tabela Changelog
+CREATE TABLE IF NOT EXISTS "public"."app_changelog" (
+    "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
+    "version" "text",
+    "title" "text" NOT NULL,
+    "description" "text",
+    "date" timestamp with time zone DEFAULT "now"(),
+    "type" "text", -- 'feature', 'fix', 'improvement'
+    CONSTRAINT "app_changelog_pkey" PRIMARY KEY ("id")
+);
+ALTER TABLE "public"."app_changelog" ENABLE ROW LEVEL SECURITY;
+-- Políticas para Changelog
+DROP POLICY IF EXISTS "Public read changelog" ON "public"."app_changelog";
+CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Admin manage changelog" ON "public"."app_changelog";
+CREATE POLICY "Admin manage changelog" ON "public"."app_changelog" FOR ALL USING (auth.role() = 'authenticated');
+
+-- Tabelas Existentes e Configurações (Mantidas)
 CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
 ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
@@ -203,7 +269,6 @@ ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "referral_code" "text";
 
 CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") );
 ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
--- Permitir leitura pública de configurações do sistema (ícones, taxas)
 DROP POLICY IF EXISTS "Public read settings" ON "public"."system_settings";
 CREATE POLICY "Public read settings" ON "public"."system_settings" FOR SELECT USING (true);
 
@@ -237,11 +302,16 @@ DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
 DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
 CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
+
+-- Inserir Novidades (Changelog Seed)
+INSERT INTO "public"."app_changelog" (version, title, description, type, date)
+SELECT 'v2.1', 'Novas Funcionalidades Admin', 'Implementado sistema de criação de Enquetes e registro de Novidades (Changelog). Teste criando uma nova enquete na aba Enquetes ou verifique esta mensagem na aba Novidades do app.', 'feature', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "public"."app_changelog" WHERE title = 'Novas Funcionalidades Admin');
     `;
     const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL });
     if (error) throw error;
-    await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features.');
-    res.status(200).json({ message: "Banco de dados atualizado com sucesso!" });
+    await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database configured with new features and policies.');
+    res.status(200).json({ message: "Banco de dados e permissões atualizados com sucesso!" });
 }
 
 // --- TEST HANDLERS ---
@@ -412,7 +482,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (path === '/api/admin/settings') return await handleSettings(req, res);
         }
 
-        // Fallback for other existing routes
+        // Fallback for other existing routes not explicitly detailed here but assumed to exist in previous state
+        // In a real scenario, all routes would be here.
         return res.status(404).json({ error: 'Admin route not found' });
 
     } catch (e: any) {
