@@ -1,30 +1,30 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from "@google/genai";
 
+// Inicializa Supabase Admin
 function getSupabaseAdminClient() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+// Inicializa Mercado Pago
 function getMercadoPagoClient() {
     const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN!;
+    if (!accessToken) throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado.");
     return new MercadoPagoConfig({ accessToken });
 }
 
+// Log no Banco
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
     try { await supabase.from('action_logs').insert({ action_type, status, description, details }); } catch (e) { console.error('Log failed', e); }
 }
 
-// ... Handlers de Create (Pix/Boleto/Pref) podem ser mantidos ou importados de admin.ts se centralizados ...
-// Para manter compatibilidade com chamadas diretas do frontend:
+// Handler: Criar Preferência (Checkout Pro / Link)
 async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
-    // ... Implementação padrão redirect ...
     const client = getMercadoPagoClient();
-    const { id, description, amount, redirect, payerEmail, back_urls } = req.body;
+    const { id, description, amount, payerEmail, back_urls } = req.body;
     try {
         const preference = new Preference(client);
         const result = await preference.create({
@@ -36,12 +36,15 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
                 auto_return: 'approved'
             }
         });
-        res.json({ id: result.id, init_point: result.init_point });
-    } catch(e: any) { res.status(500).json({ error: e.message }); }
+        res.status(200).json({ id: result.id, init_point: result.init_point });
+    } catch(e: any) { 
+        console.error(e);
+        res.status(500).json({ error: e.message }); 
+    }
 }
 
+// Handler: Criar Pix Transparente
 async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
-    // Implementação simplificada para chamadas diretas
     const client = getMercadoPagoClient();
     const { invoiceId, amount, description, payerEmail, firstName, lastName, identificationNumber } = req.body;
     try {
@@ -60,14 +63,20 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
                 external_reference: invoiceId
             }
         });
-        res.json({ 
+        
+        // Retorna dados necessários para exibir o QR Code
+        res.status(200).json({ 
             paymentId: result.id, 
             qrCode: result.point_of_interaction?.transaction_data?.qr_code, 
             qrCodeBase64: result.point_of_interaction?.transaction_data?.qr_code_base64 
         });
-    } catch(e: any) { res.status(500).json({ error: e.message }); }
+    } catch(e: any) { 
+        console.error(e);
+        res.status(500).json({ error: e.message }); 
+    }
 }
 
+// Handler: Criar Boleto Transparente
 async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse) {
     const client = getMercadoPagoClient();
     const { invoiceId, amount, description, payer } = req.body;
@@ -77,7 +86,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             body: {
                 transaction_amount: Number(amount),
                 description,
-                payment_method_id: 'bolbradesco',
+                payment_method_id: 'bolbradesco', // Pode variar conforme conta MP
                 payer: {
                     email: payer.email,
                     first_name: payer.firstName,
@@ -95,28 +104,32 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                 external_reference: invoiceId
             }
         });
-        res.json({ 
+        res.status(200).json({ 
             paymentId: result.id, 
             boletoUrl: result.transaction_details?.external_resource_url,
             boletoBarcode: result.barcode?.content 
         });
-    } catch(e: any) { res.status(500).json({ error: e.message }); }
+    } catch(e: any) { 
+        console.error(e);
+        res.status(500).json({ error: e.message }); 
+    }
 }
 
+// Handler: Webhook (Recebe notificações do MP)
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = getMercadoPagoClient();
         const { body } = req;
 
-        if (body.type === 'payment' && body.data?.id) {
+        if (body?.type === 'payment' && body.data?.id) {
             const paymentId = body.data.id;
             const payment = new Payment(client);
             const paymentDetails = await payment.get({ id: paymentId });
             
             if (paymentDetails && paymentDetails.status === 'approved') {
-                // Atualiza fatura
-                const { data: invoices, error } = await supabase.from('invoices')
+                // Atualiza fatura para Paga
+                const { data: invoices } = await supabase.from('invoices')
                     .update({ status: 'Paga', payment_date: new Date().toISOString() })
                     .eq('payment_id', String(paymentId))
                     .select();
@@ -124,7 +137,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                 if (invoices && invoices.length > 0) {
                     const invoice = invoices[0];
                     
-                    // 1. Cashback
+                    // 1. Aplicar Cashback
                     const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
                     const cashbackPercent = parseFloat(setting?.value || '1.5');
                     const amountPaid = paymentDetails.transaction_amount || invoice.amount;
@@ -136,10 +149,10 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                         await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
                     }
 
-                    // 2. Gerar Parcelas Restantes (Lógica de Webhook)
+                    // 2. Gerar Parcelas Restantes (Se for Entrada de Crediário)
+                    // A nota deve estar no formato: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
                     if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
                         const parts = invoice.notes.split('|');
-                        // ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
                         if (parts.length >= 5) {
                             const contractId = parts[1];
                             const remainingAmount = parseFloat(parts[2]);
@@ -181,6 +194,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+// Router Principal do Arquivo
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = req.url || '';
   
@@ -189,5 +203,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path.includes('create-pix-payment')) return await handleCreatePixPayment(req, res);
   if (path.includes('create-boleto-payment')) return await handleCreateBoletoPayment(req, res);
 
-  return res.status(404).json({error: 'Not found'});
+  // Fallback para evitar erro de rota não encontrada em chamadas genéricas
+  return res.status(404).json({error: 'Route not found in mercadopago.ts'});
 }
