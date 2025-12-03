@@ -2,7 +2,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
-import { MercadoPagoConfig, MerchantOrder } from 'mercadopago';
 import { URL } from 'url';
 
 // --- Helper Functions ---
@@ -22,14 +21,6 @@ function getGeminiClient() {
         return null; 
     }
     return new GoogleGenAI({ apiKey });
-}
-
-function getMercadoPagoClient() {
-    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-    if (!accessToken) {
-        throw new Error('Mercado Pago Access Token is not set.');
-    }
-    return new MercadoPagoConfig({ accessToken });
 }
 
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
@@ -245,35 +236,37 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
     res.status(200).json({ message: "Banco de dados atualizado com sucesso!" });
 }
 
-// Rest of handlers mockups or implementations (abbreviated for clarity, assuming existing)
-async function handleProducts(req: VercelRequest, res: VercelResponse) { 
-    if(req.method === 'GET') {
-        const supabase = getSupabaseAdminClient();
-        const { data } = await supabase.from('products').select('*');
-        return res.json(data);
-    }
-    return res.json({}); 
+// Handlers for GET operations
+async function handleProducts(_req: VercelRequest, res: VercelResponse) { 
+    const supabase = getSupabaseAdminClient();
+    const { data } = await supabase.from('products').select('*');
+    return res.json(data);
 }
-async function handleGetLogs(req: VercelRequest, res: VercelResponse) { 
+
+async function handleGetLogs(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('action_logs').select('*').order('created_at', {ascending:false});
     return res.json(data);
 }
-async function handleGetProfiles(req: VercelRequest, res: VercelResponse) { 
+
+async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('profiles').select('*');
     return res.json(data);
 }
-async function handleGetInvoices(req: VercelRequest, res: VercelResponse) {
+
+async function handleGetInvoices(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('invoices').select('*');
     return res.json(data);
 }
-async function handleGetLimitRequests(req: VercelRequest, res: VercelResponse) {
+
+async function handleGetLimitRequests(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('limit_requests').select('*, profiles(*)').order('created_at', {ascending: false});
     return res.json(data);
 }
+
 async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId } = req.query;
@@ -281,6 +274,7 @@ async function handleClientDocuments(req: VercelRequest, res: VercelResponse) {
     const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId);
     return res.json({ uploads, contracts });
 }
+
 async function handleSettings(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     if (req.method === 'GET') {
