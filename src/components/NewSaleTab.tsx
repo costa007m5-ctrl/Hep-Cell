@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Profile, Product, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import jsPDF from 'jspdf';
+import SignaturePad from './SignaturePad'; // Importação necessária para assinatura no crediário
 
 interface CartItem extends Product {
     cartId: string;
@@ -10,15 +11,8 @@ interface CartItem extends Product {
     discount: number;
 }
 
-interface SaleContext {
-    sellerName: string;
-    notes: string;
-    tradeInValue: number;
-    tradeInDescription: string;
-    discountTotal: number;
-}
-
-type PaymentMode = 'crediario' | 'pix' | 'credit_card' | 'debit_card' | 'cash' | 'mixed';
+type SaleType = 'crediario' | 'direct';
+type PaymentMethod = 'pix' | 'boleto' | 'redirect' | 'cash';
 
 const StockBadge: React.FC<{ stock: number }> = ({ stock }) => {
     let color = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
@@ -61,7 +55,7 @@ const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">Venda Criada!</h3>
-                <p className="text-sm text-slate-500">O pagamento foi gerado. Peça ao cliente para pagar agora.</p>
+                <p className="text-sm text-slate-500">Solicite o pagamento da entrada abaixo:</p>
                 
                 {data.type === 'pix' && (
                     <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -85,6 +79,13 @@ const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data
                     </div>
                 )}
 
+                {data.type === 'cash' && (
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 text-green-700 rounded-xl">
+                        <p className="font-bold">Dinheiro / Balcão</p>
+                        <p className="text-xs">Pagamento registrado com sucesso.</p>
+                    </div>
+                )}
+
                 <button onClick={onClose} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700">Fechar</button>
             </div>
         </div>
@@ -99,20 +100,26 @@ const NewSaleTab: React.FC = () => {
     const [minEntryPercentage, setMinEntryPercentage] = useState(0.15);
     const [loading, setLoading] = useState(true);
 
-    // POS
+    // POS State
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('Todos');
     
-    // Checkout
+    // Checkout Modal
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-    const [paymentMode, setPaymentMode] = useState<PaymentMode>('crediario');
-    const [paymentMethod, setPaymentMethod] = useState<'pix' | 'boleto' | 'cash' | 'redirect'>('pix');
+    
+    // Checkout Data
+    const [saleType, setSaleType] = useState<SaleType>('crediario');
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix'); // Default pix
     const [installments, setInstallments] = useState(1);
     const [entryValue, setEntryValue] = useState('');
     const [couponCode, setCouponCode] = useState('');
     const [discountApplied, setDiscountApplied] = useState(0);
+    const [dueDay, setDueDay] = useState(10);
+    const [signature, setSignature] = useState<string | null>(null); // Assinatura
+    const [isSigning, setIsSigning] = useState(false); // Modal de assinatura
+
     const [isProcessing, setIsProcessing] = useState(false);
     const [paymentResult, setPaymentResult] = useState<any>(null);
 
@@ -145,21 +152,20 @@ const NewSaleTab: React.FC = () => {
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
             const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.brand?.toLowerCase().includes(searchQuery.toLowerCase());
-            const matchesCategory = categoryFilter === 'Todos' || p.category === categoryFilter;
-            return matchesSearch && matchesCategory;
+            return matchesSearch;
         });
-    }, [products, searchQuery, categoryFilter]);
+    }, [products, searchQuery]);
 
-    // Financials
+    // Financial Calculations
     const cartSubTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     
-    // Coupon Effect (Simulated Local Check before sending to backend)
+    // Cupom (Simulação Local para Feedback Visual - Backend Valida Real)
     useEffect(() => {
         let disc = 0;
         const code = couponCode.toUpperCase();
         if (code === 'RELP10') disc = cartSubTotal * 0.10;
-        if (code === 'BOASVINDAS') disc = 20;
-        if (code === 'PROMO5') disc = cartSubTotal * 0.05;
+        else if (code === 'BOASVINDAS') disc = 20;
+        else if (code === 'PROMO5') disc = cartSubTotal * 0.05;
         setDiscountApplied(disc);
     }, [couponCode, cartSubTotal]);
 
@@ -168,14 +174,14 @@ const NewSaleTab: React.FC = () => {
     const principal = Math.max(0, cartTotal - entry);
     
     const totalWithInterest = useMemo(() => {
-        if (paymentMode !== 'crediario') return principal; 
+        if (saleType !== 'crediario') return principal; 
         if (installments <= 1) return principal;
         return principal * Math.pow(1 + (interestRate/100), installments);
-    }, [principal, installments, interestRate, paymentMode]);
+    }, [principal, installments, interestRate, saleType]);
 
     const installmentValue = installments > 0 ? totalWithInterest / installments : 0;
 
-    // Limit Logic
+    // Limit Calculation
     const clientLimitData = useMemo(() => {
         if (!selectedProfile) return { totalMonthly: 0, availableMonthly: 0 };
         const totalMonthly = selectedProfile.credit_limit || 0;
@@ -191,40 +197,40 @@ const NewSaleTab: React.FC = () => {
     }, [selectedProfile, allInvoices]);
 
     const validationStatus = useMemo(() => {
-        if (paymentMode !== 'crediario') return { isValid: true, message: null };
+        if (saleType !== 'crediario') return { isValid: true, message: 'Venda Direta' };
         
-        // Verifica se a parcela cabe no limite mensal disponível
         if (installmentValue > clientLimitData.availableMonthly) {
-             return { isValid: false, message: `Parcela excede limite disponível (R$ ${clientLimitData.availableMonthly.toFixed(2)})` };
+             return { isValid: false, message: `Parcela (R$${installmentValue.toFixed(2)}) excede limite (Disp: R$${clientLimitData.availableMonthly.toFixed(2)})` };
         }
 
         const regulatoryEntry = cartTotal * minEntryPercentage;
-        
         if (entry < regulatoryEntry) {
             return { isValid: false, message: `Entrada mínima: R$ ${regulatoryEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` };
         }
         return { isValid: true, message: 'Aprovado' };
-    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData, installments, interestRate, installmentValue]);
+    }, [saleType, cartTotal, entry, minEntryPercentage, clientLimitData, installmentValue]);
 
-    const handleFinishSale = async () => {
-        if (!selectedProfile) return alert("Selecione um cliente!");
+    const handleProcessSale = async () => {
+        if (!selectedProfile) return;
         setIsProcessing(true);
         try {
             const itemsDescription = cart.map(i => `${i.quantity}x ${i.name}`).join(', ');
+            
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: selectedProfile.id,
-                    totalAmount: paymentMode === 'crediario' ? cartTotal : cartTotal, // O backend recalcula
+                    totalAmount: cartSubTotal, // Envia bruto, backend aplica cupom
                     installments: installments,
                     productName: itemsDescription.substring(0, 50),
-                    saleType: paymentMode === 'crediario' ? 'crediario' : 'direct', 
-                    paymentMethod: paymentMethod, // Método de pagamento da ENTRADA (ou total)
+                    saleType: saleType,
+                    paymentMethod: paymentMethod, // Pix, Boleto, etc para a ENTRADA
                     downPayment: entry,
-                    coinsUsed: 0, 
-                    dueDay: 10,
-                    couponCode: couponCode
+                    coinsUsed: 0,
+                    dueDay: dueDay,
+                    couponCode: couponCode,
+                    signature: signature
                 }),
             });
 
@@ -234,13 +240,16 @@ const NewSaleTab: React.FC = () => {
             if (result.paymentData) {
                 setPaymentResult(result.paymentData);
             } else {
-                setPaymentResult({ type: 'cash' }); // Apenas sucesso
+                setPaymentResult({ type: 'cash' });
             }
             
-            // Clear cart
+            // Cleanup
             setCart([]);
             setEntryValue('');
             setCouponCode('');
+            setIsCheckoutOpen(false);
+            setIsSigning(false);
+            setSignature(null);
 
         } catch (e: any) {
             alert(e.message);
@@ -249,17 +258,29 @@ const NewSaleTab: React.FC = () => {
         }
     };
 
+    const handlePreSubmit = () => {
+        if (!validationStatus.isValid) {
+            alert(validationStatus.message);
+            return;
+        }
+        if (saleType === 'crediario') {
+            setIsSigning(true); // Abre assinatura
+        } else {
+            handleProcessSale();
+        }
+    };
+
     if (loading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
 
     return (
         <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-slate-100 dark:bg-slate-900 -m-4 lg:-m-8 font-sans">
-            {/* Catalog (Left) */}
+            {/* Esquerda: Catálogo */}
             <div className="flex-1 flex flex-col border-r border-slate-200 dark:border-slate-700 overflow-hidden relative">
                 <div className="p-4 bg-white dark:bg-slate-800 border-b flex gap-3 items-center shrink-0 shadow-sm z-10">
                     <input 
                         type="text" 
                         placeholder="Buscar produto..." 
-                        className="flex-1 pl-4 pr-4 py-2.5 rounded-lg border bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        className="flex-1 pl-4 pr-4 py-2.5 rounded-lg border bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                     />
@@ -273,11 +294,11 @@ const NewSaleTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Checkout (Right) */}
-            <div className="w-full lg:w-[420px] bg-white dark:bg-slate-800 flex flex-col shadow-2xl z-20 border-l">
+            {/* Direita: Carrinho */}
+            <div className="w-full lg:w-[420px] bg-white dark:bg-slate-800 flex flex-col shadow-2xl z-20 border-l border-slate-200 dark:border-slate-700">
                 <div className="p-4 border-b bg-slate-50 dark:bg-slate-900">
                     <select 
-                        className="w-full p-2.5 rounded-lg border bg-white dark:bg-slate-800"
+                        className="w-full p-2.5 rounded-lg border bg-white dark:bg-slate-800 dark:text-white"
                         onChange={(e) => setSelectedProfile(profiles.find(p => p.id === e.target.value) || null)}
                         value={selectedProfile?.id || ""}
                     >
@@ -294,15 +315,15 @@ const NewSaleTab: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50 dark:bg-slate-900/30">
                     {cart.map(item => (
-                        <div key={item.cartId} className="flex justify-between p-2 bg-white dark:bg-slate-800 rounded border">
-                            <span className="text-sm font-bold truncate w-40">{item.name}</span>
-                            <span className="text-sm font-bold">R$ {item.price.toFixed(2)}</span>
+                        <div key={item.cartId} className="flex justify-between p-2 bg-white dark:bg-slate-800 rounded border dark:border-slate-700">
+                            <span className="text-sm font-bold truncate w-40 dark:text-white">{item.name}</span>
+                            <span className="text-sm font-bold dark:text-white">R$ {item.price.toFixed(2)}</span>
                         </div>
                     ))}
                 </div>
 
                 <div className="p-4 bg-white dark:bg-slate-800 border-t shadow-top space-y-3">
-                    <div className="flex justify-between text-sm font-bold">
+                    <div className="flex justify-between text-sm font-bold dark:text-white">
                         <span>Total Produtos</span>
                         <span>R$ {cartSubTotal.toFixed(2)}</span>
                     </div>
@@ -313,19 +334,20 @@ const NewSaleTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Modal de Pagamento/Configuração */}
+            {/* Modal de Checkout / Configuração */}
             {isCheckoutOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
                     <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh]">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-slate-900 dark:text-white">Checkout Financeiro</h3>
                             <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-500 hover:text-slate-800 dark:hover:text-white">✕</button>
                         </div>
                         
+                        {/* Cupom & Total */}
                         <div className="grid grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cupom de Desconto</label>
-                                <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2 border rounded font-mono uppercase" placeholder="CODIGO" />
+                                <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2 border rounded font-mono uppercase dark:bg-slate-800 dark:border-slate-700 dark:text-white" placeholder="CODIGO" />
                                 {discountApplied > 0 && <p className="text-xs text-green-600 font-bold mt-1">Desconto: -R$ {discountApplied.toFixed(2)}</p>}
                             </div>
                             <div className="text-right">
@@ -334,25 +356,27 @@ const NewSaleTab: React.FC = () => {
                             </div>
                         </div>
 
+                        {/* Modalidade */}
                         <div className="mb-6 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                             <label className="block text-xs font-bold uppercase text-slate-500 mb-3">Modalidade</label>
                             <div className="flex gap-2">
-                                <button onClick={() => setPaymentMode('crediario')} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${paymentMode === 'crediario' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>Crediário Próprio</button>
-                                <button onClick={() => { setPaymentMode('cash'); setInstallments(1); setEntryValue(''); }} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${paymentMode === 'cash' ? 'bg-green-600 text-white border-green-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>À Vista / Direto</button>
+                                <button onClick={() => setSaleType('crediario')} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${saleType === 'crediario' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>Crediário Próprio</button>
+                                <button onClick={() => { setSaleType('direct'); setInstallments(1); setEntryValue(''); }} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${saleType === 'direct' ? 'bg-green-600 text-white border-green-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>À Vista / Direto</button>
                             </div>
                         </div>
 
-                        {paymentMode === 'crediario' && (
+                        {/* Configuração Crediário */}
+                        {saleType === 'crediario' && (
                             <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border mb-6 border-slate-200 dark:border-slate-700">
                                 <div className="grid grid-cols-2 gap-6">
                                     <div>
-                                        <label className="block text-xs font-bold mb-1">Entrada (R$)</label>
-                                        <input type="number" value={entryValue} onChange={e => setEntryValue(e.target.value)} className="w-full p-2 border rounded font-bold" placeholder="0.00" />
+                                        <label className="block text-xs font-bold mb-1 dark:text-slate-300">Entrada (R$)</label>
+                                        <input type="number" value={entryValue} onChange={e => setEntryValue(e.target.value)} className="w-full p-2 border rounded font-bold dark:bg-slate-700 dark:border-slate-600 dark:text-white" placeholder="0.00" />
                                         {!validationStatus.isValid && <p className="text-xs text-red-500 font-bold mt-1">{validationStatus.message}</p>}
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold mb-1">Parcelas</label>
-                                        <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2 border rounded font-bold">
+                                        <label className="block text-xs font-bold mb-1 dark:text-slate-300">Parcelas</label>
+                                        <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2 border rounded font-bold dark:bg-slate-700 dark:border-slate-600 dark:text-white">
                                             {Array.from({length:12},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}x</option>)}
                                         </select>
                                     </div>
@@ -360,50 +384,74 @@ const NewSaleTab: React.FC = () => {
                                 <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 grid grid-cols-3 gap-4 text-center">
                                     <div>
                                         <p className="text-[10px] uppercase text-slate-500 font-bold">Financiado</p>
-                                        <p className="font-bold">R$ {totalWithInterest.toFixed(2)}</p>
+                                        <p className="font-bold dark:text-white">R$ {totalWithInterest.toFixed(2)}</p>
                                     </div>
                                     <div>
                                         <p className="text-[10px] uppercase text-slate-500 font-bold">Sua Parcela</p>
-                                        <p className="font-bold text-indigo-600">R$ {installmentValue.toFixed(2)}</p>
+                                        <p className="font-bold text-indigo-600 dark:text-indigo-400">R$ {installmentValue.toFixed(2)}</p>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] uppercase text-slate-500 font-bold">Margem Disp.</p>
+                                        <p className="text-[10px] uppercase text-slate-500 font-bold">Limite Disp.</p>
                                         <p className={`font-bold ${installmentValue > clientLimitData.availableMonthly ? 'text-red-500' : 'text-green-600'}`}>R$ {clientLimitData.availableMonthly.toFixed(2)}</p>
                                     </div>
                                 </div>
                             </div>
                         )}
 
+                        {/* Pagamento Entrada / Total */}
                         <div className="mb-6">
-                            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Método de Pagamento (Entrada/Total)</label>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
+                                {saleType === 'crediario' ? 'Pagamento da Entrada' : 'Método de Pagamento'}
+                            </label>
                             <div className="grid grid-cols-4 gap-2">
-                                <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700' : 'hover:bg-slate-50'}`}>
+                                <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white'}`}>
                                     <span>Pix</span>
                                 </button>
-                                <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700' : 'hover:bg-slate-50'}`}>
+                                <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white'}`}>
                                     <span>Boleto</span>
                                 </button>
-                                <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-slate-50'}`}>
+                                <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white'}`}>
                                     <span>Link MP</span>
                                 </button>
-                                <button onClick={() => setPaymentMethod('cash')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400 text-slate-700' : 'hover:bg-slate-50'}`}>
+                                <button onClick={() => setPaymentMethod('cash')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400 text-slate-700 dark:bg-slate-700 dark:text-white' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white'}`}>
                                     <span>Dinheiro</span>
                                 </button>
                             </div>
                         </div>
 
                         <button 
-                            onClick={handleFinishSale} 
-                            disabled={isProcessing || (paymentMode === 'crediario' && !validationStatus.isValid)} 
+                            onClick={handlePreSubmit} 
+                            disabled={isProcessing || (saleType === 'crediario' && !validationStatus.isValid)} 
                             className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                         >
-                            {isProcessing ? <LoadingSpinner /> : 'Confirmar e Gerar Pagamento'}
+                            {isProcessing ? <LoadingSpinner /> : (saleType === 'crediario' ? 'Assinar e Concluir' : 'Concluir Venda')}
                         </button>
                     </div>
                 </div>
             )}
 
-            {paymentResult && <PaymentResultModal data={paymentResult} onClose={() => { setPaymentResult(null); setIsCheckoutOpen(false); }} />}
+            {/* Modal de Assinatura (Apenas Crediário) */}
+            {isSigning && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 animate-fade-in">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl w-full max-w-lg">
+                        <h3 className="text-xl font-bold mb-4 dark:text-white">Assinatura do Contrato</h3>
+                        <p className="text-xs text-slate-500 mb-2">Ao assinar, declaro estar ciente da dívida de R$ {totalWithInterest.toFixed(2)}.</p>
+                        <SignaturePad onEnd={setSignature} />
+                        <div className="flex gap-3 mt-4">
+                            <button onClick={() => setIsSigning(false)} className="flex-1 py-3 border rounded-lg font-bold dark:text-white">Voltar</button>
+                            <button 
+                                onClick={handleProcessSale} 
+                                disabled={!signature} 
+                                className="flex-1 py-3 bg-green-600 text-white rounded-lg font-bold disabled:opacity-50"
+                            >
+                                Confirmar Venda
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {paymentResult && <PaymentResultModal data={paymentResult} onClose={() => { setPaymentResult(null); }} />}
         </div>
     );
 };
