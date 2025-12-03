@@ -117,7 +117,7 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 async function handleGeneratePoll(req: VercelRequest, res: VercelResponse) {
     try {
         const genAI = getGeminiClient();
-        const { topic } = req.body; // Tópico opcional
+        const { topic } = req.body; 
 
         const prompt = `
             Crie uma enquete interessante para usuários de um aplicativo de loja de celulares e pagamentos (Relp Cell).
@@ -157,13 +157,11 @@ async function handleUploadPwaIcon(req: VercelRequest, res: VercelResponse) {
             return res.status(400).json({ error: 'Tipo e imagem são obrigatórios.' });
         }
 
-        // Validar tipo
         const validTypes = ['pwa_icon_192', 'pwa_icon_512', 'pwa_icon_192_maskable', 'pwa_icon_512_maskable'];
         if (!validTypes.includes(type)) {
             return res.status(400).json({ error: 'Tipo de ícone inválido.' });
         }
 
-        // Salvar em system_settings
         const { error } = await supabase.from('system_settings').upsert({
             key: type,
             value: imageBase64
@@ -209,7 +207,7 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
         } 
         
         if (action === 'calculate_auto') {
-             const userId = request ? request.user_id : req.body.userId; // Fallback se não tiver request ID (análise espontânea)
+             const userId = request ? request.user_id : req.body.userId;
              const updatedAnalysis = await runCreditAnalysis(supabase, genAI, userId, true);
              return res.status(200).json({ 
                  suggestedLimit: updatedAnalysis.credit_limit, 
@@ -227,7 +225,6 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    // SQL corrigido com Policies permissivas para o Admin
     const FULL_SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
@@ -285,7 +282,7 @@ CREATE TABLE IF NOT EXISTS "public"."app_changelog" (
     "title" "text" NOT NULL,
     "description" "text",
     "date" timestamp with time zone DEFAULT "now"(),
-    "type" "text", -- 'feature', 'fix', 'improvement'
+    "type" "text",
     "is_public" boolean DEFAULT true,
     CONSTRAINT "app_changelog_pkey" PRIMARY KEY ("id")
 );
@@ -293,7 +290,7 @@ ALTER TABLE "public"."app_changelog" ADD COLUMN IF NOT EXISTS "is_public" boolea
 ALTER TABLE "public"."app_changelog" ENABLE ROW LEVEL SECURITY;
 -- Políticas
 DROP POLICY IF EXISTS "Public read changelog" ON "public"."app_changelog";
-CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USING (true);
+CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USING (is_public = true OR auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Admin manage changelog" ON "public"."app_changelog";
 CREATE POLICY "Admin manage changelog" ON "public"."app_changelog" FOR ALL USING (auth.role() = 'authenticated');
 
@@ -341,10 +338,9 @@ DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
 CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
 
--- Inserir Novidades
 INSERT INTO "public"."app_changelog" (version, title, description, type, is_public, date)
-SELECT 'v2.2', 'IA na Criação de Enquetes', 'Agora você pode usar a Inteligência Artificial para gerar perguntas e opções para suas enquetes automaticamente! Teste na aba Enquetes.', 'feature', false, NOW()
-WHERE NOT EXISTS (SELECT 1 FROM "public"."app_changelog" WHERE title = 'IA na Criação de Enquetes');
+SELECT 'v2.3', 'Novidades e Enquetes', 'Nova interface para acompanhar novidades e participar de enquetes!', 'feature', true, NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "public"."app_changelog" WHERE title = 'Novidades e Enquetes');
     `;
     const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL });
     if (error) throw error;
@@ -358,9 +354,7 @@ async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { error } = await supabase.from('system_settings').select('key').limit(1);
-        
         if (error) throw error;
-        
         return res.status(200).json({ message: "Conexão com Supabase estabelecida com sucesso! Leitura OK." });
     } catch (e: any) {
         return res.status(500).json({ error: `Falha na conexão Supabase: ${e.message}` });
@@ -374,9 +368,7 @@ async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
             model: 'gemini-2.5-flash',
             contents: 'Responda apenas com a palavra "OK" se você estiver funcionando.',
         });
-        
         if (!response.text) throw new Error("Sem resposta da IA.");
-
         return res.status(200).json({ message: `Gemini respondendo: ${response.text}` });
     } catch (e: any) {
         return res.status(500).json({ error: `Falha na conexão Gemini: ${e.message}` });
@@ -388,7 +380,6 @@ async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
         const client = getMercadoPagoClient();
         const payment = new Payment(client);
         await payment.search({ options: { limit: 1, offset: 0 } });
-        
         return res.status(200).json({ message: "Conexão com Mercado Pago validada (Access Token OK)." });
     } catch (e: any) {
         return res.status(500).json({ error: `Falha Mercado Pago: ${e.message || 'Verifique o Access Token'}` });
@@ -399,11 +390,9 @@ async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) 
     try {
         const clientId = process.env.ML_CLIENT_ID;
         const clientSecret = process.env.ML_CLIENT_SECRET;
-
         if (!clientId || !clientSecret) {
             throw new Error("Credenciais ML_CLIENT_ID ou ML_CLIENT_SECRET não encontradas.");
         }
-
         const response = await fetch("https://api.mercadolibre.com/oauth/token", {
             method: "POST",
             headers: { 
@@ -416,19 +405,16 @@ async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) 
                 client_secret: clientSecret
             }),
         });
-
         if (!response.ok) {
             const err = await response.json();
             throw new Error(`Erro API ML: ${err.message || err.error}`);
         }
-
         return res.status(200).json({ message: "Credenciais do Mercado Livre validadas com sucesso." });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
 }
 
-// Handlers for GET operations
 async function handleProducts(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('products').select('*');
@@ -480,14 +466,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// Router
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const path = url.pathname;
 
     try {
         if (req.method === 'POST') {
-            if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res); // Nova rota
+            if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
             if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
