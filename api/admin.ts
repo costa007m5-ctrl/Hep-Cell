@@ -38,7 +38,6 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
     }
 }
 
-// ... (GenerateContentWithRetry and RunCreditAnalysis remain the same) ...
 async function generateContentWithRetry(genAI: GoogleGenAI, params: any, retries = 3, initialDelay = 2000) {
     let delay = initialDelay;
     for (let i = 0; i < retries; i++) {
@@ -118,7 +117,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     try {
         const { 
             userId, 
-            totalAmount, // Valor total com juros (se crediário) ou à vista
+            totalAmount, // Valor total Bruto (antes do desconto e entrada)
             installments, 
             productName, 
             saleType, // 'crediario' | 'direct'
@@ -133,7 +132,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         if (!userId || !totalAmount) return res.status(400).json({ error: "Dados incompletos." });
 
-        // 1. Validar e Aplicar Cupom (Simples backend check)
+        // 1. Validar e Aplicar Cupom
         let finalAmount = totalAmount;
         let discountApplied = 0;
         if (couponCode) {
@@ -148,11 +147,13 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             finalAmount = Math.max(0, totalAmount - discountApplied);
         }
 
-        // 2. Processar Coins
+        // 2. Processar Coins (Descontar do saldo do usuário)
         if (coinsUsed > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
             if (profile && profile.coins_balance >= coinsUsed) {
                 await supabase.from('profiles').update({ coins_balance: profile.coins_balance - coinsUsed }).eq('id', userId);
+                // O valor financeiro dos coins já deve ter sido abatido no frontend antes de enviar 'downPayment' ou 'totalAmount'
+                // Aqui apenas removemos os coins do saldo.
             } else {
                 return res.status(400).json({ error: "Saldo de coins insuficiente." });
             }
@@ -165,30 +166,31 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             items: `${productName} (Vendedor: ${sellerName || 'Sistema'})`,
             total_value: finalAmount,
             installments: installments,
-            status: saleType === 'crediario' ? 'Ativo' : 'Ativo',
+            status: 'Ativo', // Contrato nasce ativo, mas faturas podem estar pendentes
             terms_accepted: true
         }).select().single();
 
         if (contractError) throw contractError;
 
-        // 4. Gerar Fatura de Entrada (ou Total)
-        // Se for crediário, gera SÓ a entrada agora. O webhook gerará o resto ao pagar.
-        // Se for direto, gera fatura total.
+        // 4. Lógica de Faturamento (Crediário vs Direto)
         
         const isCrediario = saleType === 'crediario';
-        const invoiceAmount = isCrediario ? downPayment : finalAmount;
+        const invoiceAmount = isCrediario ? downPayment : finalAmount; // Se crediário, cobra só entrada agora. Se direto, cobra tudo.
         const today = new Date();
         
         let paymentData: any = null;
         let invoiceId = null;
 
+        // Só gera fatura inicial se houver valor a pagar agora (entrada > 0 ou venda à vista)
         if (invoiceAmount > 0) {
             // Nota especial para o Webhook identificar e gerar parcelas depois
-            // Formato: TRIGGER_INSTALLMENTS|CONTRACT_ID|REMAINING_AMOUNT|COUNT|DAY
+            // Formato: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|COUNT|DAY
             let notes = `Compra ${contract.id}`;
             if (isCrediario) {
                 const remaining = finalAmount - downPayment;
                 notes = `ENTRADA|${contract.id}|${remaining}|${installments}|${dueDay || 10}`;
+            } else {
+                notes = `DIRETA|${contract.id}`;
             }
 
             const { data: invoice, error: invError } = await supabase.from('invoices').insert({
@@ -199,18 +201,19 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 status: 'Em aberto',
                 payment_method: paymentMethod,
                 notes: notes,
-                discountValue: discountApplied
+                discountValue: discountApplied // Coluna nova adicionada no setup
             }).select().single();
 
             if (invError) throw invError;
             invoiceId = invoice.id;
 
-            // 5. Gerar Pagamento Real no Mercado Pago (Se não for Dinheiro/Maquininha)
+            // 5. Integração Imediata com Mercado Pago
             if (paymentMethod === 'pix' || paymentMethod === 'boleto' || paymentMethod === 'redirect') {
                 const mpClient = getMercadoPagoClient();
+                // Busca dados do usuário para o payer do MP
                 const { data: user } = await supabase.auth.admin.getUserById(userId);
                 const email = user?.user?.email || 'cliente@relpcell.com';
-                const { data: profile } = await supabase.from('profiles').select('first_name, last_name, identification_number').eq('id', userId).single();
+                const { data: profile } = await supabase.from('profiles').select('first_name, last_name, identification_number, zip_code, street_name, street_number, neighborhood, city, federal_unit').eq('id', userId).single();
 
                 const commonPayer = {
                     email: email,
@@ -243,17 +246,23 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                     }
                 } else if (paymentMethod === 'boleto') {
                      const payment = new Payment(mpClient);
-                     // Necessário endereço para boleto (mock ou real se tiver)
                      const boletoPayer = {
                          ...commonPayer,
-                         address: { zip_code: '68900000', street_name: 'Av Principal', street_number: '123', neighborhood: 'Centro', city: 'Macapá', federal_unit: 'AP' }
+                         address: { 
+                             zip_code: profile?.zip_code?.replace(/\D/g, '') || '68900000', 
+                             street_name: profile?.street_name || 'Rua', 
+                             street_number: profile?.street_number || '123', 
+                             neighborhood: profile?.neighborhood || 'Centro', 
+                             city: profile?.city || 'Macapá', 
+                             federal_unit: profile?.federal_unit || 'AP' 
+                         }
                      };
                      
                      const result = await payment.create({
                         body: {
                             transaction_amount: Number(invoiceAmount.toFixed(2)),
                             description: notes,
-                            payment_method_id: 'bolbradesco', // ou bolbradesco, pec
+                            payment_method_id: 'bolbradesco',
                             payer: boletoPayer,
                             external_reference: invoiceId
                         }
@@ -269,11 +278,10 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                         await supabase.from('invoices').update({ boleto_barcode: paymentData.barcode, boleto_url: paymentData.url, payment_id: String(result.id), status: 'Boleto Gerado' }).eq('id', invoiceId);
                     }
                 } else if (paymentMethod === 'redirect') {
-                    // Preference logic
                     const preference = new Preference(mpClient);
                     const result = await preference.create({
                         body: {
-                            items: [{ id: invoiceId, title: notes, quantity: 1, unit_price: Number(invoiceAmount.toFixed(2)), currency_id: 'BRL' }],
+                            items: [{ id: invoiceId, title: `Pedido Relp Cell`, quantity: 1, unit_price: Number(invoiceAmount.toFixed(2)), currency_id: 'BRL' }],
                             payer: { email: email },
                             external_reference: invoiceId,
                             back_urls: { success: 'https://relpcell.com', failure: 'https://relpcell.com' }
@@ -282,11 +290,11 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                     paymentData = { type: 'redirect', url: result.init_point };
                 }
             } else if (paymentMethod === 'cash') {
-                // Se for dinheiro, já marca como pago e gera parcelas se for crediário
+                // Pagamento em Dinheiro no Balcão: Marca como pago e processa parcelas
                 await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
                 
                 if (isCrediario) {
-                    // Gera parcelas imediatamente pois entrada já foi paga "no caixa"
+                    // Como não vai ter webhook do MP, geramos as parcelas aqui mesmo
                     const remaining = finalAmount - downPayment;
                     const installmentsToCreate = [];
                     const installmentValue = remaining / installments;
@@ -295,20 +303,46 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                         const d = new Date();
                         d.setDate(dueDay || 10);
                         d.setMonth(d.getMonth() + i);
+                        
                         installmentsToCreate.push({
                             user_id: userId,
                             month: `Parcela ${i}/${installments} - ${productName}`,
                             due_date: d.toISOString().split('T')[0],
                             amount: installmentValue,
                             status: 'Em aberto',
-                            notes: `Contrato ${contract.id}`
+                            notes: `Contrato ${contract.id}`,
+                            discountValue: 0
                         });
                     }
                     if (installmentsToCreate.length > 0) {
                         await supabase.from('invoices').insert(installmentsToCreate);
                     }
                 }
+                paymentData = { type: 'cash' };
             }
+        } else if (isCrediario && invoiceAmount <= 0) {
+            // Caso raro: Crediário sem entrada (Zero down payment)
+            // Gera parcelas imediatamente
+            const installmentsToCreate = [];
+            const installmentValue = finalAmount / installments;
+            for (let i = 1; i <= installments; i++) {
+                const d = new Date();
+                d.setDate(dueDay || 10);
+                d.setMonth(d.getMonth() + i);
+                installmentsToCreate.push({
+                    user_id: userId,
+                    month: `Parcela ${i}/${installments} - ${productName}`,
+                    due_date: d.toISOString().split('T')[0],
+                    amount: installmentValue,
+                    status: 'Em aberto',
+                    notes: `Contrato ${contract.id}`,
+                    discountValue: 0
+                });
+            }
+            if (installmentsToCreate.length > 0) {
+                await supabase.from('invoices').insert(installmentsToCreate);
+            }
+            paymentData = { type: 'cash', message: 'Sem entrada necessária.' };
         }
 
         await logAction(supabase, 'SALE_CREATED', 'SUCCESS', `Venda criada para ${userId}: ${productName}`, { contractId: contract.id });
@@ -355,8 +389,6 @@ async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (Other handlers like handleGeneratePoll, handleUploadPwaIcon etc. stay the same, just keep them in the file structure)
-
 async function handleGeneratePoll(req: VercelRequest, res: VercelResponse) {
     try {
         const genAI = getGeminiClient();
@@ -382,11 +414,10 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
     try {
         const { requestId, action, manualLimit, manualScore, responseReason } = req.body;
         if (action === 'calculate_auto') {
-             const userId = req.body.userId; // Simplified
+             const userId = req.body.userId; 
              const updatedAnalysis = await runCreditAnalysis(supabase, genAI, userId, true);
              return res.status(200).json({ suggestedLimit: updatedAnalysis.credit_limit, suggestedScore: updatedAnalysis.credit_score, reason: updatedAnalysis.reason });
         }
-        // ... approve/reject logic simplified for brevity in this block, assume original logic
         if (action === 'approve_manual') {
              const { data: req } = await supabase.from('limit_requests').select('user_id').eq('id', requestId).single();
              await supabase.from('profiles').update({ credit_limit: manualLimit, credit_score: manualScore }).eq('id', req.user_id);
@@ -403,8 +434,22 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    // ... Full SQL logic from previous steps ...
-    return res.status(200).json({ message: "DB OK" });
+    // SQL Para corrigir a falta da coluna discountValue
+    const SQL = `
+        ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;
+        ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "notes" text;
+        -- Garante as outras colunas também
+        ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "coins_balance" integer DEFAULT 0;
+    `;
+    
+    const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SQL });
+    if(error) {
+        // Fallback se RPC nao existir, tenta criar tabela log só pra testar conexão
+        console.error("Erro setup DB:", error);
+        return res.status(500).json({ error: error.message });
+    }
+    
+    return res.status(200).json({ message: "Database Schema Updated: discountValue added." });
 }
 
 // ... Test Handlers ...

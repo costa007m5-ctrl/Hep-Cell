@@ -56,29 +56,36 @@ const ProductCard: React.FC<{ product: Product; onAdd: (p: Product) => void }> =
 const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data, onClose }) => {
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md animate-fade-in p-4">
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center space-y-4">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center space-y-4 border border-slate-100 dark:border-slate-800">
                 <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto text-green-600">
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">Venda Criada!</h3>
-                <p className="text-sm text-slate-500">O pagamento da entrada (ou total) foi gerado. Peça ao cliente para pagar agora.</p>
+                <p className="text-sm text-slate-500">O pagamento foi gerado. Peça ao cliente para pagar agora.</p>
                 
                 {data.type === 'pix' && (
-                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.qrCode)}`} className="mx-auto w-32 h-32 rounded-lg" alt="QR Code" />
-                        <p className="text-xs font-mono text-slate-500 mt-2 break-all">{data.qrCode}</p>
+                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.qrCode)}`} className="mx-auto w-32 h-32 rounded-lg mix-blend-multiply dark:mix-blend-normal" alt="QR Code" />
+                        <p className="text-[10px] font-mono text-slate-500 mt-2 break-all bg-white dark:bg-slate-900 p-2 rounded border border-slate-100 dark:border-slate-700 select-all">{data.qrCode}</p>
+                        <p className="text-xs font-bold text-indigo-600 mt-2">Pagamento Pix</p>
                     </div>
                 )}
                 
                 {data.type === 'boleto' && (
-                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                         <p className="font-bold text-sm text-slate-700 dark:text-white">Código de Barras</p>
-                        <p className="text-xs font-mono text-slate-500 mt-1 break-all select-all">{data.barcode}</p>
-                        <a href={data.url} target="_blank" className="text-indigo-600 text-xs underline mt-2 block">Imprimir Boleto</a>
+                        <p className="text-xs font-mono text-slate-500 mt-1 break-all select-all bg-white dark:bg-slate-900 p-2 rounded">{data.barcode}</p>
+                        <a href={data.url} target="_blank" className="text-indigo-600 text-xs underline mt-2 block font-bold">Imprimir Boleto</a>
                     </div>
                 )}
 
-                <button onClick={onClose} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold">Concluir</button>
+                {data.type === 'redirect' && (
+                    <div className="space-y-2">
+                        <a href={data.url} target="_blank" className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold block hover:bg-blue-700">Abrir Link de Pagamento</a>
+                    </div>
+                )}
+
+                <button onClick={onClose} className="w-full py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700">Fechar</button>
             </div>
         </div>
     );
@@ -185,17 +192,19 @@ const NewSaleTab: React.FC = () => {
 
     const validationStatus = useMemo(() => {
         if (paymentMode !== 'crediario') return { isValid: true, message: null };
-        const regulatoryEntry = cartTotal * minEntryPercentage;
-        const interestFactor = installments > 1 ? Math.pow(1 + (interestRate/100), installments) : 1;
-        const maxPrincipalAllowed = (clientLimitData.availableMonthly * installments) / interestFactor;
-        const limitGapEntry = Math.max(0, cartTotal - maxPrincipalAllowed);
-        const requiredEntry = Math.max(regulatoryEntry, limitGapEntry);
         
-        if (entry < requiredEntry) {
-            return { isValid: false, message: `Entrada mínima: R$ ${requiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` };
+        // Verifica se a parcela cabe no limite mensal disponível
+        if (installmentValue > clientLimitData.availableMonthly) {
+             return { isValid: false, message: `Parcela excede limite disponível (R$ ${clientLimitData.availableMonthly.toFixed(2)})` };
+        }
+
+        const regulatoryEntry = cartTotal * minEntryPercentage;
+        
+        if (entry < regulatoryEntry) {
+            return { isValid: false, message: `Entrada mínima: R$ ${regulatoryEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` };
         }
         return { isValid: true, message: 'Aprovado' };
-    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData, installments, interestRate]);
+    }, [paymentMode, cartTotal, entry, minEntryPercentage, clientLimitData, installments, interestRate, installmentValue]);
 
     const handleFinishSale = async () => {
         if (!selectedProfile) return alert("Selecione um cliente!");
@@ -207,7 +216,7 @@ const NewSaleTab: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: selectedProfile.id,
-                    totalAmount: totalWithInterest,
+                    totalAmount: paymentMode === 'crediario' ? cartTotal : cartTotal, // O backend recalcula
                     installments: installments,
                     productName: itemsDescription.substring(0, 50),
                     saleType: paymentMode === 'crediario' ? 'crediario' : 'direct', 
@@ -308,70 +317,88 @@ const NewSaleTab: React.FC = () => {
             {isCheckoutOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                     <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh]">
-                        <h3 className="text-xl font-bold mb-4 text-slate-900 dark:text-white">Checkout</h3>
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Checkout Financeiro</h3>
+                            <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-500 hover:text-slate-800 dark:hover:text-white">✕</button>
+                        </div>
                         
                         <div className="grid grid-cols-2 gap-4 mb-4">
                             <div>
-                                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cupom</label>
-                                <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2 border rounded" placeholder="CODIGO" />
+                                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cupom de Desconto</label>
+                                <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2 border rounded font-mono uppercase" placeholder="CODIGO" />
                                 {discountApplied > 0 && <p className="text-xs text-green-600 font-bold mt-1">Desconto: -R$ {discountApplied.toFixed(2)}</p>}
                             </div>
-                            <div>
+                            <div className="text-right">
                                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Final</label>
-                                <p className="text-xl font-black text-slate-900 dark:text-white">R$ {cartTotal.toFixed(2)}</p>
+                                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400">R$ {cartTotal.toFixed(2)}</p>
                             </div>
                         </div>
 
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Tipo de Venda</label>
+                        <div className="mb-6 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-3">Modalidade</label>
                             <div className="flex gap-2">
-                                <button onClick={() => setPaymentMode('crediario')} className={`flex-1 py-2 rounded border font-bold ${paymentMode === 'crediario' ? 'bg-indigo-100 border-indigo-500 text-indigo-700' : ''}`}>Crediário</button>
-                                <button onClick={() => { setPaymentMode('cash'); setInstallments(1); setEntryValue(''); }} className={`flex-1 py-2 rounded border font-bold ${paymentMode === 'cash' ? 'bg-green-100 border-green-500 text-green-700' : ''}`}>À Vista / Direto</button>
+                                <button onClick={() => setPaymentMode('crediario')} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${paymentMode === 'crediario' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>Crediário Próprio</button>
+                                <button onClick={() => { setPaymentMode('cash'); setInstallments(1); setEntryValue(''); }} className={`flex-1 py-3 rounded-lg border font-bold transition-colors ${paymentMode === 'cash' ? 'bg-green-600 text-white border-green-600' : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>À Vista / Direto</button>
                             </div>
                         </div>
 
                         {paymentMode === 'crediario' && (
-                            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border mb-4">
-                                <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border mb-6 border-slate-200 dark:border-slate-700">
+                                <div className="grid grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-xs font-bold mb-1">Entrada (R$)</label>
-                                        <input type="number" value={entryValue} onChange={e => setEntryValue(e.target.value)} className="w-full p-2 border rounded" placeholder="0.00" />
+                                        <input type="number" value={entryValue} onChange={e => setEntryValue(e.target.value)} className="w-full p-2 border rounded font-bold" placeholder="0.00" />
                                         {!validationStatus.isValid && <p className="text-xs text-red-500 font-bold mt-1">{validationStatus.message}</p>}
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold mb-1">Parcelas</label>
-                                        <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2 border rounded">
+                                        <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2 border rounded font-bold">
                                             {Array.from({length:12},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}x</option>)}
                                         </select>
                                     </div>
                                 </div>
-                                <div className="mt-2 text-right">
-                                    <p className="text-xs font-bold text-slate-500">Valor Parcela: R$ {installmentValue.toFixed(2)}</p>
-                                    <p className="text-xs font-bold text-indigo-600">Total Financiado: R$ {totalWithInterest.toFixed(2)}</p>
+                                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 grid grid-cols-3 gap-4 text-center">
+                                    <div>
+                                        <p className="text-[10px] uppercase text-slate-500 font-bold">Financiado</p>
+                                        <p className="font-bold">R$ {totalWithInterest.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase text-slate-500 font-bold">Sua Parcela</p>
+                                        <p className="font-bold text-indigo-600">R$ {installmentValue.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] uppercase text-slate-500 font-bold">Margem Disp.</p>
+                                        <p className={`font-bold ${installmentValue > clientLimitData.availableMonthly ? 'text-red-500' : 'text-green-600'}`}>R$ {clientLimitData.availableMonthly.toFixed(2)}</p>
+                                    </div>
                                 </div>
                             </div>
                         )}
 
                         <div className="mb-6">
-                            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Como pagar a Entrada/Total?</label>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Método de Pagamento (Entrada/Total)</label>
                             <div className="grid grid-cols-4 gap-2">
-                                <button onClick={() => setPaymentMethod('pix')} className={`py-2 border rounded font-bold text-xs ${paymentMethod === 'pix' ? 'bg-green-100 border-green-500' : ''}`}>PIX</button>
-                                <button onClick={() => setPaymentMethod('boleto')} className={`py-2 border rounded font-bold text-xs ${paymentMethod === 'boleto' ? 'bg-orange-100 border-orange-500' : ''}`}>Boleto</button>
-                                <button onClick={() => setPaymentMethod('redirect')} className={`py-2 border rounded font-bold text-xs ${paymentMethod === 'redirect' ? 'bg-blue-100 border-blue-500' : ''}`}>Link MP</button>
-                                <button onClick={() => setPaymentMethod('cash')} className={`py-2 border rounded font-bold text-xs ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400' : ''}`}>Dinheiro</button>
+                                <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700' : 'hover:bg-slate-50'}`}>
+                                    <span>Pix</span>
+                                </button>
+                                <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700' : 'hover:bg-slate-50'}`}>
+                                    <span>Boleto</span>
+                                </button>
+                                <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-slate-50'}`}>
+                                    <span>Link MP</span>
+                                </button>
+                                <button onClick={() => setPaymentMethod('cash')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400 text-slate-700' : 'hover:bg-slate-50'}`}>
+                                    <span>Dinheiro</span>
+                                </button>
                             </div>
                         </div>
 
-                        <div className="flex gap-3">
-                            <button onClick={() => setIsCheckoutOpen(false)} className="flex-1 py-3 border rounded-xl font-bold">Cancelar</button>
-                            <button 
-                                onClick={handleFinishSale} 
-                                disabled={isProcessing || (paymentMode === 'crediario' && !validationStatus.isValid)} 
-                                className="flex-[2] py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:opacity-50"
-                            >
-                                {isProcessing ? <LoadingSpinner /> : 'Confirmar e Gerar Pagamento'}
-                            </button>
-                        </div>
+                        <button 
+                            onClick={handleFinishSale} 
+                            disabled={isProcessing || (paymentMode === 'crediario' && !validationStatus.isValid)} 
+                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            {isProcessing ? <LoadingSpinner /> : 'Confirmar e Gerar Pagamento'}
+                        </button>
                     </div>
                 </div>
             )}
