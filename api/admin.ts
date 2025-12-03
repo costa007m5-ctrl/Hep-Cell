@@ -1,7 +1,7 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
+import { MercadoPagoConfig, Payment } from 'mercadopago';
 import { URL } from 'url';
 
 // --- Helper Functions ---
@@ -18,9 +18,17 @@ function getSupabaseAdminClient(): SupabaseClient {
 function getGeminiClient() {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-        return null; 
+        throw new Error('A chave da API do Gemini (API_KEY) não está configurada.');
     }
     return new GoogleGenAI({ apiKey });
+}
+
+function getMercadoPagoClient() {
+    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    if (!accessToken) {
+        throw new Error('O Access Token do Mercado Pago não está configurado.');
+    }
+    return new MercadoPagoConfig({ accessToken });
 }
 
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
@@ -236,6 +244,87 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
     res.status(200).json({ message: "Banco de dados atualizado com sucesso!" });
 }
 
+// --- TEST HANDLERS ---
+
+async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
+    try {
+        const supabase = getSupabaseAdminClient();
+        // Tenta buscar 1 registro de configurações para validar leitura
+        const { error } = await supabase.from('system_settings').select('key').limit(1);
+        
+        if (error) throw error;
+        
+        return res.status(200).json({ message: "Conexão com Supabase estabelecida com sucesso! Leitura OK." });
+    } catch (e: any) {
+        return res.status(500).json({ error: `Falha na conexão Supabase: ${e.message}` });
+    }
+}
+
+async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
+    try {
+        const genAI = getGeminiClient();
+        // Teste simples de geração
+        const response = await genAI.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: 'Responda apenas com a palavra "OK" se você estiver funcionando.',
+        });
+        
+        if (!response.text) throw new Error("Sem resposta da IA.");
+
+        return res.status(200).json({ message: `Gemini respondendo: ${response.text}` });
+    } catch (e: any) {
+        return res.status(500).json({ error: `Falha na conexão Gemini: ${e.message}` });
+    }
+}
+
+async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
+    try {
+        const client = getMercadoPagoClient();
+        // Teste simples tentando buscar pagamentos (mesmo que vazio, valida o token)
+        const payment = new Payment(client);
+        // Busca com limit 1 apenas para validar credencial
+        await payment.search({ options: { limit: 1, offset: 0 } });
+        
+        return res.status(200).json({ message: "Conexão com Mercado Pago validada (Access Token OK)." });
+    } catch (e: any) {
+        return res.status(500).json({ error: `Falha Mercado Pago: ${e.message || 'Verifique o Access Token'}` });
+    }
+}
+
+async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) {
+    try {
+        const clientId = process.env.ML_CLIENT_ID;
+        const clientSecret = process.env.ML_CLIENT_SECRET;
+
+        if (!clientId || !clientSecret) {
+            throw new Error("Credenciais ML_CLIENT_ID ou ML_CLIENT_SECRET não encontradas.");
+        }
+
+        // Tenta obter um token (Client Credentials Flow)
+        const response = await fetch("https://api.mercadolibre.com/oauth/token", {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({
+                grant_type: "client_credentials",
+                client_id: clientId,
+                client_secret: clientSecret
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(`Erro API ML: ${err.message || err.error}`);
+        }
+
+        return res.status(200).json({ message: "Credenciais do Mercado Livre validadas com sucesso." });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
 // Handlers for GET operations
 async function handleProducts(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
@@ -294,19 +383,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = url.pathname;
 
     try {
-        // New Route for Icon Upload
-        if (req.method === 'POST' && path === '/api/admin/upload-pwa-icon') {
-            return await handleUploadPwaIcon(req, res);
-        }
-
-        // Existing Routes
-        if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
-        if (path === '/api/admin/manage-limit-request') return await handleManageLimitRequest(req, res);
-        if (path === '/api/admin/analyze-credit') {
-             const supabase = getSupabaseAdminClient();
-             const genAI = getGeminiClient();
-             const analysis = await runCreditAnalysis(supabase, genAI, req.body.userId, false);
-             return res.json({ profile: analysis });
+        // Test Routes
+        if (req.method === 'POST') {
+            if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
+            if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
+            if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
+            if (path === '/api/admin/test-mercadolivre') return await handleTestMercadoLivre(req, res);
+            if (path === '/api/admin/upload-pwa-icon') return await handleUploadPwaIcon(req, res);
+            if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
+            if (path === '/api/admin/manage-limit-request') return await handleManageLimitRequest(req, res);
+            if (path === '/api/admin/settings') return await handleSettings(req, res);
+            
+            if (path === '/api/admin/analyze-credit') {
+                 const supabase = getSupabaseAdminClient();
+                 const genAI = getGeminiClient();
+                 const analysis = await runCreditAnalysis(supabase, genAI, req.body.userId, false);
+                 return res.json({ profile: analysis });
+            }
         }
 
         if (req.method === 'GET') {
@@ -318,13 +411,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (path === '/api/admin/client-documents') return await handleClientDocuments(req, res);
             if (path === '/api/admin/settings') return await handleSettings(req, res);
         }
-        
-        if (req.method === 'POST') {
-            if (path === '/api/admin/settings') return await handleSettings(req, res);
-        }
 
-        // Fallback for other existing routes not explicitly detailed here but assumed to exist in previous state
-        // In a real scenario, all routes would be here.
+        // Fallback for other existing routes
         return res.status(404).json({ error: 'Admin route not found' });
 
     } catch (e: any) {
