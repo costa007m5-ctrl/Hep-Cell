@@ -1,4 +1,3 @@
-
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
@@ -48,25 +47,25 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
                 entriesCancelled++;
 
                 // 2. Cancela as parcelas (outras faturas criadas no mesmo momento)
-                const { count: countInv } = await supabase.from('invoices')
+                const { data: cancelledInvoices } = await supabase.from('invoices')
                     .update({ status: 'Cancelado', notes: 'Cancelado automaticamente: Entrada não paga.' })
                     .eq('user_id', entry.user_id)
                     .neq('id', entry.id) // Não atualiza a entrada de novo
                     .gte('created_at', minTime)
                     .lte('created_at', maxTime)
-                    .select('*', { count: 'exact', head: true });
+                    .select('id');
                 
-                if (countInv) installmentsCancelled += countInv;
+                if (cancelledInvoices) installmentsCancelled += cancelledInvoices.length;
 
                 // 3. Cancela o contrato associado
-                const { count: countContr } = await supabase.from('contracts')
+                const { data: cancelledContracts } = await supabase.from('contracts')
                     .update({ status: 'Cancelado' })
                     .eq('user_id', entry.user_id)
                     .gte('created_at', minTime)
                     .lte('created_at', maxTime)
-                    .select('*', { count: 'exact', head: true });
+                    .select('id');
 
-                if (countContr) contractsCancelled += countContr;
+                if (cancelledContracts) contractsCancelled += cancelledContracts.length;
                 
                 // Notifica o usuário
                 await supabase.from('notifications').insert({
