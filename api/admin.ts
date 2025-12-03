@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -74,7 +75,6 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
         };
     }
 
-    // Lógica de Cliente Novo vs Antigo
     const hasHistory = invoices && invoices.length > 0;
     let context = "";
     
@@ -104,7 +104,6 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
     if (!text) throw new Error("IA vazia.");
     const analysis = JSON.parse(text.trim());
 
-    // Se não for apenas cálculo (modo estrito de simulação), aplica
     if (!strictMode) {
         await supabase.from('profiles').update({ credit_score: analysis.credit_score, credit_limit: analysis.credit_limit, credit_status: analysis.credit_status }).eq('id', userId);
     }
@@ -113,6 +112,37 @@ async function runCreditAnalysis(supabase: SupabaseClient, genAI: GoogleGenAI | 
 }
 
 // --- Handlers ---
+
+// Novo: Gerenciar Moedas (Crédito/Débito manual ou via sistema)
+async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    const { userId, amount, description, type } = req.body; // type: 'credit' or 'debit'
+
+    try {
+        if (!userId || !amount) throw new Error("Dados inválidos.");
+
+        // Busca saldo atual
+        const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
+        const currentBalance = profile?.coins_balance || 0;
+        
+        let newBalance = currentBalance;
+        if (type === 'credit') {
+            newBalance += amount;
+        } else if (type === 'debit') {
+            if (currentBalance < amount) throw new Error("Saldo insuficiente.");
+            newBalance -= amount;
+        }
+
+        await supabase.from('profiles').update({ coins_balance: newBalance }).eq('id', userId);
+        
+        // Loga a transação
+        await logAction(supabase, 'COIN_TRANSACTION', 'SUCCESS', `${type === 'credit' ? 'Crédito' : 'Débito'} de ${amount} coins. Motivo: ${description}`, { userId, amount, type });
+
+        return res.status(200).json({ success: true, newBalance });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
 
 async function handleGeneratePoll(req: VercelRequest, res: VercelResponse) {
     try {
@@ -152,26 +182,20 @@ async function handleUploadPwaIcon(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const { type, imageBase64 } = req.body;
-        
         if (!type || !imageBase64) {
             return res.status(400).json({ error: 'Tipo e imagem são obrigatórios.' });
         }
-
         const validTypes = ['pwa_icon_192', 'pwa_icon_512', 'pwa_icon_192_maskable', 'pwa_icon_512_maskable'];
         if (!validTypes.includes(type)) {
             return res.status(400).json({ error: 'Tipo de ícone inválido.' });
         }
-
         const { error } = await supabase.from('system_settings').upsert({
             key: type,
             value: imageBase64
         });
-
         if (error) throw error;
-
         await logAction(supabase, 'PWA_ICON_UPDATE', 'SUCCESS', `Ícone PWA ${type} atualizado.`);
         return res.status(200).json({ message: 'Ícone atualizado com sucesso.' });
-
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -180,18 +204,14 @@ async function handleUploadPwaIcon(req: VercelRequest, res: VercelResponse) {
 async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const genAI = getGeminiClient();
-
     try {
         const { requestId, action, manualLimit, manualScore, responseReason } = req.body;
-
         if (!requestId && action !== 'calculate_auto') return res.status(400).json({ error: "ID da solicitação obrigatório." });
-
         let request: any = null;
         if (requestId) {
             const { data } = await supabase.from('limit_requests').select('*').eq('id', requestId).single();
             request = data;
         }
-
         if (action === 'reject') {
             await supabase.from('limit_requests').update({ 
                 status: 'rejected',
@@ -199,13 +219,11 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
             }).eq('id', requestId);
             return res.status(200).json({ message: "Rejeitado." });
         }
-
         if (action === 'approve_manual') {
             await supabase.from('profiles').update({ credit_limit: manualLimit, credit_score: manualScore }).eq('id', request.user_id);
             await supabase.from('limit_requests').update({ status: 'approved', admin_response_reason: responseReason }).eq('id', requestId);
             return res.status(200).json({ message: "Aprovado." });
         } 
-        
         if (action === 'calculate_auto') {
              const userId = request ? request.user_id : req.body.userId;
              const updatedAnalysis = await runCreditAnalysis(supabase, genAI, userId, true);
@@ -215,9 +233,7 @@ async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse)
                  reason: updatedAnalysis.reason
              });
         }
-
         return res.status(400).json({ error: "Ação inválida" });
-
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -228,6 +244,9 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const FULL_SETUP_SQL = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions"; 
 
+-- Adicionar Coluna Coins Balance se não existir
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "coins_balance" integer DEFAULT 0;
+
 -- Tabela de Enquetes (Polls)
 CREATE TABLE IF NOT EXISTS "public"."polls" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
@@ -237,13 +256,11 @@ CREATE TABLE IF NOT EXISTS "public"."polls" (
     CONSTRAINT "polls_pkey" PRIMARY KEY ("id")
 );
 ALTER TABLE "public"."polls" ENABLE ROW LEVEL SECURITY;
--- Políticas
 DROP POLICY IF EXISTS "Public view polls" ON "public"."polls";
 CREATE POLICY "Public view polls" ON "public"."polls" FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Admin manage polls" ON "public"."polls";
 CREATE POLICY "Admin manage polls" ON "public"."polls" FOR ALL USING (auth.role() = 'authenticated');
 
--- Tabela de Opções de Enquete
 CREATE TABLE IF NOT EXISTS "public"."poll_options" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "poll_id" "uuid" NOT NULL,
@@ -253,13 +270,11 @@ CREATE TABLE IF NOT EXISTS "public"."poll_options" (
     CONSTRAINT "poll_options_poll_id_fkey" FOREIGN KEY ("poll_id") REFERENCES "public"."polls"("id") ON DELETE CASCADE
 );
 ALTER TABLE "public"."poll_options" ENABLE ROW LEVEL SECURITY;
--- Políticas
 DROP POLICY IF EXISTS "Public view poll options" ON "public"."poll_options";
 CREATE POLICY "Public view poll options" ON "public"."poll_options" FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Admin manage poll options" ON "public"."poll_options";
 CREATE POLICY "Admin manage poll options" ON "public"."poll_options" FOR ALL USING (auth.role() = 'authenticated');
 
--- Tabela de Votos
 CREATE TABLE IF NOT EXISTS "public"."poll_votes" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "poll_id" "uuid" NOT NULL,
@@ -275,7 +290,6 @@ CREATE POLICY "Users vote once" ON "public"."poll_votes" FOR INSERT WITH CHECK (
 DROP POLICY IF EXISTS "Users view own votes" ON "public"."poll_votes";
 CREATE POLICY "Users view own votes" ON "public"."poll_votes" FOR SELECT USING (auth.uid() = user_id);
 
--- Tabela Changelog
 CREATE TABLE IF NOT EXISTS "public"."app_changelog" (
     "id" "uuid" NOT NULL DEFAULT "gen_random_uuid"(),
     "version" "text",
@@ -288,17 +302,14 @@ CREATE TABLE IF NOT EXISTS "public"."app_changelog" (
 );
 ALTER TABLE "public"."app_changelog" ADD COLUMN IF NOT EXISTS "is_public" boolean DEFAULT true;
 ALTER TABLE "public"."app_changelog" ENABLE ROW LEVEL SECURITY;
--- Políticas
 DROP POLICY IF EXISTS "Public read changelog" ON "public"."app_changelog";
 CREATE POLICY "Public read changelog" ON "public"."app_changelog" FOR SELECT USING (is_public = true OR auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Admin manage changelog" ON "public"."app_changelog";
 CREATE POLICY "Admin manage changelog" ON "public"."app_changelog" FOR ALL USING (auth.role() = 'authenticated');
 
--- Tabelas Existentes
-CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "internal_notes" "text"; 
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "salary" numeric(10, 2) DEFAULT 0; 
-ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "referral_code" "text";
+-- [TABELAS EXISTENTES - Reafirmação]
+CREATE TABLE IF NOT EXISTS "public"."profiles" ( "id" "uuid" NOT NULL, "email" "text", "first_name" "text", "last_name" "text", "identification_number" "text", "phone" "text", "credit_score" integer DEFAULT 0, "credit_limit" numeric(10, 2) DEFAULT 0, "credit_status" "text" DEFAULT 'Em Análise', "last_limit_request_date" timestamp with time zone, "avatar_url" "text", "zip_code" "text", "street_name" "text", "street_number" "text", "neighborhood" "text", "city" "text", "federal_unit" "text", "preferred_due_day" integer DEFAULT 10, "internal_notes" "text", "salary" numeric(10, 2) DEFAULT 0, "referral_code" "text", "coins_balance" integer DEFAULT 0, "created_at" timestamp with time zone DEFAULT "now"(), "updated_at" timestamp with time zone DEFAULT "now"(), CONSTRAINT "profiles_pkey" PRIMARY KEY ("id"), CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE, CONSTRAINT "profiles_email_key" UNIQUE ("email"), CONSTRAINT "profiles_referral_code_key" UNIQUE ("referral_code") ); 
+ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "coins_balance" integer DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS "public"."system_settings" ( "key" "text" NOT NULL, "value" "text", CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key") );
 ALTER TABLE "public"."system_settings" ENABLE ROW LEVEL SECURITY;
@@ -311,7 +322,6 @@ CREATE TABLE IF NOT EXISTS "public"."limit_requests" ( "id" "uuid" NOT NULL DEFA
 ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "admin_response_reason" "text"; 
 ALTER TABLE "public"."limit_requests" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT "now"();
 ALTER TABLE "public"."limit_requests" ENABLE ROW LEVEL SECURITY; 
-
 DROP POLICY IF EXISTS "Users view own limit requests" ON "public"."limit_requests";
 DROP POLICY IF EXISTS "Users create own limit requests" ON "public"."limit_requests";
 CREATE POLICY "Users view own limit requests" ON "public"."limit_requests" FOR SELECT USING (auth.uid() = user_id); 
@@ -332,20 +342,19 @@ CREATE TABLE IF NOT EXISTS "public"."contracts" (
     CONSTRAINT "contracts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE
 );
 ALTER TABLE "public"."contracts" ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Users view own contracts" ON "public"."contracts";
 DROP POLICY IF EXISTS "Users update own contracts" ON "public"."contracts";
 CREATE POLICY "Users view own contracts" ON "public"."contracts" FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE USING (auth.uid() = user_id);
 
 INSERT INTO "public"."app_changelog" (version, title, description, type, is_public, date)
-SELECT 'v2.3', 'Novidades e Enquetes', 'Nova interface para acompanhar novidades e participar de enquetes!', 'feature', true, NOW()
-WHERE NOT EXISTS (SELECT 1 FROM "public"."app_changelog" WHERE title = 'Novidades e Enquetes');
+SELECT 'v2.4', 'Relp Coins e Cashback', 'Agora você ganha coins em todas as compras e pagamentos! Use para abater valores.', 'feature', true, NOW()
+WHERE NOT EXISTS (SELECT 1 FROM "public"."app_changelog" WHERE title = 'Relp Coins e Cashback');
     `;
     const { error } = await supabase.rpc('execute_admin_sql', { sql_query: FULL_SETUP_SQL });
     if (error) throw error;
-    await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database RLS policies updated.');
-    res.status(200).json({ message: "Banco de dados e permissões atualizados com sucesso!" });
+    await logAction(supabase, 'DATABASE_SETUP', 'SUCCESS', 'Database RLS policies updated with Coins system.');
+    res.status(200).json({ message: "Banco de dados e Coins atualizados com sucesso!" });
 }
 
 // --- TEST HANDLERS ---
@@ -472,6 +481,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         if (req.method === 'POST') {
+            if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);

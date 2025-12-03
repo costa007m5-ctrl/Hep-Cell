@@ -8,8 +8,6 @@ interface PaymentMethodSelectorProps {
   onBack: () => void;
 }
 
-// --- Ícones Modernos e Coloridos ---
-
 const CreditCardIcon = () => (
     <div className="p-3 rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -67,15 +65,6 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
           disabled: false
       },
       { 
-          id: 'brick', 
-          name: 'Cartão de Crédito', 
-          description: "Em manutenção temporária", 
-          icon: <CreditCardIcon />,
-          badge: "Em breve",
-          badgeColor: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400",
-          disabled: true // Desabilitado conforme solicitado
-      },
-      { 
           id: 'boleto', 
           name: 'Boleto Bancário', 
           description: "Até 2 dias úteis para compensar", 
@@ -93,7 +82,6 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
         
         {/* Header Financeiro */}
         <div className="relative p-8 bg-slate-900 text-white overflow-hidden">
-            {/* Decorative Background Elements */}
             <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-500/20 rounded-full blur-3xl -mr-10 -mt-10"></div>
             <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/20 rounded-full blur-3xl -ml-10 -mb-10"></div>
             
@@ -146,25 +134,11 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{option.description}</p>
               </div>
-              
-              {!option.disabled && (
-                  <div className="ml-2 z-10 text-slate-300 group-hover:text-indigo-500 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-              )}
             </button>
           ))}
         </div>
 
-        {/* Footer Seguro */}
         <div className="px-6 pb-6 pt-2">
-            <div className="flex items-center justify-center gap-2 mb-4 opacity-60">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                <span className="text-xs text-slate-500 font-medium">Pagamento 100% Seguro via Mercado Pago</span>
-            </div>
-
             <button
                 type="button"
                 onClick={onBack}
@@ -175,6 +149,6 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
         </div>
       </div>
     );
-  };
+};
 
 export default PaymentMethodSelector;

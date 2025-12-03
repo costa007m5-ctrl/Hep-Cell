@@ -1,6 +1,4 @@
 
-
-
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 export enum PaymentStatus {
@@ -84,6 +82,7 @@ export interface Profile {
   preferred_due_day?: number;
   salary?: number; 
   internal_notes?: string; 
+  coins_balance?: number; // Novo campo para saldo de moedas
 }
 
 export interface Product {

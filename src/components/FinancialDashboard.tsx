@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -8,7 +9,6 @@ interface FinancialDashboardProps {
   isLoading: boolean;
 }
 
-// Componente de cartão para exibir métricas
 const MetricCard: React.FC<{ title: string; value: string; description?: string }> = ({ title, value, description }) => (
     <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-xl shadow-md">
         <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
@@ -20,7 +20,8 @@ const MetricCard: React.FC<{ title: string; value: string; description?: string 
 const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoading }) => {
     const [interestRate, setInterestRate] = useState<string>('');
     const [negotiationInterest, setNegotiationInterest] = useState<string>('');
-    const [minEntryPercentage, setMinEntryPercentage] = useState<string>(''); // Novo estado
+    const [minEntryPercentage, setMinEntryPercentage] = useState<string>('');
+    const [cashbackPercent, setCashbackPercent] = useState<string>(''); // Novo estado Cashback
     const [isSavingInterest, setIsSavingInterest] = useState(false);
     const [interestMessage, setInterestMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -31,7 +32,8 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
                 const settings = await res.json();
                 setInterestRate(settings.interest_rate || '0');
                 setNegotiationInterest(settings.negotiation_interest || '15');
-                setMinEntryPercentage(settings.min_entry_percentage || '15'); // Carrega valor salvo ou padrão 15
+                setMinEntryPercentage(settings.min_entry_percentage || '15');
+                setCashbackPercent(settings.cashback_percentage || '1.5'); // Default 1.5%
             }
         } catch (e) {
             console.error("Erro ao buscar configurações", e);
@@ -42,26 +44,15 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
         fetchSettings();
     }, []);
 
-    const handleSaveInterest = async () => {
+    const handleSaveSettings = async () => {
         setIsSavingInterest(true);
         setInterestMessage(null);
         try {
             await Promise.all([
-                fetch('/api/admin/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'interest_rate', value: interestRate })
-                }),
-                fetch('/api/admin/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'negotiation_interest', value: negotiationInterest })
-                }),
-                fetch('/api/admin/settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'min_entry_percentage', value: minEntryPercentage })
-                })
+                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'interest_rate', value: interestRate }) }),
+                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'negotiation_interest', value: negotiationInterest }) }),
+                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'min_entry_percentage', value: minEntryPercentage }) }),
+                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'cashback_percentage', value: cashbackPercent }) }) // Salva Cashback
             ]);
             
             setInterestMessage({ text: 'Configurações atualizadas com sucesso!', type: 'success' });
@@ -116,92 +107,53 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
             return acc;
         }, {} as Record<string, number>);
 
-        // Ordenar projeções por data
         const sortedProjections = Object.entries(monthlyProjections).sort(([keyA], [keyB]) => {
             const dateA = new Date(keyA.split('/').reverse().join('-'));
             const dateB = new Date(keyB.split('/').reverse().join('-'));
             return dateA.getTime() - dateB.getTime();
         });
 
-
-        return {
-            dailyIncome,
-            weeklyIncome,
-            monthlyIncome,
-            yearlyIncome,
-            projectedRemainingYearly,
-            sortedProjections,
-        };
+        return { dailyIncome, weeklyIncome, monthlyIncome, yearlyIncome, projectedRemainingYearly, sortedProjections };
     }, [paidInvoices, openInvoices]);
 
     if (isLoading) {
-        return (
-            <div className="flex flex-col items-center justify-center space-y-4 p-8 min-h-[300px]">
-                <LoadingSpinner />
-                <p className="text-slate-500 dark:text-slate-400">Calculando métricas financeiras...</p>
-            </div>
-        );
+        return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
     }
 
     return (
         <div className="p-4 space-y-8">
             <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Crediário</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Sistema</h2>
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-4xl">
                      <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-white">Taxas e Regras</h3>
-                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Nova Venda (% a.m.)</label>
-                            <input 
-                                type="number" 
-                                step="0.01"
-                                value={interestRate}
-                                onChange={(e) => setInterestRate(e.target.value)}
-                                className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                placeholder="0.00"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">Aplicado em novas vendas parceladas.</p>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Renegociação (Max %)</label>
-                            <input 
-                                type="number" 
-                                step="0.01"
-                                value={negotiationInterest}
-                                onChange={(e) => setNegotiationInterest(e.target.value)}
-                                className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                placeholder="15.00"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">Teto de juros para renegociação.</p>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Venda (% a.m.)</label>
+                            <input type="number" step="0.01" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Entrada Mínima (%)</label>
-                            <input 
-                                type="number" 
-                                step="1"
-                                value={minEntryPercentage}
-                                onChange={(e) => setMinEntryPercentage(e.target.value)}
-                                className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                placeholder="15"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">Porcentagem obrigatória de entrada.</p>
+                            <input type="number" step="1" value={minEntryPercentage} onChange={(e) => setMinEntryPercentage(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cashback (%)</label>
+                            <input type="number" step="0.1" value={cashbackPercent} onChange={(e) => setCashbackPercent(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white border-green-300 focus:border-green-500 ring-green-200" placeholder="1.5" />
+                            <p className="text-xs text-green-600 mt-1">Devolvido em Coins ao cliente.</p>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max Juros Negociação</label>
+                            <input type="number" step="0.01" value={negotiationInterest} onChange={(e) => setNegotiationInterest(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
                         </div>
                      </div>
-                     
                      <div className="flex justify-end">
-                        <button 
-                            onClick={handleSaveInterest} 
-                            disabled={isSavingInterest}
-                            className="py-2 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                        >
+                        <button onClick={handleSaveSettings} disabled={isSavingInterest} className="py-2 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
                             {isSavingInterest ? <LoadingSpinner /> : 'Salvar Configurações'}
                         </button>
                      </div>
-                     
                      {interestMessage && <div className="mt-3"><Alert message={interestMessage.text} type={interestMessage.type} /></div>}
                 </div>
             </section>
-
+            
             <section>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Resumo Financeiro</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -212,37 +164,6 @@ const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoa
                     <MetricCard title="A Receber no Ano" value={formatCurrency(financialMetrics.projectedRemainingYearly)} description="Valor de faturas em aberto no ano corrente" />
                     <MetricCard title="Faturas Pendentes" value={String(openInvoices.length)} description="Total de faturas em aberto ou com boleto gerado" />
                 </div>
-            </section>
-            
-            <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Projeção de Entradas</h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    Valores a receber com base nas datas de vencimento das faturas em aberto.
-                </p>
-                {financialMetrics.sortedProjections.length > 0 ? (
-                    <div className="overflow-x-auto">
-                         <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                            <thead className="bg-slate-50 dark:bg-slate-900/50">
-                                <tr>
-                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Mês de Vencimento</th>
-                                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Valor a Receber</th>
-                                </tr>
-                            </thead>
-                             <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                                {financialMetrics.sortedProjections.map(([monthYear, amount]) => (
-                                    <tr key={monthYear}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-white capitalize">{monthYear}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-slate-500 dark:text-slate-300 font-semibold">{formatCurrency(amount)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                ) : (
-                    <div className="text-center p-8 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
-                        <p className="text-slate-500 dark:text-slate-400">Nenhuma entrada futura para projetar.</p>
-                    </div>
-                )}
             </section>
         </div>
     );

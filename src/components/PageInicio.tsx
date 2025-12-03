@@ -10,16 +10,11 @@ import { Profile, Invoice, Tab, Contract } from '../types';
 import SignaturePad from './SignaturePad';
 import LoadingSpinner from './LoadingSpinner';
 import { useToast } from './Toast';
-// Import new Story Components
 import { OffersPage, SecurityPage, NewsPage, TipsPage } from './StoryPages';
 
 interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
 }
-
-// --- Componentes Internos (Alerts, etc) Mantidos ---
-// (Mantendo os componentes internos como EntryPaymentAlert, PendingContractAlert, etc. para brevidade,
-//  apenas inserindo a lógica das Stories)
 
 const EntryPaymentAlert: React.FC<{ invoice: Invoice; onPay: () => void }> = ({ invoice, onPay }) => (
     <div className="mx-4 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
@@ -139,7 +134,7 @@ const ActivityItem: React.FC<{ title: string; date: string; amount?: string; typ
 };
 
 const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
-  const [profileData, setProfileData] = useState<Profile | null>(null);
+  const [profileData, setProfileData] = useState<Profile & { coins_balance?: number } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
   const [activeLimitNotification, setActiveLimitNotification] = useState<{id: string, status: string} | null>(null);
@@ -149,13 +144,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [showValues, setShowValues] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalView, setModalView] = useState<'score' | 'limit' | 'sign_contract' | null>(null);
-  const [activeStory, setActiveStory] = useState<'ofertas' | 'seguranca' | 'novidades' | 'dicas' | null>(null); // New Story State
+  const [activeStory, setActiveStory] = useState<'ofertas' | 'seguranca' | 'novidades' | 'dicas' | null>(null); 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
   const { addToast } = useToast();
 
-  // Updated Stories Data
   const stories = [
       { id: 'ofertas', img: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=150&h=150&fit=crop', label: 'Ofertas' },
       { id: 'seguranca', img: 'https://images.unsplash.com/photo-1556742049-0cfed4f7a07d?w=150&h=150&fit=crop', label: 'Segurança' },
@@ -163,7 +157,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       { id: 'dicas', img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
   ];
 
-  // ... (Install Prompt Effect - Same as before)
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -291,6 +284,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
+  const coinsValue = (profileData?.coins_balance || 0) / 100;
+
   if (isLoading) {
     return (
         <div className="w-full max-w-md space-y-6 p-4 pt-10">
@@ -321,6 +316,14 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
                 <div>
                     <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-none mb-1">{getGreeting()},</p>
                     <h2 className="text-xl font-bold text-slate-900 dark:text-white leading-none">{profileData?.first_name || 'Cliente'}</h2>
+                    
+                    {/* Badge de Saldo de Coins */}
+                    <div className="flex items-center gap-2 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 mt-1 rounded-full w-fit">
+                        <span className="w-4 h-4 rounded-full bg-yellow-400 text-yellow-900 flex items-center justify-center text-[8px] font-bold border border-yellow-300">RC</span>
+                        <span className="text-xs font-bold text-yellow-800 dark:text-yellow-200">
+                            {profileData?.coins_balance || 0} Coins (R$ {coinsValue.toFixed(2)})
+                        </span>
+                    </div>
                 </div>
             </div>
             <div className="flex gap-2">
@@ -335,7 +338,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
         {pendingContract && !entryInvoice && <PendingContractAlert contract={pendingContract} onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} />}
         {activeLimitNotification && <LimitRequestStatus status={activeLimitNotification.status} onClick={handleLimitNotificationClick} />}
 
-        {/* Stories Rail (Updated Click Handler) */}
+        {/* Stories Rail */}
         <div className="flex gap-3 overflow-x-auto px-2 pb-2 scrollbar-hide">
             {stories.map(story => (
                 <StoryCircle 
