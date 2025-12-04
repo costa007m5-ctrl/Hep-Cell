@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -156,7 +157,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
              if (res.ok) {
                 setSuccessMessage('Operação realizada com sucesso!');
-                setTimeout(() => setSuccessMessage(null), 3000);
+                setTimeout(() => setSuccessMessage(null as any), 3000);
                 fetchData(); 
             } else {
                  alert(`Erro: ${data.error || 'Falha na operação.'}`);
@@ -198,7 +199,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
             if (res.ok) {
                 setSuccessMessage('Negociação criada! Contrato disponível no app do cliente.');
-                setTimeout(() => setSuccessMessage(null), 3000);
+                setTimeout(() => setSuccessMessage(null as any), 3000);
                 setShowNegotiationModal(false);
                 setSelectedInvoiceIds(new Set());
                 fetchData();

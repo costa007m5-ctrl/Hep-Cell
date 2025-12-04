@@ -127,60 +127,88 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
             const payment = new Payment(client);
             const paymentDetails = await payment.get({ id: paymentId });
             
-            if (paymentDetails && paymentDetails.status === 'approved') {
-                // Atualiza fatura para Paga
-                const { data: invoices } = await supabase.from('invoices')
-                    .update({ status: 'Paga', payment_date: new Date().toISOString() })
+            if (paymentDetails && (paymentDetails.status === 'approved' || paymentDetails.status === 'confirmed')) {
+                // 1. Identifica a Fatura pelo ID externo (nosso ID) ou pelo payment_id
+                const { data: invoices, error: fetchError } = await supabase.from('invoices')
+                    .select('*')
                     .eq('payment_id', String(paymentId))
-                    .select();
+                    .limit(1);
                 
                 if (invoices && invoices.length > 0) {
                     const invoice = invoices[0];
                     
-                    // 1. Aplicar Cashback
-                    const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
-                    const cashbackPercent = parseFloat(setting?.value || '1.5');
-                    const amountPaid = paymentDetails.transaction_amount || invoice.amount;
-                    const coinsEarned = Math.floor(amountPaid * (cashbackPercent / 100) * 100);
+                    // Só processa se ainda não estiver paga para evitar duplicidade
+                    if (invoice.status !== 'Paga') {
+                        
+                        // Atualiza status para Paga
+                        await supabase.from('invoices')
+                            .update({ status: 'Paga', payment_date: new Date().toISOString() })
+                            .eq('id', invoice.id);
+                        
+                        // 2. Aplicar Cashback
+                        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
+                        const cashbackPercent = parseFloat(setting?.value || '1.5');
+                        const amountPaid = paymentDetails.transaction_amount || invoice.amount;
+                        const coinsEarned = Math.floor(amountPaid * (cashbackPercent / 100) * 100);
 
-                    if (coinsEarned > 0) {
-                        const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
-                        await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
-                        await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
-                    }
+                        if (coinsEarned > 0) {
+                            const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
+                            await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
+                            await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
+                        }
 
-                    // 2. Gerar Parcelas Restantes (Se for Entrada de Crediário)
-                    // A nota deve estar no formato: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
-                    if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
-                        const parts = invoice.notes.split('|');
-                        if (parts.length >= 5) {
-                            const contractId = parts[1];
-                            const remainingAmount = parseFloat(parts[2]);
-                            const count = parseInt(parts[3]);
-                            const dueDay = parseInt(parts[4]);
+                        // 3. Geração Automática de Parcelas (Crediário)
+                        // Verifica se a nota contém a flag de entrada: ENTRADA|CONTRACT_ID|REMAINING|COUNT|DAY
+                        if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
+                            console.log("Processando entrada de crediário:", invoice.notes);
+                            const parts = invoice.notes.split('|');
                             
-                            if (remainingAmount > 0 && count > 0) {
-                                const installmentValue = remainingAmount / count;
-                                const invoicesToCreate = [];
-                                const today = new Date();
-
-                                for (let i = 1; i <= count; i++) {
-                                    const dueDate = new Date();
-                                    dueDate.setMonth(today.getMonth() + i);
-                                    dueDate.setDate(dueDay);
-                                    
-                                    invoicesToCreate.push({
-                                        user_id: invoice.user_id,
-                                        month: `Parcela ${i}/${count}`,
-                                        due_date: dueDate.toISOString().split('T')[0],
-                                        amount: installmentValue,
-                                        status: 'Em aberto',
-                                        notes: `Contrato ${contractId}`
-                                    });
-                                }
+                            if (parts.length >= 5) {
+                                const contractId = parts[1];
+                                const remainingAmount = parseFloat(parts[2]);
+                                const count = parseInt(parts[3]);
+                                const dueDay = parseInt(parts[4]);
                                 
-                                await supabase.from('invoices').insert(invoicesToCreate);
-                                await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas após entrada paga.`);
+                                if (remainingAmount > 0 && count > 0) {
+                                    const installmentValue = remainingAmount / count;
+                                    const invoicesToCreate = [];
+                                    const today = new Date();
+
+                                    for (let i = 1; i <= count; i++) {
+                                        // Lógica precisa de data: mês seguinte, dia fixo
+                                        const dueDate = new Date();
+                                        dueDate.setMonth(today.getMonth() + i); // Meses seguintes
+                                        
+                                        // Ajusta o dia. Se o dia 31 não existe no mês, o JS ajusta automaticamente, 
+                                        // mas como limitamos a 05, 15, 25, é seguro.
+                                        dueDate.setDate(dueDay); 
+                                        
+                                        // Se a data gerada for menor que hoje (caso de virada de ano/mes bugado), avança
+                                        if (dueDate <= today) {
+                                            dueDate.setMonth(dueDate.getMonth() + 1);
+                                        }
+
+                                        invoicesToCreate.push({
+                                            user_id: invoice.user_id,
+                                            month: `Parcela ${i}/${count}`,
+                                            due_date: dueDate.toISOString().split('T')[0],
+                                            amount: Number(installmentValue.toFixed(2)),
+                                            status: 'Em aberto',
+                                            notes: `Contrato ${contractId}`
+                                        });
+                                    }
+                                    
+                                    const { error: insertError } = await supabase.from('invoices').insert(invoicesToCreate);
+                                    
+                                    if (!insertError) {
+                                        // Atualiza contrato para Ativo
+                                        await supabase.from('contracts').update({ status: 'Ativo' }).eq('id', contractId);
+                                        await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas para contrato ${contractId}.`);
+                                    } else {
+                                        console.error("Erro ao gerar parcelas:", insertError);
+                                        await logAction(supabase, 'INSTALLMENTS_ERROR', 'FAILURE', `Erro ao gerar parcelas: ${insertError.message}`);
+                                    }
+                                }
                             }
                         }
                     }
