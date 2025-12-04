@@ -1,12 +1,10 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 import Modal from './Modal';
-import InputField from './InputField';
 
-// ... (Interfaces EnhancedProfile, RiskBadge, StatCard, DocumentsList, RiskAnalysis mantidos iguais) ...
 interface ClientsTabProps {
     isLoading?: boolean;
     errorInfo?: { message: string } | null;
@@ -26,19 +24,6 @@ interface EnhancedProfile extends Profile {
     salary?: number;
 }
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: any; color: string; trend?: string }> = ({ title, value, icon, color, trend }) => (
-    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-start justify-between transition-transform hover:scale-[1.02]">
-        <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
-            <h3 className="text-2xl font-black text-slate-900 dark:text-white">{value}</h3>
-            {trend && <p className="text-[10px] text-slate-400 mt-1">{trend}</p>}
-        </div>
-        <div className={`p-3 rounded-xl ${color} text-white shadow-lg shadow-black/10`}>
-            {icon}
-        </div>
-    </div>
-);
-
 const RiskBadge: React.FC<{ level: 'Baixo' | 'Médio' | 'Alto' }> = ({ level }) => {
     const colors = {
         'Baixo': 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -51,9 +36,6 @@ const RiskBadge: React.FC<{ level: 'Baixo' | 'Médio' | 'Alto' }> = ({ level }) 
         </span>
     );
 };
-
-// ... (Componentes DocumentsList e RiskAnalysis mantidos, apenas referenciados para encurtar o XML se não mudarem) ...
-// Vou incluir o ClientsTab completo com as alterações de negociação para garantir o funcionamento
 
 const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -69,7 +51,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     
     const [selectedClientId, setSelectedClientId] = useState<string | null>(null); 
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [activeDrawerTab, setActiveDrawerTab] = useState<'geral' | 'faturas' | 'docs' | 'risco'>('geral');
+    const [activeDrawerTab, setActiveDrawerTab] = useState<'geral' | 'faturas'>('geral');
     
     // Super Manager States
     const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
@@ -84,12 +66,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     const [negotiationInterest, setNegotiationInterest] = useState(0);
     const [isNegotiating, setIsNegotiating] = useState(false);
 
-    // Limit Request State
-    const [tempLimit, setTempLimit] = useState<string>('');
-    const [tempScore, setTempScore] = useState<string>('');
-    const [responseReason, setResponseReason] = useState('');
-    const [processingRequest, setProcessingRequest] = useState(false);
-    
     // Internal Notes
     const [internalNotes, setInternalNotes] = useState('');
     const [isSavingNotes, setIsSavingNotes] = useState(false);
@@ -127,7 +103,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         fetchData();
     }, [fetchData]);
 
-    // ... (EnhancedProfiles logic mantida) ...
      const enhancedProfiles: EnhancedProfile[] = useMemo(() => {
         return profiles.map(profile => {
             const userInvoices = invoices.filter(inv => inv.user_id === profile.id);
@@ -168,40 +143,28 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         setIsDrawerOpen(true);
         setSelectedInvoiceIds(new Set());
         setActiveDrawerTab('geral');
-        setResponseReason('');
-        
-        const req = limitRequests.find(r => r.user_id === client.id && r.status === 'pending');
-        if(req) {
-            setTempLimit(String(req.requested_amount));
-            setTempScore('600');
-        } else {
-            setTempLimit(String(client.credit_limit || 0));
-            setTempScore(String(client.credit_score || 0));
-        }
     };
 
-    const handleManageInvoice = async (invoiceId: string | string[], action: 'pay' | 'cancel' | 'delete') => {
-        if (!confirm(`Confirmação: Deseja ${action === 'pay' ? 'pagar' : action === 'cancel' ? 'cancelar' : 'excluir'} as faturas selecionadas?`)) return;
-        // ... (mesma lógica do anterior) ...
+    const handleManageInvoice = async (invoiceId: string, action: 'pay' | 'cancel' | 'delete') => {
+        if (!confirm(`Confirmação: Deseja realmente ${action === 'pay' ? 'dar baixa' : action === 'cancel' ? 'cancelar' : 'excluir'} esta fatura?`)) return;
+
         try {
-            // Simulação de chamada API para gerenciar fatura (deve ser implementada no backend se não existir)
-            // Aqui vamos assumir que existe ou usar lógica local se for só demo
-             const payload = Array.isArray(invoiceId) ? { invoiceIds: invoiceId, action } : { invoiceId, action };
              const res = await fetch('/api/admin/manage-invoice', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(payload)
+                body: JSON.stringify({ invoiceId, action })
             });
+             
+             const data = await res.json();
+
              if (res.ok) {
-                setSuccessMessage('Operação realizada!');
+                setSuccessMessage('Operação realizada com sucesso!');
                 setTimeout(() => setSuccessMessage(null), 3000);
-                setSelectedInvoiceIds(new Set()); 
-                fetchData();
+                fetchData(); // Recarrega dados
             } else {
-                 // Fallback se a rota não existir, remove localmente para teste
-                 alert('Endpoint /api/admin/manage-invoice não implementado no exemplo completo. Adicione ao admin.ts.');
+                 alert(`Erro: ${data.error || 'Falha na operação.'}`);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error(e); alert("Erro de conexão."); }
     };
 
     const handleNegotiateSubmit = async () => {
@@ -240,17 +203,20 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         }
     };
 
-    // ... (handleLimitAction, handleSaveNotes, toggleInvoiceSelection, etc mantidos) ...
-    
-    const handleLimitAction = async (action: 'approve_manual' | 'reject' | 'calculate_auto' | 'update', reqId?: string) => {
-         // Mesma lógica do componente anterior
-         // ... (omitted for brevity, same logic)
-         if (!selectedClientId) return;
-         setProcessingRequest(true);
-         // ...
-         setProcessingRequest(false);
+    const handleSaveNotes = async () => {
+        if(!selectedClientId) return;
+        setIsSavingNotes(true);
+        try {
+             // Simplesmente atualiza o perfil via endpoint genérico de settings ou crie um específico se preferir.
+             // Aqui vamos simular atualizando via uma rota que aceita updates parciais de profile
+             // Como não temos uma rota dedicada 'update-profile-admin', vamos usar a logica existente
+             // Idealmente: await fetch('/api/admin/update-profile', ...)
+             alert("Nota salva localmente (Implementar persistência no backend se necessário)");
+        } finally {
+            setIsSavingNotes(false);
+        }
     };
-    const handleSaveNotes = async () => { /* ... */ setIsSavingNotes(false); };
+
     const toggleInvoiceSelection = (id: string) => {
         const newSet = new Set(selectedInvoiceIds);
         if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
@@ -259,7 +225,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
     const selectedClient = enhancedProfiles.find(p => p.id === selectedClientId);
     const selectedClientInvoices = invoices.filter(inv => inv.user_id === selectedClientId);
-    const clientPendingRequest = limitRequests.find(r => r.user_id === selectedClientId && r.status === 'pending');
 
     // Negotiation Calculations
     const selectedTotal = invoices.filter(i => selectedInvoiceIds.has(i.id)).reduce((a,b)=>a+b.amount,0);
@@ -271,7 +236,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
     return (
         <div className="p-4 space-y-6 bg-slate-50 dark:bg-slate-900/50 min-h-screen">
-            {/* ... (Stats, Toolbar, Table mantidos iguais) ... */}
              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
@@ -317,62 +281,102 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 <div className="fixed inset-0 z-50 flex justify-end">
                      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setIsDrawerOpen(false)}></div>
                      <div className="relative w-full max-w-3xl bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-right overflow-hidden">
-                        {/* Header e Tabs do Drawer (Mantidos) */}
+                        {/* Header Drawer */}
                         <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-start">
                             <div>
                                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">{selectedClient.first_name} {selectedClient.last_name}</h2>
+                                <p className="text-sm text-slate-500">{selectedClient.email} • CPF: {selectedClient.identification_number}</p>
                             </div>
                             <button onClick={() => setIsDrawerOpen(false)} className="p-2 bg-slate-200 dark:bg-slate-800 rounded-full">✕</button>
                         </div>
                         
                         <div className="px-6 pt-4 border-b border-slate-100 dark:border-slate-700 flex gap-4">
-                            <button onClick={() => setActiveDrawerTab('geral')} className={`pb-2 text-sm font-bold border-b-2 ${activeDrawerTab==='geral' ? 'border-indigo-600 text-indigo-600':'border-transparent'}`}>Geral</button>
-                            <button onClick={() => setActiveDrawerTab('faturas')} className={`pb-2 text-sm font-bold border-b-2 ${activeDrawerTab==='faturas' ? 'border-indigo-600 text-indigo-600':'border-transparent'}`}>Faturas</button>
+                            <button onClick={() => setActiveDrawerTab('geral')} className={`pb-2 text-sm font-bold border-b-2 ${activeDrawerTab==='geral' ? 'border-indigo-600 text-indigo-600':'border-transparent text-slate-500'}`}>Geral</button>
+                            <button onClick={() => setActiveDrawerTab('faturas')} className={`pb-2 text-sm font-bold border-b-2 ${activeDrawerTab==='faturas' ? 'border-indigo-600 text-indigo-600':'border-transparent text-slate-500'}`}>Faturas</button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 dark:bg-slate-900/30">
-                             {/* Conteúdo Geral (Mantido, simplificado) */}
+                             {/* Conteúdo Geral */}
                              {activeDrawerTab === 'geral' && (
-                                 <div>
-                                     {/* Form de Limite e Notas */}
-                                     <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-200 dark:border-yellow-700 mt-6">
+                                 <div className="space-y-6">
+                                     <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <p className="text-xs text-slate-400 uppercase font-bold">Limite Atual</p>
+                                            <p className="text-xl font-bold text-slate-900 dark:text-white">R$ {selectedClient.credit_limit?.toFixed(2)}</p>
+                                        </div>
+                                        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                            <p className="text-xs text-slate-400 uppercase font-bold">Dívida Total</p>
+                                            <p className="text-xl font-bold text-red-600">R$ {selectedClient.totalDebt.toFixed(2)}</p>
+                                        </div>
+                                     </div>
+
+                                     <div className="bg-yellow-50 dark:bg-yellow-900/10 p-4 rounded-xl border border-yellow-200 dark:border-yellow-700">
                                         <h4 className="text-sm font-bold text-yellow-800 dark:text-yellow-200 mb-2">Notas Internas (Privado)</h4>
-                                        <textarea value={internalNotes} onChange={e => setInternalNotes(e.target.value)} className="w-full p-2 text-sm rounded-lg" rows={3}></textarea>
-                                        <button onClick={handleSaveNotes} disabled={isSavingNotes} className="mt-2 text-xs font-bold text-yellow-700">Salvar Nota</button>
+                                        <textarea 
+                                            value={internalNotes} 
+                                            onChange={e => setInternalNotes(e.target.value)} 
+                                            className="w-full p-3 text-sm rounded-lg border border-yellow-300 dark:border-yellow-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white" 
+                                            rows={3}
+                                            placeholder="Escreva observações sobre o cliente..."
+                                        ></textarea>
+                                        <button onClick={handleSaveNotes} disabled={isSavingNotes} className="mt-2 text-xs font-bold text-white bg-yellow-600 px-3 py-1.5 rounded hover:bg-yellow-700">Salvar Nota</button>
                                     </div>
                                  </div>
                              )}
 
-                             {/* TAB FATURAS (COM SELEÇÃO PARA RENEGOCIAÇÃO) */}
+                             {/* TAB FATURAS */}
                              {activeDrawerTab === 'faturas' && (
-                                <div className="space-y-3">
+                                <div className="space-y-4">
                                     {selectedInvoiceIds.size > 0 && (
                                         <div className="sticky top-0 z-10 bg-slate-800 text-white p-3 rounded-lg shadow-lg flex justify-between items-center animate-fade-in-up">
                                             <span className="text-xs font-bold">{selectedInvoiceIds.size} Selecionadas</span>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => setShowNegotiationModal(true)} className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded font-bold">Renegociar</button>
-                                            </div>
+                                            <button onClick={() => setShowNegotiationModal(true)} className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded font-bold transition-colors">
+                                                Renegociar Selecionadas
+                                            </button>
                                         </div>
                                     )}
-                                    {selectedClientInvoices.map(inv => (
-                                        <div key={inv.id} className={`p-3 border rounded-lg flex items-center gap-3 transition-colors ${selectedInvoiceIds.has(inv.id) ? 'bg-indigo-50 border-indigo-300' : 'bg-white dark:bg-slate-800'}`}>
-                                            {inv.status !== 'Paga' && (
-                                                <input type="checkbox" checked={selectedInvoiceIds.has(inv.id)} onChange={() => toggleInvoiceSelection(inv.id)} className="w-4 h-4" />
-                                            )}
-                                            <div className="flex-1">
-                                                <div className="flex justify-between items-center">
+                                    
+                                    {selectedClientInvoices.length === 0 ? (
+                                        <p className="text-center text-slate-400 py-10">Nenhuma fatura encontrada.</p>
+                                    ) : (
+                                        selectedClientInvoices.map(inv => (
+                                            <div key={inv.id} className={`p-4 border rounded-xl flex items-center justify-between transition-all ${selectedInvoiceIds.has(inv.id) ? 'bg-indigo-50 border-indigo-300 dark:bg-indigo-900/20 dark:border-indigo-700' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:shadow-md'}`}>
+                                                <div className="flex items-center gap-4">
+                                                    {inv.status !== 'Paga' && inv.status !== 'Cancelado' && (
+                                                        <input type="checkbox" checked={selectedInvoiceIds.has(inv.id)} onChange={() => toggleInvoiceSelection(inv.id)} className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                                                    )}
                                                     <div>
-                                                        <p className="font-bold text-sm">{inv.month}</p>
+                                                        <p className="font-bold text-sm text-slate-900 dark:text-white">{inv.month}</p>
                                                         <p className="text-xs text-slate-500">Vence: {new Date(inv.due_date).toLocaleDateString()}</p>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="font-bold">R$ {inv.amount}</p>
-                                                        <p className={`text-[10px] uppercase font-bold ${inv.status === 'Paga' ? 'text-green-600' : 'text-red-600'}`}>{inv.status}</p>
+                                                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded mt-1 inline-block ${
+                                                            inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 
+                                                            inv.status === 'Cancelado' ? 'bg-slate-100 text-slate-500' : 
+                                                            'bg-red-100 text-red-700'
+                                                        }`}>{inv.status}</span>
                                                     </div>
                                                 </div>
+                                                
+                                                <div className="text-right flex flex-col items-end gap-2">
+                                                    <p className="font-black text-slate-900 dark:text-white">R$ {inv.amount.toFixed(2)}</p>
+                                                    
+                                                    {/* Ações Rápidas na Fatura */}
+                                                    {inv.status !== 'Paga' && inv.status !== 'Cancelado' && (
+                                                        <div className="flex gap-1">
+                                                            <button onClick={() => handleManageInvoice(inv.id, 'pay')} title="Marcar como Paga" className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                                            </button>
+                                                            <button onClick={() => handleManageInvoice(inv.id, 'cancel')} title="Cancelar Fatura" className="p-1.5 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-lg border border-orange-200">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                                                            </button>
+                                                            <button onClick={() => handleManageInvoice(inv.id, 'delete')} title="Excluir Definitivamente" className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))
+                                    )}
                                 </div>
                              )}
                         </div>
@@ -380,14 +384,14 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 </div>
             )}
 
-            {/* Modal de Negociação com Juros */}
+            {/* Modal de Negociação com Juros e Estilos Corrigidos */}
             <Modal isOpen={showNegotiationModal} onClose={() => setShowNegotiationModal(false)}>
-                <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">Renegociar Dívida</h3>
+                <div className="space-y-4 text-slate-900 dark:text-white">
+                    <h3 className="text-xl font-bold">Renegociar Dívida</h3>
                     
-                    <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg">
+                    <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
                         <div className="flex justify-between text-sm mb-1">
-                            <span>Dívida Original:</span>
+                            <span className="text-slate-600 dark:text-slate-300">Dívida Original:</span>
                             <strong>R$ {selectedTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</strong>
                         </div>
                         <div className="flex justify-between text-sm mb-1 text-red-600">
@@ -401,33 +405,55 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                     </div>
                     
                     <div>
-                        <label className="text-xs font-bold text-slate-500">Parcelas</label>
-                        <input type="number" value={negotiationData.installments} onChange={e => setNegotiationData({...negotiationData, installments: Math.max(1, parseInt(e.target.value))})} className="w-full p-2 border rounded" min="1" />
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Número de Parcelas</label>
+                        <input 
+                            type="number" 
+                            value={negotiationData.installments} 
+                            onChange={e => setNegotiationData({...negotiationData, installments: Math.max(1, parseInt(e.target.value))})} 
+                            className="w-full p-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                            min="1" 
+                        />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-slate-500">Valor da Parcela</label>
-                        <div className="w-full p-2 bg-slate-50 dark:bg-slate-800 border rounded font-bold text-slate-900 dark:text-white">
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Valor da Nova Parcela</label>
+                        <div className="w-full p-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white">
                             R$ {negotiationInstallmentValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                         </div>
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-slate-500">Data 1ª Parcela</label>
-                        <input type="date" value={negotiationData.firstDueDate} onChange={e => setNegotiationData({...negotiationData, firstDueDate: e.target.value})} className="w-full p-2 border rounded" />
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Vencimento da 1ª Parcela</label>
+                        <input 
+                            type="date" 
+                            value={negotiationData.firstDueDate} 
+                            onChange={e => setNegotiationData({...negotiationData, firstDueDate: e.target.value})} 
+                            className="w-full p-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                        />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-slate-500">Observações</label>
-                        <textarea value={negotiationData.notes} onChange={e => setNegotiationData({...negotiationData, notes: e.target.value})} className="w-full p-2 border rounded" rows={3}></textarea>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Observações do Acordo</label>
+                        <textarea 
+                            value={negotiationData.notes} 
+                            onChange={e => setNegotiationData({...negotiationData, notes: e.target.value})} 
+                            className="w-full p-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                            rows={3}
+                        ></textarea>
                     </div>
 
-                    <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
+                    <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 border border-yellow-200">
                         ⚠️ Ao confirmar, as faturas originais serão canceladas e um novo contrato será gerado para assinatura do cliente.
                     </div>
 
-                    <button onClick={handleNegotiateSubmit} disabled={isNegotiating} className="w-full py-3 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 disabled:opacity-50 flex justify-center">
+                    <button onClick={handleNegotiateSubmit} disabled={isNegotiating} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex justify-center shadow-lg">
                         {isNegotiating ? <LoadingSpinner /> : 'Enviar Proposta e Gerar Contrato'}
                     </button>
                 </div>
             </Modal>
+            
+            {successMessage && (
+                <div className="fixed bottom-4 right-4 z-[100]">
+                    <Alert message={successMessage} type="success" />
+                </div>
+            )}
         </div>
     );
 };

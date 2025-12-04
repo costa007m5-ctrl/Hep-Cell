@@ -356,6 +356,36 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+// --- NOVA FUNÇÃO: Gerenciamento Manual de Fatura ---
+async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { invoiceId, action } = req.body; // action: 'pay' | 'cancel' | 'delete'
+
+        if (action === 'delete') {
+            await supabase.from('invoices').delete().eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} excluída manualmente.`);
+        } else if (action === 'pay') {
+            await supabase.from('invoices').update({ 
+                status: 'Paga', 
+                payment_date: new Date().toISOString(),
+                notes: 'Baixa manual pelo admin' 
+            }).eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} marcada como Paga.`);
+        } else if (action === 'cancel') {
+            await supabase.from('invoices').update({ 
+                status: 'Cancelado', 
+                notes: 'Cancelamento manual pelo admin' 
+            }).eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} cancelada.`);
+        }
+
+        return res.json({ success: true });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
 async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
@@ -453,7 +483,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         if (req.method === 'POST') {
             if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
-            if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res); // Rota Nova
+            if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res);
+            if (path === '/api/admin/manage-invoice') return await handleManageInvoice(req, res); // Rota Nova
             if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
