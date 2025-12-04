@@ -64,7 +64,6 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             }
         });
         
-        // Retorna dados necessários para exibir o QR Code
         res.status(200).json({ 
             paymentId: result.id, 
             qrCode: result.point_of_interaction?.transaction_data?.qr_code, 
@@ -115,7 +114,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
     }
 }
 
-// Handler: Webhook (Recebe notificações do MP)
+// Handler: Webhook (Recebe notificações do MP e GERA PARCELAS)
 async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
@@ -128,7 +127,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
             const paymentDetails = await payment.get({ id: paymentId });
             
             if (paymentDetails && paymentDetails.status === 'approved') {
-                // Atualiza fatura para Paga
+                // 1. Atualiza fatura para Paga
                 const { data: invoices } = await supabase.from('invoices')
                     .update({ status: 'Paga', payment_date: new Date().toISOString() })
                     .eq('payment_id', String(paymentId))
@@ -137,7 +136,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                 if (invoices && invoices.length > 0) {
                     const invoice = invoices[0];
                     
-                    // 1. Aplicar Cashback
+                    // 2. Aplicar Cashback
                     const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
                     const cashbackPercent = parseFloat(setting?.value || '1.5');
                     const amountPaid = paymentDetails.transaction_amount || invoice.amount;
@@ -146,42 +145,50 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                     if (coinsEarned > 0) {
                         const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
                         await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
-                        await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
                     }
 
-                    // 2. Gerar Parcelas Restantes (Se for Entrada de Crediário)
-                    // A nota deve estar no formato: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
+                    // 3. CRÍTICO: Gerar Parcelas Restantes do Crediário
+                    // Formato da nota: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
                     if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
-                        const parts = invoice.notes.split('|');
-                        if (parts.length >= 5) {
+                        try {
+                            const parts = invoice.notes.split('|');
                             const contractId = parts[1];
                             const remainingAmount = parseFloat(parts[2]);
                             const count = parseInt(parts[3]);
                             const dueDay = parseInt(parts[4]);
                             
-                            if (remainingAmount > 0 && count > 0) {
+                            if (remainingAmount > 0 && count > 1) { // count > 1 porque 1 seria a entrada já paga
                                 const installmentValue = remainingAmount / count;
                                 const invoicesToCreate = [];
                                 const today = new Date();
 
                                 for (let i = 1; i <= count; i++) {
                                     const dueDate = new Date();
-                                    dueDate.setMonth(today.getMonth() + i);
-                                    dueDate.setDate(dueDay);
+                                    dueDate.setMonth(today.getMonth() + i); // Mês seguinte
+                                    
+                                    // Ajuste para o dia de vencimento escolhido
+                                    // Se o dia for > 28, ajusta para evitar pular mês (ex: fev)
+                                    const targetDay = Math.min(dueDay, 28);
+                                    dueDate.setDate(targetDay);
                                     
                                     invoicesToCreate.push({
                                         user_id: invoice.user_id,
-                                        month: `Parcela ${i}/${count}`,
+                                        month: `Parcela ${i}/${count}`, // Nome limpo
                                         due_date: dueDate.toISOString().split('T')[0],
                                         amount: installmentValue,
                                         status: 'Em aberto',
-                                        notes: `Contrato ${contractId}`
+                                        notes: `Contrato ${contractId}` // Link para agrupamento
                                     });
                                 }
                                 
-                                await supabase.from('invoices').insert(invoicesToCreate);
-                                await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas após entrada paga.`);
+                                const { error: insertError } = await supabase.from('invoices').insert(invoicesToCreate);
+                                if(insertError) throw insertError;
+                                
+                                await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas automáticas.`, { contractId });
                             }
+                        } catch (genError: any) {
+                            console.error("Erro gerando parcelas:", genError);
+                            await logAction(supabase, 'INSTALLMENTS_ERROR', 'FAILURE', `Erro ao gerar parcelas: ${genError.message}`);
                         }
                     }
                 }

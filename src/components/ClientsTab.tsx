@@ -152,16 +152,23 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 body: JSON.stringify({ invoiceId, action })
             });
              
-             const data = await res.json() as any;
+             // Safely handle response data
+             const data = await res.json().catch(() => ({})); 
 
              if (res.ok) {
                 setSuccessMessage('Operação realizada com sucesso!');
                 setTimeout(() => setSuccessMessage(null), 3000);
                 fetchData(); 
             } else {
-                 alert(`Erro: ${data.error || 'Falha na operação.'}`);
+                 const errorMessage = (data && typeof data === 'object' && 'error' in data) 
+                    ? (data as any).error 
+                    : 'Falha na operação.';
+                 alert(`Erro: ${errorMessage}`);
             }
-        } catch (e: any) { console.error(e); alert("Erro de conexão."); }
+        } catch (e) { 
+            console.error(e); 
+            alert("Erro de conexão."); 
+        }
     };
 
     const handleBulkAction = async (action: 'pay' | 'cancel' | 'delete') => {
