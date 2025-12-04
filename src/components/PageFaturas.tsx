@@ -1,303 +1,325 @@
-
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Invoice, Profile, Product } from '../types';
+import PaymentForm from './PaymentForm';
+import { Invoice, Profile } from '../types';
 import { supabase } from '../services/clients';
 import { getProfile } from '../services/profileService';
+import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import { diagnoseDatabaseError } from '../services/geminiService';
+import Confetti from './Confetti';
 import PaymentMethodSelector from './PaymentMethodSelector';
-import PaymentForm from './PaymentForm';
 import PixPayment from './PixPayment';
 import BoletoPayment from './BoletoPayment';
 import BoletoDetails from './BoletoDetails';
-import { CardSkeleton } from './Skeleton';
 import { useToast } from './Toast';
-import Confetti from './Confetti';
-import jsPDF from 'jspdf';
-import Modal from './Modal';
-import LoadingSpinner from './LoadingSpinner';
-
-type PaymentStep = 'list' | 'select_method' | 'pay_card' | 'pay_pix' | 'pay_boleto' | 'boleto_details';
+import jsPDF from 'jspdf'; // Necessário para gerar o PDF
 
 interface PageFaturasProps {
     mpPublicKey: string;
 }
 
-interface ErrorInfo {
-    message: string;
-    diagnosis?: string;
-    isDiagnosing: boolean;
-}
+type ViewTab = 'open' | 'current' | 'paid' | 'statement'; // 'adhoc' removido, 'current' adicionado
+type PaymentStep = 'list' | 'select_method' | 'pay_pix' | 'pay_boleto' | 'boleto_details';
 
-interface ProductGroup {
-    id: string;
-    name: string;
-    imageUrl?: string;
-    totalAmount: number;
-    remainingAmount: number;
-    paidAmount: number;
-    totalInstallments: number;
-    paidInstallments: number;
-    nextDueDate: string | null;
-    status: 'active' | 'completed' | 'late';
+// Interface ajustada para Agrupamento Rigoroso por ID
+interface PurchaseGroup {
+    id: string; // Contract ID 
+    title: string; // Nome da Compra (ex: iPhone 15)
     invoices: Invoice[];
-    isDirectSale?: boolean;
-    createdAt: number;
+    totalRemaining: number;
+    nextDue: string;
+    status: 'active' | 'paid' | 'late';
+    type: 'crediario' | 'avista'; // Novo campo para separação
 }
 
-const ChevronDown = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+// --- Ícones ---
+const ChevronDownIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className || "h-5 w-5"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
 );
 
-const CheckCircle = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+const PackageIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+    </svg>
 );
 
-const ChartIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-);
+// --- Funções Auxiliares (PDF e Share) ---
 
-const RenegotiationModal: React.FC<{
-    overdueInvoices: Invoice[];
-    onClose: () => void;
-    onConfirm: (deal: Invoice) => void;
-    maxInterestRate?: number;
-}> = ({ overdueInvoices, onClose, onConfirm, maxInterestRate = 15 }) => {
-    const [installments, setInstallments] = useState(1);
-    const [isGenerating, setIsGenerating] = useState(false);
-
-    const totalOriginal = overdueInvoices.reduce((acc, inv) => acc + inv.amount, 0);
-    const interestPercentage = (maxInterestRate * (installments / 7)) / 100;
-    const totalWithInterest = totalOriginal * (1 + interestPercentage);
-    const installmentValue = totalWithInterest / installments;
-
-    const handleGenerateDeal = () => {
-        setIsGenerating(true);
-        const dealInvoice: Invoice = {
-            id: `reneg_${Date.now()}`,
-            user_id: overdueInvoices[0].user_id,
-            month: `Acordo de Renegociação (${overdueInvoices.length} faturas)`,
-            due_date: new Date().toISOString().split('T')[0], 
-            amount: totalWithInterest,
-            status: 'Em aberto',
-            notes: `Renegociação de débitos. ${installments}x de ${installmentValue.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}`,
-            created_at: new Date().toISOString()
-        };
-
-        setTimeout(() => {
-            onConfirm(dealInvoice);
-            setIsGenerating(false);
-        }, 1000);
+const generateInvoicePDF = (invoice: Invoice) => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.text("RECIBO DE PAGAMENTO", 105, 20, { align: "center" });
+    
+    // Logo placeholder
+    doc.setFillColor(79, 70, 229); // Indigo
+    doc.circle(20, 20, 10, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(12);
+    doc.text("R", 18, 22);
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    
+    // Detalhes
+    let y = 50;
+    const addLine = (label: string, value: string) => {
+        doc.setFont("helvetica", "bold");
+        doc.text(label, 20, y);
+        doc.setFont("helvetica", "normal");
+        doc.text(value, 80, y);
+        y += 10;
     };
 
-    return (
-        <div className="space-y-6">
-            <div className="text-center">
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Renegociar Dívidas</h3>
-                <p className="text-sm text-slate-500 mt-1">Regularize {overdueInvoices.length} faturas em atraso.</p>
-            </div>
-            {/* ... restante do modal ... */}
-            <button onClick={handleGenerateDeal} disabled={isGenerating} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-colors flex items-center justify-center gap-2">
-                {isGenerating ? <LoadingSpinner /> : 'Gerar Boleto de Acordo'}
-            </button>
-        </div>
-    );
-};
-
-const SpendingChart: React.FC<{ invoices: Invoice[] }> = ({ invoices }) => {
-    const monthlyData = useMemo(() => {
-        const data: Record<string, number> = {};
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date();
-            d.setMonth(d.getMonth() - i);
-            const key = d.toLocaleString('pt-BR', { month: 'short' });
-            data[key] = 0;
-        }
-        invoices.forEach(inv => {
-            if (inv.status === 'Paga') {
-                const date = new Date(inv.payment_date || inv.created_at);
-                const key = date.toLocaleString('pt-BR', { month: 'short' });
-                if (data[key] !== undefined) data[key] += inv.amount;
-            }
-        });
-        return data;
-    }, [invoices]);
-
-    const maxVal = Math.max(...(Object.values(monthlyData) as number[]), 100);
-
-    return (
-        <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 mb-4">
-            <div className="flex items-center gap-2 mb-3">
-                <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg text-indigo-600"><ChartIcon /></div>
-                <h3 className="font-bold text-sm text-slate-700 dark:text-slate-300">Gastos Mensais</h3>
-            </div>
-            <div className="flex items-end justify-between h-24 gap-2">
-                {Object.entries(monthlyData).map(([month, val]: [string, number]) => (
-                    <div key={month} className="flex flex-col items-center flex-1 group">
-                        <div className="relative w-full flex justify-center">
-                             <div className="w-full max-w-[24px] bg-indigo-500/20 dark:bg-indigo-500/40 rounded-t-sm group-hover:bg-indigo-500 transition-colors" style={{ height: `${(val / maxVal) * 80 + 10}%` }}></div>
-                        </div>
-                        <span className="text-[10px] text-slate-400 mt-1 uppercase">{month}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const FinancialHeader: React.FC<{ totalDue: number; creditLimit: number; availableLimit: number }> = ({ totalDue, creditLimit, availableLimit }) => (
-    <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-black dark:to-slate-900 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden mb-6">
-        <div className="absolute right-0 top-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-        <div className="relative z-10">
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">Total a Pagar</p>
-            <h2 className="text-3xl font-bold mb-4">{totalDue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</h2>
-            <div className="flex gap-4 pt-4 border-t border-white/10">
-                <div>
-                    <p className="text-slate-400 text-[10px]">Limite de Parcela</p>
-                    <p className="font-semibold text-sm">{creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                </div>
-                <div className="w-px bg-white/10"></div>
-                <div>
-                    <p className="text-slate-400 text-[10px]">Margem Mensal</p>
-                    <p className="font-semibold text-sm text-green-400">{availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                </div>
-            </div>
-        </div>
-    </div>
-);
-
-const InvoiceItemRow: React.FC<{ 
-    invoice: Invoice; 
-    onPay?: (invoice: Invoice) => void; 
-    onDetails?: (invoice: Invoice) => void; 
-    onReceipt?: (invoice: Invoice) => void;
-    selectable?: boolean;
-    isSelected?: boolean;
-    onSelect?: (id: string) => void;
-}> = ({ invoice, onPay, onDetails, onReceipt, selectable, isSelected, onSelect }) => {
-    const dateParts = invoice.due_date.split('-');
-    const dueDateObj = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
-    const formattedDueDate = dueDateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-    const isPaid = invoice.status === 'Paga';
-    const isLate = !isPaid && dueDateObj < new Date();
-    const hasPendingPix = invoice.payment_method === 'pix' && invoice.payment_code && invoice.status === 'Em aberto';
-    const hasPendingBoleto = invoice.status === 'Boleto Gerado' || (invoice.payment_method === 'boleto' && invoice.status === 'Em aberto');
+    addLine("Beneficiário:", "Relp Cell Eletrônicos");
+    addLine("Descrição:", invoice.month);
+    addLine("Vencimento Original:", new Date(invoice.due_date).toLocaleDateString('pt-BR'));
     
+    if (invoice.payment_date) {
+        addLine("Data do Pagamento:", new Date(invoice.payment_date).toLocaleDateString('pt-BR'));
+        addLine("Hora:", new Date(invoice.payment_date).toLocaleTimeString('pt-BR'));
+    }
+    
+    y += 5;
+    doc.setDrawColor(200);
+    doc.line(20, y, 190, y);
+    y += 15;
+    
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    addLine("Valor Pago:", invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+    
+    if (invoice.payment_id) {
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`ID Transação: ${invoice.payment_id}`, 20, y + 10);
+    }
+
+    doc.save(`Fatura_${invoice.month.replace(/[^a-z0-9]/gi, '_')}.pdf`);
+};
+
+const shareInvoice = async (invoice: Invoice) => {
+    const text = `Comprovante Relp Cell\nFatura: ${invoice.month}\nValor: ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\nPago em: ${new Date(invoice.payment_date || invoice.created_at).toLocaleDateString('pt-BR')}`;
+    
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: 'Comprovante Relp Cell',
+                text: text,
+            });
+        } catch (error) {
+            console.log('Erro ao compartilhar', error);
+        }
+    } else {
+        navigator.clipboard.writeText(text);
+        alert("Detalhes copiados para a área de transferência!");
+    }
+};
+
+// --- Componentes Visuais ---
+
+const SummaryCard: React.FC<{ 
+    currentMonthDue: number;
+    creditLimit: number;
+    totalDebt: number;
+    showValues: boolean;
+    onToggleValues: () => void;
+}> = ({ currentMonthDue, creditLimit, totalDebt, showValues, onToggleValues }) => {
+    
+    const currentMonthName = new Date().toLocaleString('pt-BR', { month: 'long' });
+    const availableLimit = Math.max(0, creditLimit - totalDebt);
+    const percentageUsed = creditLimit > 0 ? (totalDebt / creditLimit) * 100 : 0;
+
     return (
-        <div className={`flex items-center justify-between p-3 rounded-lg border mb-2 last:mb-0 transition-colors ${isSelected ? 'bg-indigo-50 border-indigo-200 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700'}`}>
-            <div className="flex items-center gap-3">
-                {selectable && !isPaid ? (
-                    <div onClick={(e) => { e.stopPropagation(); onSelect?.(invoice.id); }} className="cursor-pointer">
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300 dark:border-slate-600'}`}>
-                            {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+        <div className="mx-4 mt-4 p-6 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 text-white shadow-xl shadow-indigo-900/20 relative overflow-hidden transition-all hover:scale-[1.01]">
+            {/* Background FX */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
+            
+            <div className="relative z-10">
+                <div className="flex justify-between items-start mb-6">
+                    <div>
+                        <p className="text-xs font-bold text-indigo-200 uppercase tracking-widest mb-1 flex items-center gap-2">
+                            A Pagar em {currentMonthName}
+                            <button onClick={onToggleValues} className="text-indigo-300 hover:text-white transition-colors p-1 rounded-full hover:bg-white/10">
+                                {showValues ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.05 10.05 0 011.572-2.572m3.76-3.76a9.953 9.953 0 015.674-1.334c2.744 0 5.258.953 7.26 2.548m2.24 2.24a9.958 9.958 0 011.342 2.144c-1.274 4.057-5.064 7-9.542 7a9.97 9.97 0 01-2.347-.278M9.88 9.88a3 3 0 104.24 4.24" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" /></svg>
+                                )}
+                            </button>
+                        </p>
+                        <h2 className="text-4xl font-black tracking-tight mb-1">
+                            {showValues 
+                                ? currentMonthDue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                : 'R$ ••••'}
+                        </h2>
+                    </div>
+                </div>
+
+                <div className="space-y-3 bg-white/10 p-3 rounded-xl backdrop-blur-sm border border-white/5">
+                    <div className="flex justify-between text-xs text-indigo-100">
+                        <span>Limite Total</span>
+                        <span className="font-bold">{showValues ? creditLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '•••'}</span>
+                    </div>
+                    
+                    <div className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden border border-white/5 relative">
+                        <div 
+                            className={`h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(255,255,255,0.3)] ${percentageUsed > 90 ? 'bg-red-500' : 'bg-gradient-to-r from-emerald-400 to-teal-500'}`} 
+                            style={{ width: `${Math.min(100, percentageUsed)}%` }}
+                        ></div>
+                    </div>
+
+                    <div className="flex justify-between items-end">
+                        <div className="text-xs">
+                            <p className="text-slate-400">Utilizado</p>
+                            <p className="font-bold text-white">{showValues ? totalDebt.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '•••'}</p>
+                        </div>
+                        <div className="text-xs text-right">
+                            <p className="text-slate-400">Disponível</p>
+                            <p className="font-bold text-emerald-400">{showValues ? availableLimit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '•••'}</p>
                         </div>
                     </div>
-                ) : (
-                    <div className={`w-2 h-2 rounded-full ${isPaid ? 'bg-green-500' : isLate ? 'bg-red-500' : 'bg-orange-400'}`}></div>
-                )}
-                
-                <div>
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{invoice.month}</p>
-                    <p className={`text-[10px] font-bold ${isLate && !isPaid ? 'text-red-500' : 'text-slate-400'}`}>
-                        {isPaid ? `Pago` : `Vence ${formattedDueDate}`}
-                    </p>
                 </div>
-            </div>
-            <div className="flex flex-col items-end">
-                <span className={`text-sm font-bold ${isPaid ? 'text-slate-500 dark:text-slate-400 line-through decoration-slate-400' : 'text-slate-900 dark:text-white'}`}>
-                    {invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </span>
-                {!selectable && !isPaid && (
-                    <button 
-                        onClick={() => (hasPendingBoleto || hasPendingPix) ? onDetails?.(invoice) : onPay?.(invoice)}
-                        className={`mt-1 text-[10px] px-2 py-0.5 rounded font-bold border transition-colors ${hasPendingPix ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : hasPendingBoleto ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600'}`}
-                    >
-                        {hasPendingPix ? 'Ver Pix' : hasPendingBoleto ? 'Ver Boleto' : 'Pagar'}
-                    </button>
-                )}
-                 {isPaid && onReceipt && (
-                     <button onClick={() => onReceipt(invoice)} className="mt-1 text-[10px] text-indigo-600 hover:underline">Recibo</button>
-                )}
             </div>
         </div>
     );
 };
 
 const PurchaseGroupCard: React.FC<{ 
-    group: ProductGroup; 
-    onPay: (i: Invoice) => void; 
-    onDetails: (i: Invoice) => void; 
-    onReceipt: (i: Invoice) => void; 
-    onSelectMultiple: (ids: string[]) => void;
-    isOpenDefault?: boolean 
-}> = ({ group, onPay, onDetails, onReceipt, onSelectMultiple, isOpenDefault = false }) => {
-    const [isOpen, setIsOpen] = useState(isOpenDefault);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    
-    const progressPercent = (group.paidInstallments / group.totalInstallments) * 100;
-    const isCompleted = group.status === 'completed';
-    const hasLate = group.status === 'late';
+    group: PurchaseGroup; 
+    showValues: boolean;
+    onPay: (invoice: Invoice) => void;
+}> = ({ group, showValues, onPay }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
 
-    const handleToggleSelect = (id: string) => {
-        const newSet = new Set(selectedIds);
-        if (newSet.has(id)) newSet.delete(id);
-        else newSet.add(id);
-        setSelectedIds(newSet);
-        onSelectMultiple(Array.from(newSet));
-    };
+    // Identifica se há atraso em alguma parcela deste grupo
+    const hasLate = group.invoices.some(inv => new Date(inv.due_date) < new Date() && inv.status === 'Em aberto');
 
     return (
-        <div className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border overflow-hidden transition-all ${hasLate ? 'border-red-200 dark:border-red-900/50' : 'border-slate-200 dark:border-slate-700'}`}>
-            <button onClick={() => setIsOpen(!isOpen)} className="w-full p-4 flex flex-col gap-3">
-                <div className="w-full flex justify-between items-start">
-                    <div className="flex items-center gap-3 text-left">
-                        <div className={`w-14 h-14 rounded-lg flex items-center justify-center shrink-0 overflow-hidden ${isCompleted ? 'bg-green-50 dark:bg-green-900/20' : hasLate ? 'bg-red-50 dark:bg-red-900/20' : 'bg-slate-50 dark:bg-slate-700'}`}>
-                             {group.imageUrl ? <img src={group.imageUrl} alt={group.name} className="w-full h-full object-cover" /> : <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>}
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base line-clamp-1">{group.name}</h3>
-                            <p className={`text-xs ${hasLate ? 'text-red-500 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-                                {isCompleted ? 'Finalizado' : hasLate ? 'Pagamento Atrasado' : `${group.paidInstallments}/${group.totalInstallments} parcelas pagas`}
-                            </p>
-                        </div>
+        <div className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border overflow-hidden mb-4 animate-fade-in-up transition-all ${hasLate ? 'border-red-200 dark:border-red-900/50' : 'border-slate-100 dark:border-slate-700'}`}>
+            {/* Header da Compra */}
+            <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="w-full p-4 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center border-b border-slate-100 dark:border-slate-800 transition-colors hover:bg-slate-100 dark:hover:bg-slate-900"
+            >
+                <div className="flex items-center gap-3 text-left">
+                    <div className={`p-2.5 rounded-xl shadow-sm ${hasLate ? 'bg-red-100 text-red-600' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'}`}>
+                        <PackageIcon />
                     </div>
-                    <div className={`transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}><ChevronDown /></div>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{group.title}</h4>
+                            {hasLate && <span className="bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded font-bold uppercase">Atrasado</span>}
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                            ID: #{group.id.substring(0,6)} • {group.invoices.length} {group.invoices.length > 1 ? 'itens' : 'item'}
+                        </p>
+                    </div>
                 </div>
-                {!(group.isDirectSale && group.totalInstallments === 1) && (
-                    <div className="w-full space-y-1">
-                        <div className="flex justify-between text-xs font-medium">
-                             <span className={`${hasLate ? 'text-red-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{Math.round(progressPercent)}% pago</span>
-                             {!isCompleted && <span className="text-slate-500">Resta {group.remainingAmount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</span>}
-                        </div>
-                        <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : hasLate ? 'bg-red-500' : 'bg-indigo-600'}`} style={{ width: `${progressPercent}%` }} />
-                        </div>
+                <div className="text-right flex items-center gap-3">
+                    <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Restante</p>
+                        <p className="font-bold text-slate-900 dark:text-white text-sm">
+                            {showValues ? group.totalRemaining.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) : 'R$ •••'}
+                        </p>
                     </div>
-                )}
+                    <ChevronDownIcon className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                </div>
             </button>
-            {isOpen && (
-                <div className="px-4 pb-4 pt-0 animate-fade-in">
-                    <div className="pt-3 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
-                        {group.invoices.map(invoice => (
-                            <InvoiceItemRow key={invoice.id} invoice={invoice} onPay={onPay} onDetails={onDetails} onReceipt={onReceipt} selectable={!isCompleted && !group.isDirectSale} isSelected={selectedIds.has(invoice.id)} onSelect={handleToggleSelect} />
-                        ))}
-                    </div>
+
+            {/* Lista de Parcelas */}
+            <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {group.invoices.map((inv) => {
+                        const isLate = new Date(inv.due_date) < new Date() && inv.status === 'Em aberto';
+                        // Extrai apenas o número da parcela da descrição para ficar limpo
+                        const parcelLabel = inv.month.match(/Parcela \d+\/\d+/) || [inv.month];
+                        
+                        return (
+                            <div key={inv.id} className={`p-4 flex justify-between items-center transition-colors ${isLate ? 'bg-red-50/50 dark:bg-red-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/20'}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-2 h-2 rounded-full ${isLate ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                    <div>
+                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{parcelLabel[0]}</p>
+                                        <p className={`text-[10px] ${isLate ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                                            Vence: {new Date(inv.due_date).toLocaleDateString('pt-BR')}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                        {showValues ? inv.amount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) : 'R$ •••'}
+                                    </span>
+                                    <button 
+                                        onClick={() => onPay(inv)}
+                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm active:scale-95 transition-all"
+                                    >
+                                        Pagar
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
-            )}
+            </div>
         </div>
     );
 };
 
+// Histórico de Pagamentos
+const PaymentHistoryCard: React.FC<{ invoice: Invoice; showValues: boolean }> = ({ invoice, showValues }) => (
+    <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md group">
+        <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-full text-green-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div>
+                    <p className="text-sm font-bold text-slate-800 dark:text-white">{invoice.month}</p>
+                    <p className="text-xs text-slate-500">Pago em {new Date(invoice.payment_date || invoice.created_at).toLocaleDateString('pt-BR')}</p>
+                </div>
+            </div>
+            <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                {showValues ? invoice.amount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) : 'R$ •••'}
+            </span>
+        </div>
+        
+        {/* Actions Row */}
+        <div className="flex gap-2 mt-2 pt-2 border-t border-slate-50 dark:border-slate-700/50">
+            <button 
+                onClick={() => generateInvoicePDF(invoice)}
+                className="flex-1 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 dark:text-indigo-300 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors flex items-center justify-center gap-1"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                PDF
+            </button>
+            <button 
+                onClick={() => shareInvoice(invoice)}
+                className="flex-1 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 dark:bg-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex items-center justify-center gap-1"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                Enviar
+            </button>
+        </div>
+    </div>
+);
+
 const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
+    const [viewTab, setViewTab] = useState<ViewTab>('open');
     const [paymentStep, setPaymentStep] = useState<PaymentStep>('list');
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
-    const [products, setProducts] = useState<Product[]>([]);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+    const [showValues, setShowValues] = useState(true);
     const [showConfetti, setShowConfetti] = useState(false);
-    const [isRedirecting, setIsRedirecting] = useState(false);
+    
+    // Coins & Payment State
     const [useCoins, setUseCoins] = useState(false);
     const [coinsBalance, setCoinsBalance] = useState(0);
     const { addToast } = useToast();
@@ -308,10 +330,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Usuário não autenticado.');
             
-            const [invoicesRes, profileRes, productsRes] = await Promise.all([
+            const [invoicesRes, profileRes] = await Promise.all([
                 supabase.from('invoices').select('*').eq('user_id', user.id).order('due_date', { ascending: true }),
                 getProfile(user.id),
-                fetch('/api/products').catch(err => ({ ok: false, json: async () => ([]) })) as Promise<Response>
             ]);
 
             setInvoices(invoicesRes.data || []);
@@ -319,8 +340,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 setProfile({ ...profileRes, id: user.id, email: user.email });
                 setCoinsBalance(profileRes.coins_balance || 0);
             }
-            if(productsRes.ok) setProducts(await productsRes.json());
-
         } catch (err: any) {
             console.error(err);
         } finally { setIsLoading(false); }
@@ -328,8 +347,87 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     useEffect(() => { fetchInvoices(); }, [fetchInvoices]);
 
-    const coinsValue = coinsBalance / 100; // R$ 0.01 por coin
+    const coinsValue = coinsBalance / 100;
 
+    // --- LÓGICA DE FILTROS E AGRUPAMENTO ---
+    const openInvoices = useMemo(() => invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado'), [invoices]);
+    const paidInvoices = useMemo(() => invoices.filter(i => i.status === 'Paga').sort((a,b) => new Date(b.payment_date || b.created_at).getTime() - new Date(a.payment_date || a.created_at).getTime()), [invoices]);
+    
+    // Faturas do Mês Corrente
+    const currentMonthInvoices = useMemo(() => {
+        const now = new Date();
+        return openInvoices.filter(inv => {
+            const d = new Date(inv.due_date);
+            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        });
+    }, [openInvoices]);
+
+    const currentMonthDue = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        
+        return openInvoices.reduce((acc, inv) => {
+            const dueDate = new Date(inv.due_date);
+            if (dueDate < now || (dueDate.getMonth() === currentMonth && dueDate.getFullYear() === currentYear)) {
+                return acc + inv.amount;
+            }
+            return acc;
+        }, 0);
+    }, [openInvoices]);
+
+    const totalDebt = openInvoices.reduce((acc, inv) => acc + inv.amount, 0);
+    const creditLimit = profile?.credit_limit || 0;
+
+    // Função de Agrupamento - AGORA COM ID RIGOROSO
+    const groupInvoices = (list: Invoice[]) => {
+        const groups: Record<string, PurchaseGroup> = {};
+        
+        list.forEach(inv => {
+            let key = 'avulso';
+            let title = 'Faturas Avulsas';
+            let type: 'crediario' | 'avista' = 'avista';
+            
+            // Tenta extrair o ID do Contrato das notas (formato: "Contrato ID" ou "ENTRADA|ID...")
+            if (inv.notes) {
+                const matchContract = inv.notes.match(/Contrato\s+([a-f0-9-]+)/);
+                const matchEntry = inv.notes.match(/ENTRADA\|([a-f0-9-]+)/);
+                
+                if (matchContract) { key = matchContract[1]; type = 'crediario'; }
+                else if (matchEntry) { key = matchEntry[1]; type = 'avista'; }
+            }
+
+            // Se a fatura tem "Parcela X/Y", é crediário
+            if (inv.month.includes('Parcela')) type = 'crediario';
+
+            // Título amigável extraído da descrição da fatura
+            const nameMatch = inv.month.match(/.* - (.+)/);
+            if (nameMatch) title = nameMatch[1].trim();
+            else title = inv.month;
+
+            if (!groups[key]) {
+                groups[key] = { id: key, title, invoices: [], totalRemaining: 0, nextDue: inv.due_date, status: 'active', type };
+            }
+            
+            groups[key].invoices.push(inv);
+            groups[key].totalRemaining += inv.amount;
+            
+            if (new Date(inv.due_date) < new Date(groups[key].nextDue)) {
+                groups[key].nextDue = inv.due_date;
+            }
+        });
+
+        return Object.values(groups).sort((a, b) => new Date(a.nextDue).getTime() - new Date(b.nextDue).getTime());
+    };
+
+    const groupedOpenInvoices = useMemo(() => groupInvoices(openInvoices), [openInvoices]);
+    const groupedCurrentInvoices = useMemo(() => groupInvoices(currentMonthInvoices), [currentMonthInvoices]);
+    
+    // Separar Crediário de À Vista/Entradas
+    const crediarioGroups = groupedOpenInvoices.filter(g => g.type === 'crediario');
+    const avistaGroups = groupedOpenInvoices.filter(g => g.type === 'avista');
+
+    // Payment Logic
     const handlePaymentMethodSelection = async (method: string) => {
         if (!selectedInvoice) return;
         
@@ -350,20 +448,12 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         }
 
         const finalAmount = selectedInvoice.amount - discount;
-        const extraData = { coinsToUse }; // Send to backend
+        (selectedInvoice as any)._coinsToUse = coinsToUse; 
+        (selectedInvoice as any)._finalAmount = finalAmount;
 
-        if (method === 'pix') {
-            setPaymentStep('pay_pix');
-            // Store extraData in selectedInvoice temporally or use context
-            // For simplicity, we update selectedInvoice with a transient prop
-            (selectedInvoice as any)._coinsToUse = coinsToUse; 
-            (selectedInvoice as any)._finalAmount = finalAmount;
-        } else if (method === 'boleto') {
-            setPaymentStep('pay_boleto');
-            (selectedInvoice as any)._coinsToUse = coinsToUse; 
-            (selectedInvoice as any)._finalAmount = finalAmount;
-        } else if (method === 'redirect') {
-            setIsRedirecting(true);
+        if (method === 'pix') setPaymentStep('pay_pix');
+        else if (method === 'boleto') setPaymentStep('pay_boleto');
+        else if (method === 'redirect') {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
                 const response = await fetch('/api/mercadopago/create-preference', {
@@ -379,23 +469,15 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                         payerEmail: user?.email
                     }),
                 });
-                
                 const data = await response.json();
-                if (data.init_point) {
-                    window.location.href = data.init_point;
-                } else {
-                    throw new Error('URL de redirecionamento não recebida.');
-                }
+                if (data.init_point) window.location.href = data.init_point;
             } catch (error) {
                 addToast('Erro ao conectar ao Mercado Pago.', 'error');
-                setIsRedirecting(false);
             }
         }
     };
 
-    // Render Payment Flow
     if (paymentStep !== 'list' && selectedInvoice) {
-        // Passar dados extras para componentes filhos
         const invoiceWithExtras = {
             ...selectedInvoice,
             amount: (selectedInvoice as any)._finalAmount || selectedInvoice.amount,
@@ -405,18 +487,25 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         switch (paymentStep) {
             case 'select_method': 
                 return (
-                    <div className="w-full max-w-md space-y-4">
-                        {/* Coin Switch */}
-                        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                    <div className="w-full max-w-md space-y-4 pt-4 px-2">
+                        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 p-6 rounded-3xl text-center text-white shadow-lg mb-6">
+                            <p className="text-sm font-medium opacity-80 uppercase tracking-wide">Valor a Pagar</p>
+                            <h2 className="text-4xl font-black mt-1">
+                                {selectedInvoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </h2>
+                            <p className="text-xs mt-2 opacity-70">{selectedInvoice.month}</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex justify-between items-center transition-all active:scale-[0.98]">
                             <div>
                                 <p className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                     <span className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center text-[10px] text-yellow-900 border border-yellow-200 shadow-sm">RC</span>
                                     Usar Saldo
                                 </p>
-                                <p className="text-xs text-slate-500">Disponível: R$ {coinsValue.toFixed(2)}</p>
+                                <p className="text-xs text-slate-500 mt-0.5">Disponível: R$ {coinsValue.toFixed(2)}</p>
                             </div>
-                            <div className="flex items-center gap-2">
-                                {useCoins && <span className="text-xs text-green-600 font-bold">- R$ {Math.min(selectedInvoice.amount - 0.01, coinsValue).toFixed(2)}</span>}
+                            <div className="flex items-center gap-3">
+                                {useCoins && <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded-md">- R$ {Math.min(selectedInvoice.amount - 0.01, coinsValue).toFixed(2)}</span>}
                                 <label className="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" className="sr-only peer" checked={useCoins} onChange={e => setUseCoins(e.target.checked)} disabled={coinsValue <= 0} />
                                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
@@ -424,6 +513,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                             </div>
                         </div>
                         
+                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide px-2 mt-4">Escolha a Forma de Pagamento</h3>
                         <PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={handlePaymentMethodSelection} onBack={() => {setPaymentStep('list'); setUseCoins(false);}} />
                     </div>
                 );
@@ -434,26 +524,140 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         }
     }
 
-    // Grouping Logic (Simplified for brevity, assume groupedInvoices is calculated)
-    // ... (Mantém a lógica de agrupamento existente) ...
-    // Placeholder para manter compatibilidade com o resto do arquivo
-    const groupedInvoices: ProductGroup[] = []; // Calculate properly in real implementation
-
     return (
-        <div className="w-full max-w-md space-y-6 animate-fade-in pb-safe relative">
+        <div className="w-full max-w-md space-y-5 animate-fade-in pb-24 relative">
             {showConfetti && <Confetti />}
-            <FinancialHeader totalDue={0} creditLimit={profile?.credit_limit || 0} availableLimit={0} />
             
-            {/* Lista Faturas */}
-            <div className="space-y-4">
-               {/* Mapeamento das faturas/grupos */}
-               {invoices.filter(i => i.status === 'Em aberto').map(inv => (
-                   <InvoiceItemRow 
-                        key={inv.id} 
-                        invoice={inv} 
-                        onPay={(i) => { setSelectedInvoice(i); setPaymentStep('select_method'); }}
-                   />
-               ))}
+            <SummaryCard 
+                currentMonthDue={currentMonthDue}
+                creditLimit={creditLimit}
+                totalDebt={totalDebt}
+                showValues={showValues}
+                onToggleValues={() => setShowValues(!showValues)}
+            />
+
+            <div className="px-4 sticky top-[60px] z-30 bg-slate-50 dark:bg-slate-900 pb-2 pt-1">
+                <div className="bg-white dark:bg-slate-800 p-1.5 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 flex overflow-x-auto no-scrollbar snap-x">
+                    {[
+                        { id: 'open', label: 'Em Aberto' },
+                        { id: 'current', label: 'Do Mês' },
+                        { id: 'paid', label: 'Histórico' },
+                        { id: 'statement', label: 'Extrato' },
+                    ].map(tab => (
+                        <button 
+                            key={tab.id}
+                            onClick={() => setViewTab(tab.id as any)} 
+                            className={`flex-1 min-w-[80px] py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap snap-start ${
+                                viewTab === tab.id 
+                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30' 
+                                : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="px-4 min-h-[300px]">
+                {isLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                        <LoadingSpinner />
+                        <p className="text-slate-400 text-xs">Sincronizando dados...</p>
+                    </div>
+                ) : (
+                    <>
+                        {viewTab === 'open' && (
+                            <div className="space-y-6 animate-fade-in-up">
+                                {openInvoices.length === 0 ? (
+                                    <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
+                                        <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">🎉</div>
+                                        <h3 className="text-lg font-bold text-slate-800 dark:text-white">Tudo em dia!</h3>
+                                        <p className="text-sm text-slate-500 px-6 mt-1">Você não tem faturas pendentes.</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Seção Crediário */}
+                                        {crediarioGroups.length > 0 && (
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-indigo-500">📱 Crediário (Parcelado)</h3>
+                                                {crediarioGroups.map(group => (
+                                                    <PurchaseGroupCard 
+                                                        key={group.id} 
+                                                        group={group} 
+                                                        showValues={showValues}
+                                                        onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Seção Avulsas */}
+                                        {avistaGroups.length > 0 && (
+                                            <div className="space-y-3">
+                                                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-green-500">🛍️ Compras à Vista / Entradas</h3>
+                                                {avistaGroups.map(group => (
+                                                    <PurchaseGroupCard 
+                                                        key={group.id} 
+                                                        group={group} 
+                                                        showValues={showValues}
+                                                        onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* OUTRAS ABAS (Lógica Simplificada) */}
+                        {viewTab === 'current' && (
+                            <div className="space-y-4 animate-fade-in-up">
+                                {groupedCurrentInvoices.map(group => (
+                                    <PurchaseGroupCard 
+                                        key={group.id} 
+                                        group={group} 
+                                        showValues={showValues}
+                                        onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); }}
+                                    />
+                                ))}
+                                {groupedCurrentInvoices.length === 0 && <p className="text-center text-slate-400 py-10">Sem vencimentos este mês.</p>}
+                            </div>
+                        )}
+
+                        {viewTab === 'paid' && (
+                            <div className="space-y-3 animate-fade-in-up">
+                                {paidInvoices.map(inv => (
+                                    <PaymentHistoryCard key={inv.id} invoice={inv} showValues={showValues} />
+                                ))}
+                            </div>
+                        )}
+
+                        {viewTab === 'statement' && (
+                             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-700 animate-fade-in-up">
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-6">Linha do Tempo</h3>
+                                <div className="space-y-0 relative border-l-2 border-slate-100 dark:border-slate-700 ml-3">
+                                    {[...invoices].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map((inv, i) => (
+                                        <div key={inv.id} className="relative pl-8 pb-8 last:pb-0 group">
+                                            <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white dark:border-slate-800 ${inv.status === 'Paga' ? 'bg-green-500' : inv.status === 'Cancelado' ? 'bg-red-500' : 'bg-indigo-500'}`}></div>
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-800 dark:text-white">{inv.month}</p>
+                                                    <p className="text-xs text-slate-500 mt-0.5">{new Date(inv.created_at).toLocaleDateString()}</p>
+                                                </div>
+                                                <span className={`text-sm font-bold ${inv.status === 'Paga' ? 'text-green-600' : 'text-slate-900 dark:text-white'}`}>
+                                                    {showValues ? inv.amount.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) : 'R$ •••'}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded w-fit mt-2 text-slate-500 uppercase font-bold mb-2">{inv.status}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
         </div>
     );

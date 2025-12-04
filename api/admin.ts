@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -32,13 +33,14 @@ function getMercadoPagoClient() {
 }
 
 async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
-    const { error } = await supabase.from('action_logs').insert({ action_type, status, description, details });
-    if (error) {
-        console.error(`Failed to log action: ${action_type}`, error);
+    try {
+        await supabase.from('action_logs').insert({ action_type, status, description, details });
+    } catch (e) {
+        console.error('Log error', e);
     }
 }
 
-// --- Status Test Handlers ---
+// --- Status Test Handlers (Restaurados) ---
 
 async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
@@ -69,7 +71,6 @@ async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
     try {
         const client = getMercadoPagoClient();
         const payment = new Payment(client);
-        // Busca vazia apenas para testar autenticação
         await payment.search({ options: { limit: 1 } });
         return res.status(200).json({ message: "Mercado Pago OK!" });
     } catch (e: any) {
@@ -99,16 +100,17 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         if (!userId || !totalAmount) return res.status(400).json({ error: "Dados incompletos." });
 
-        let finalTotalAmount = totalAmount;
+        let finalTotalAmount = Number(totalAmount);
         let discountApplied = 0;
         
-        // Simulação de Cupom
         if (couponCode) {
             const code = couponCode.toUpperCase();
-            if (code === 'RELP10') discountApplied = totalAmount * 0.10;
+            if (code === 'RELP10') discountApplied = finalTotalAmount * 0.10;
             else if (code === 'BOASVINDAS') discountApplied = 20;
-            else if (code === 'PROMO5') discountApplied = totalAmount * 0.05;
-            finalTotalAmount = Math.max(0, totalAmount - discountApplied);
+            else if (code === 'PROMO5') discountApplied = finalTotalAmount * 0.05;
+            else if (code === 'DESC50') discountApplied = 50;
+            
+            finalTotalAmount = Math.max(0, finalTotalAmount - discountApplied);
         }
 
         // Coins
@@ -135,16 +137,18 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         // Fatura
         const isCrediario = saleType === 'crediario';
-        const invoiceAmount = isCrediario ? downPayment : finalTotalAmount;
+        const invoiceAmount = isCrediario ? Number(downPayment) : finalTotalAmount;
         const today = new Date();
         
         let paymentData: any = null;
         let invoiceId = null;
 
+        // Gera Fatura de Entrada / Venda à Vista se valor > 0
         if (invoiceAmount > 0) {
-            let notes = `Compra Direta ${contract.id}`;
+            let notes = `Compra Direta Contrato ${contract.id}`;
             if (isCrediario) {
-                const remaining = finalTotalAmount - downPayment;
+                const remaining = finalTotalAmount - invoiceAmount;
+                // A nota carrega metadados para que o webhook gere as parcelas se a entrada for paga
                 notes = `ENTRADA|${contract.id}|${remaining}|${installments}|${dueDay || 10}`;
             }
 
@@ -242,19 +246,23 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                     }
                 } catch (mpError: any) {
                     console.error("Erro MP:", mpError);
-                    paymentData = { type: 'error', message: 'Erro ao gerar pagamento.' };
+                    // Não falha a venda se o MP falhar, mas avisa
+                    paymentData = { type: 'error', message: 'Venda registrada, mas falha ao gerar Pix/Boleto. Tente novamente pela aba Faturas.' };
                 }
             } else if (paymentMethod === 'cash') {
+                // Pagamento em dinheiro: Marca como pago e gera parcelas imediatamente
                 await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
-                // Gera parcelas se crediário
+                
                 if (isCrediario) {
-                    const remaining = finalTotalAmount - downPayment;
+                    const remaining = finalTotalAmount - invoiceAmount;
                     const installmentVal = remaining / installments;
                     const invs = [];
+                    // Gera as parcelas futuras
                     for(let i=1; i<=installments; i++) {
                         const d = new Date();
                         d.setMonth(d.getMonth() + i);
-                        d.setDate(dueDay || 10);
+                        d.setDate(Math.min(dueDay || 10, 28)); 
+                        
                         invs.push({
                             user_id: userId,
                             month: `Parcela ${i}/${installments} - ${productName}`,
@@ -268,13 +276,16 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 }
                 paymentData = { type: 'cash' };
             }
-        } else if (isCrediario) {
+        } 
+        // Caso raro: Crediário sem entrada (backend suporta, mas frontend deve bloquear)
+        else if (isCrediario) {
              const installmentVal = finalTotalAmount / installments;
              const invs = [];
              for(let i=1; i<=installments; i++) {
                 const d = new Date();
                 d.setMonth(d.getMonth() + i);
-                d.setDate(dueDay || 10);
+                d.setDate(Math.min(dueDay || 10, 28));
+                
                 invs.push({
                     user_id: userId,
                     month: `Parcela ${i}/${installments} - ${productName}`,
@@ -299,11 +310,14 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const SQL = `ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;`;
-    await supabase.rpc('execute_admin_sql', { sql_query: SQL });
-    return res.status(200).json({ message: "Schema updated." });
+    try {
+        await supabase.rpc('execute_admin_sql', { sql_query: SQL });
+        return res.status(200).json({ message: "Schema updated successfully." });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
 }
 
-// ... Handlers simples ...
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, type } = req.body;
@@ -339,7 +353,7 @@ async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) {
 }
 async function handleGetInvoices(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
-    const { data } = await supabase.from('invoices').select('*');
+    const { data } = await supabase.from('invoices').select('*').order('due_date', { ascending: true });
     return res.json(data);
 }
 async function handleGetLimitRequests(_req: VercelRequest, res: VercelResponse) { 
@@ -360,13 +374,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
             
-            // Test Routes (Restauradas)
+            // Test Routes
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
             if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
             if (path === '/api/admin/test-mercadolivre') return await handleTestMercadoLivre(req, res);
             
-            // Outras
             if (path === '/api/admin/upload-pwa-icon') return await handleUploadPwaIcon(req, res);
             if (path === '/api/admin/manage-limit-request') return await handleManageLimitRequest(req, res);
             if (path === '/api/admin/settings') return await handleSettings(req, res);

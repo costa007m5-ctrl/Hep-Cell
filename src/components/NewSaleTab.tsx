@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Profile, Product, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -19,8 +18,7 @@ const StockBadge: React.FC<{ stock: number }> = ({ stock }) => {
     let color = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
     if (stock <= 0) color = 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400';
     else if (stock < 3) color = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
-    
-    return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${color}`}>Estoque: {stock}</span>;
+    return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${color}`}>Est: {stock}</span>;
 };
 
 const ProductCard: React.FC<{ product: Product; onAdd: (p: Product) => void }> = ({ product, onAdd }) => (
@@ -29,22 +27,14 @@ const ProductCard: React.FC<{ product: Product; onAdd: (p: Product) => void }> =
         disabled={product.stock <= 0}
         className={`flex flex-col text-left bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden hover:shadow-lg transition-all active:scale-[0.98] group h-full focus:ring-2 focus:ring-indigo-500 outline-none ${product.stock <= 0 ? 'opacity-60 grayscale cursor-not-allowed' : ''}`}
     >
-        <div className="h-28 w-full bg-white p-2 flex items-center justify-center relative overflow-hidden">
-            <img 
-                src={product.image_url || 'https://via.placeholder.com/150'} 
-                alt={product.name} 
-                className="max-h-full object-contain group-hover:scale-110 transition-transform duration-500" 
-            />
-            <div className="absolute top-2 right-2"><StockBadge stock={product.stock} /></div>
+        <div className="h-24 w-full bg-white p-2 flex items-center justify-center relative overflow-hidden">
+            <img src={product.image_url || 'https://via.placeholder.com/150'} alt={product.name} className="max-h-full object-contain group-hover:scale-110 transition-transform duration-500" />
+            <div className="absolute top-1 right-1"><StockBadge stock={product.stock} /></div>
         </div>
-        <div className="p-3 flex flex-col flex-1 w-full border-t border-slate-100 dark:border-slate-700">
-            <div className="flex justify-between items-start mb-1">
-                <p className="text-[10px] font-bold uppercase text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-1.5 py-0.5 rounded">{product.brand || 'Geral'}</p>
-                {product.is_new && <span className="text-[8px] bg-green-500 text-white px-1.5 py-0.5 rounded font-bold">NOVO</span>}
-            </div>
-            <h4 className="font-bold text-slate-900 dark:text-white text-xs leading-tight line-clamp-2 mb-auto" title={product.name}>{product.name}</h4>
-            <div className="mt-2">
-                <span className="text-slate-900 dark:text-white font-black text-base block">
+        <div className="p-2 flex flex-col flex-1 w-full border-t border-slate-100 dark:border-slate-700">
+            <h4 className="font-bold text-slate-900 dark:text-white text-xs leading-tight line-clamp-2 mb-auto">{product.name}</h4>
+            <div className="mt-1">
+                <span className="text-slate-900 dark:text-white font-black text-sm block">
                     {product.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </span>
             </div>
@@ -59,8 +49,8 @@ const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data
                 <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto text-green-600">
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Venda Criada!</h3>
-                <p className="text-sm text-slate-500">O pagamento foi gerado. Peça ao cliente para pagar agora.</p>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Venda Confirmada!</h3>
+                <p className="text-sm text-slate-500">Realize a cobrança abaixo.</p>
                 
                 {data.type === 'pix' && (
                     <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -86,15 +76,8 @@ const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data
 
                 {data.type === 'cash' && (
                     <div className="p-4 bg-green-50 dark:bg-green-900/20 text-green-700 rounded-xl">
-                        <p className="font-bold">Pagamento Confirmado</p>
-                        <p className="text-xs">Venda em dinheiro/balcão registrada.</p>
-                    </div>
-                )}
-
-                {data.type === 'error' && (
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-700 rounded-xl">
-                        <p className="font-bold">Atenção</p>
-                        <p className="text-xs">{data.message}</p>
+                        <p className="font-bold">Pagamento em Dinheiro</p>
+                        <p className="text-xs">Registrado no caixa.</p>
                     </div>
                 )}
 
@@ -112,18 +95,16 @@ const NewSaleTab: React.FC = () => {
     const [minEntryPercentage, setMinEntryPercentage] = useState(0.15);
     const [loading, setLoading] = useState(true);
 
-    // POS State
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     
-    // Checkout Modal State
+    // Checkout State
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
     const [isSignatureOpen, setIsSignatureOpen] = useState(false);
     
-    // Checkout Data
     const [saleType, setSaleType] = useState<SaleType>('crediario');
-    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix'); // Default pix
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
     const [installments, setInstallments] = useState(1);
     const [entryValue, setEntryValue] = useState('');
     const [couponCode, setCouponCode] = useState('');
@@ -133,7 +114,6 @@ const NewSaleTab: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [paymentResult, setPaymentResult] = useState<any>(null);
 
-    // Load Data
     useEffect(() => {
         const load = async () => {
             try {
@@ -159,12 +139,10 @@ const NewSaleTab: React.FC = () => {
         load();
     }, []);
 
-    // Filter Logic
     const filteredProducts = useMemo(() => {
         return products.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.brand?.toLowerCase().includes(searchQuery.toLowerCase()));
     }, [products, searchQuery]);
 
-    // Financial Calculations
     const cartSubTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     
     const discountApplied = useMemo(() => {
@@ -172,7 +150,7 @@ const NewSaleTab: React.FC = () => {
         if (code === 'RELP10') return cartSubTotal * 0.10;
         if (code === 'BOASVINDAS') return 20;
         if (code === 'PROMO5') return cartSubTotal * 0.05;
-        // Simulando lógica de desconto
+        if (code === 'DESC50') return 50;
         return 0;
     }, [couponCode, cartSubTotal]);
 
@@ -188,12 +166,10 @@ const NewSaleTab: React.FC = () => {
 
     const installmentValue = installments > 0 ? totalWithInterest / installments : 0;
 
-    // Limit Calculation
     const availableLimit = useMemo(() => {
         if (!selectedProfile) return 0;
         const totalMonthly = selectedProfile.credit_limit || 0;
         const userOpenInvoices = allInvoices.filter(inv => inv.user_id === selectedProfile.id && (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'));
-        
         const monthlyCommitments: Record<string, number> = {};
         userOpenInvoices.forEach(inv => {
             const dueMonth = inv.due_date.substring(0, 7); 
@@ -203,27 +179,40 @@ const NewSaleTab: React.FC = () => {
         return Math.max(0, totalMonthly - maxMonthlyCommitment);
     }, [selectedProfile, allInvoices]);
 
+    // Lógica de Sugestão de Entrada baseada no Limite
+    const limitAnalysis = useMemo(() => {
+        if (saleType !== 'crediario') return { isValid: true, message: '', requiredEntry: 0 };
+        
+        const requiredMinEntry = cartTotal * minEntryPercentage;
+        
+        // Se a parcela excede o limite, calculamos quanto de entrada extra é necessário
+        // Parcela = (Total - Entrada) / N <= Limite
+        // Total - Entrada <= Limite * N
+        // Entrada >= Total - (Limite * N)
+        const maxFinanceable = availableLimit * installments;
+        const minEntryForLimit = Math.max(0, cartTotal - maxFinanceable);
+        
+        const finalRequiredEntry = Math.max(requiredMinEntry, minEntryForLimit);
+        const isSufficient = entry >= finalRequiredEntry;
+        
+        return {
+            isValid: isSufficient,
+            requiredEntry: finalRequiredEntry,
+            limitExceeded: installmentValue > availableLimit,
+            message: isSufficient ? 'Aprovado' : `Entrada insuficiente. Mínimo: R$ ${finalRequiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`
+        };
+    }, [saleType, cartTotal, minEntryPercentage, availableLimit, installments, entry, installmentValue]);
+
     const validationStatus = useMemo(() => {
         if (saleType !== 'crediario') return { isValid: true, message: 'Venda Direta' };
-        
-        if (installmentValue > availableLimit) {
-             return { isValid: false, message: `Parcela (R$${installmentValue.toFixed(2)}) excede limite (R$${availableLimit.toFixed(2)})` };
-        }
-
-        const regulatoryEntry = cartTotal * minEntryPercentage;
-        if (entry < regulatoryEntry) {
-            return { isValid: false, message: `Entrada mínima: R$ ${regulatoryEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}` };
-        }
-        return { isValid: true, message: 'Aprovado' };
-    }, [saleType, cartTotal, entry, minEntryPercentage, availableLimit, installmentValue]);
+        return { isValid: limitAnalysis.isValid, message: limitAnalysis.message };
+    }, [saleType, limitAnalysis]);
 
     const handleProcessSale = async () => {
         if (!selectedProfile) return;
-        
         setIsProcessing(true);
         try {
             const itemsDescription = cart.map(i => `${i.quantity}x ${i.name}`).join(', ');
-            
             const response = await fetch('/api/admin/create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -241,20 +230,15 @@ const NewSaleTab: React.FC = () => {
                     signature: signature
                 }),
             });
-
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Erro ao processar venda.');
-
             setPaymentResult(result.paymentData || { type: 'cash' });
-            
-            // Clean up
             setCart([]);
             setEntryValue('');
             setCouponCode('');
             setIsCheckoutOpen(false);
             setIsSignatureOpen(false);
             setSignature(null);
-
         } catch (e: any) {
             alert(e.message);
         } finally {
@@ -267,27 +251,18 @@ const NewSaleTab: React.FC = () => {
             alert(validationStatus.message);
             return;
         }
-        if (saleType === 'crediario') {
-            setIsSignatureOpen(true); 
-        } else {
-            handleProcessSale(); 
-        }
+        if (saleType === 'crediario') setIsSignatureOpen(true);
+        else handleProcessSale();
     };
 
     if (loading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
 
     return (
         <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-slate-100 dark:bg-slate-900 -m-4 lg:-m-8 font-sans">
-            {/* Catalog */}
+            {/* Catalogo */}
             <div className="flex-1 flex flex-col border-r border-slate-200 dark:border-slate-700 overflow-hidden relative">
                 <div className="p-4 bg-white dark:bg-slate-800 border-b flex gap-3 items-center shrink-0 shadow-sm z-10">
-                    <input 
-                        type="text" 
-                        placeholder="Buscar produto..." 
-                        className="flex-1 pl-4 pr-4 py-2.5 rounded-lg border bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white"
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                    />
+                    <input type="text" placeholder="Buscar produto..." className="flex-1 pl-4 pr-4 py-2.5 rounded-lg border bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 bg-slate-100 dark:bg-slate-900/50">
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -298,15 +273,11 @@ const NewSaleTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Cart & Actions */}
+            {/* Carrinho / Checkout */}
             <div className="w-full lg:w-[420px] bg-white dark:bg-slate-800 flex flex-col shadow-2xl z-20 border-l border-slate-200 dark:border-slate-700">
                 <div className="p-4 border-b bg-slate-50 dark:bg-slate-900">
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cliente</label>
-                    <select 
-                        className="w-full p-2.5 rounded-lg border bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                        onChange={(e) => setSelectedProfile(profiles.find(p => p.id === e.target.value) || null)}
-                        value={selectedProfile?.id || ""}
-                    >
+                    <select className="w-full p-2.5 rounded-lg border bg-white dark:bg-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500" onChange={(e) => setSelectedProfile(profiles.find(p => p.id === e.target.value) || null)} value={selectedProfile?.id || ""}>
                         <option value="" disabled>Selecionar...</option>
                         {profiles.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
                     </select>
@@ -332,45 +303,58 @@ const NewSaleTab: React.FC = () => {
                         <span>Total Produtos</span>
                         <span>R$ {cartSubTotal.toFixed(2)}</span>
                     </div>
-                    
                     <button onClick={() => setIsCheckoutOpen(true)} disabled={cart.length === 0 || !selectedProfile} className="w-full py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 transition-all active:scale-[0.98]">
-                        Finalizar Venda
+                        Ir para Pagamento
                     </button>
                 </div>
             </div>
 
-            {/* Checkout Modal - TELA ÚNICA */}
+            {/* Modal de Checkout Unificado */}
             {isCheckoutOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
                     <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh] flex flex-col">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Checkout Financeiro</h3>
-                            <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-500 hover:text-slate-800 dark:hover:text-white p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">✕</button>
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white">Pagamento e Entrega</h3>
+                            <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-500 hover:text-slate-800 dark:hover:text-white p-2 rounded-full">✕</button>
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            {/* Coluna 1: Configuração da Venda */}
                             <div className="space-y-4">
-                                
-                                {/* Tipo de Venda */}
                                 <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl flex">
                                     <button onClick={() => setSaleType('crediario')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${saleType === 'crediario' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Crediário</button>
                                     <button onClick={() => { setSaleType('direct'); setInstallments(1); setEntryValue(''); }} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${saleType === 'direct' ? 'bg-white dark:bg-slate-700 text-green-600 shadow-sm' : 'text-slate-500'}`}>À Vista</button>
                                 </div>
 
-                                {/* Valores */}
                                 <div className="space-y-3">
                                     {saleType === 'crediario' && (
-                                        <div>
-                                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Entrada (R$)</label>
-                                            <input type="number" value={entryValue} onChange={e => setEntryValue(e.target.value)} className="w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white font-bold" placeholder="0.00" />
+                                        <div className={`p-4 rounded-xl border ${limitAnalysis.isValid ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700' : 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800'}`}>
+                                            <div className="flex justify-between text-xs font-bold text-slate-500 uppercase mb-2">
+                                                <span>Análise de Crédito</span>
+                                                <span className={limitAnalysis.isValid ? 'text-green-600' : 'text-amber-600'}>
+                                                    {limitAnalysis.limitExceeded ? 'Limite Insuficiente' : 'Disponível'}
+                                                </span>
+                                            </div>
+                                            
+                                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Entrada Necessária (R$)</label>
+                                            <input 
+                                                type="number" 
+                                                value={entryValue} 
+                                                onChange={e => setEntryValue(e.target.value)} 
+                                                className={`w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:text-white font-bold ${!limitAnalysis.isValid ? 'border-amber-400 ring-1 ring-amber-400' : 'border-slate-200'}`}
+                                                placeholder="0.00" 
+                                            />
+                                            {!limitAnalysis.isValid && (
+                                                <p className="text-xs text-amber-600 mt-1 font-bold">
+                                                    Mínimo para aprovar: R$ {limitAnalysis.requiredEntry.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                     
                                     <div>
-                                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cupom de Desconto</label>
+                                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Cupom</label>
                                         <div className="flex gap-2">
-                                            <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white uppercase font-mono" placeholder="CÓDIGO" />
+                                            <input type="text" value={couponCode} onChange={e => setCouponCode(e.target.value)} className="w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:text-white uppercase font-mono" placeholder="CÓDIGO" />
                                         </div>
                                         {discountApplied > 0 && <p className="text-xs text-green-600 font-bold mt-1">Desconto: -R$ {discountApplied.toFixed(2)}</p>}
                                     </div>
@@ -378,7 +362,7 @@ const NewSaleTab: React.FC = () => {
                                     {saleType === 'crediario' && (
                                         <div>
                                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Parcelas</label>
-                                            <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:border-slate-700 dark:text-white font-bold">
+                                            <select value={installments} onChange={e => setInstallments(Number(e.target.value))} className="w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:text-white font-bold">
                                                 {Array.from({length:12},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}x</option>)}
                                             </select>
                                         </div>
@@ -386,15 +370,14 @@ const NewSaleTab: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Coluna 2: Pagamento e Resumo */}
                             <div className="space-y-4 flex flex-col">
                                 <div>
                                     <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Forma de Pagamento (Entrada/Total)</label>
                                     <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white dark:border-slate-700'}`}>Pix</button>
-                                        <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white dark:border-slate-700'}`}>Boleto</button>
-                                        <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white dark:border-slate-700'}`}>Link</button>
-                                        <button onClick={() => setPaymentMethod('cash')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400 text-slate-700 dark:bg-slate-700 dark:text-white' : 'hover:bg-slate-50 dark:hover:bg-slate-800 dark:text-white dark:border-slate-700'}`}>Dinheiro</button>
+                                        <button onClick={() => setPaymentMethod('pix')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'pix' ? 'bg-green-50 border-green-500 text-green-700' : ''}`}>Pix</button>
+                                        <button onClick={() => setPaymentMethod('boleto')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'boleto' ? 'bg-orange-50 border-orange-500 text-orange-700' : ''}`}>Boleto</button>
+                                        <button onClick={() => setPaymentMethod('redirect')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'redirect' ? 'bg-blue-50 border-blue-500 text-blue-700' : ''}`}>Link</button>
+                                        <button onClick={() => setPaymentMethod('cash')} className={`py-3 border rounded-lg font-bold text-xs flex flex-col items-center gap-1 transition-all ${paymentMethod === 'cash' ? 'bg-slate-200 border-slate-400 text-slate-700' : ''}`}>Dinheiro</button>
                                     </div>
                                 </div>
 
@@ -411,7 +394,7 @@ const NewSaleTab: React.FC = () => {
                                     )}
                                     <div className="h-px bg-slate-200 dark:bg-slate-700 my-2"></div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-bold text-slate-900 dark:text-white">Total a Pagar</span>
+                                        <span className="text-sm font-bold text-slate-900 dark:text-white">Total</span>
                                         <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">R$ {cartTotal.toFixed(2)}</span>
                                     </div>
                                     {saleType === 'crediario' && (
@@ -441,18 +424,13 @@ const NewSaleTab: React.FC = () => {
                 </div>
             )}
 
-            {/* Modal de Assinatura */}
             {isSignatureOpen && (
                 <Modal isOpen={true} onClose={() => setIsSignatureOpen(false)}>
                     <div className="space-y-4">
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura do Cliente</h3>
-                        <p className="text-xs text-slate-500">Confirmo a dívida de R$ {(installmentValue * installments).toFixed(2)} em {installments} parcelas.</p>
+                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">Assinatura Digital</h3>
+                        <p className="text-xs text-slate-500">Ao assinar, você concorda com os termos do contrato de crediário.</p>
                         <SignaturePad onEnd={setSignature} />
-                        <button 
-                            onClick={handleProcessSale} 
-                            disabled={!signature || isProcessing}
-                            className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 flex justify-center"
-                        >
+                        <button onClick={handleProcessSale} disabled={!signature || isProcessing} className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 flex justify-center shadow-lg">
                             {isProcessing ? <LoadingSpinner /> : 'Confirmar Venda'}
                         </button>
                     </div>

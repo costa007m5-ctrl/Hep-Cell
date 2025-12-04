@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 // Inicializa Supabase Admin
 function getSupabaseAdminClient() {
@@ -17,7 +17,7 @@ function getMercadoPagoClient() {
 }
 
 // Log no Banco
-async function logAction(supabase: SupabaseClient, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
+async function logAction(supabase: any, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
     try { await supabase.from('action_logs').insert({ action_type, status, description, details }); } catch (e) { console.error('Log failed', e); }
 }
 
@@ -86,7 +86,7 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
             body: {
                 transaction_amount: Number(amount),
                 description,
-                payment_method_id: 'bolbradesco', // Pode variar conforme conta MP
+                payment_method_id: 'bolbradesco', 
                 payer: {
                     email: payer.email,
                     first_name: payer.firstName,
@@ -203,6 +203,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path.includes('create-pix-payment')) return await handleCreatePixPayment(req, res);
   if (path.includes('create-boleto-payment')) return await handleCreateBoletoPayment(req, res);
 
-  // Fallback para evitar erro de rota não encontrada em chamadas genéricas
   return res.status(404).json({error: 'Route not found in mercadopago.ts'});
 }
