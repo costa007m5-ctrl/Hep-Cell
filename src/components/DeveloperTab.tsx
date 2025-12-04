@@ -171,6 +171,8 @@ const MercadoPagoIntegration: React.FC = () => {
         }
     };
 
+    const webhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/mercadopago/webhook` : '';
+
     return (
         <section>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Livre / Mercado Pago</h2>
@@ -220,6 +222,25 @@ const MercadoPagoIntegration: React.FC = () => {
                         <CodeBlock title="Seu Access Token de Produção" code={accessToken} />
                     </div>
                 )}
+
+                {/* Passo 4: Webhook Configuration */}
+                <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold mb-2">Passo 4: Configurar Webhook (Retorno Automático)</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+                        Para que as faturas sejam baixadas automaticamente quando o cliente paga, você precisa cadastrar esta URL no Mercado Pago:
+                        <br/>
+                        1. Vá em <strong>Seu Negócio {'>'} Configurações {'>'} Notificações</strong>.
+                        <br/>
+                        2. Em <strong>Webhooks</strong>, cole a URL abaixo.
+                        <br/>
+                        3. Marque os eventos: <strong>Pagamentos</strong> (payments).
+                    </p>
+                    <CodeBlock 
+                        title="URL do Webhook" 
+                        code={webhookUrl} 
+                        explanation="Cole esta URL nas configurações de Webhook do Mercado Pago."
+                    />
+                </div>
             </div>
         </section>
     )

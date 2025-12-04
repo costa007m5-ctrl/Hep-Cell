@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -153,14 +152,15 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 body: JSON.stringify({ invoiceId, action })
             });
              
-             const data = await res.json() as any;
+             const data = await res.json();
 
              if (res.ok) {
                 setSuccessMessage('Operação realizada com sucesso!');
-                setTimeout(() => setSuccessMessage(null as any), 3000);
+                setTimeout(() => setSuccessMessage(null), 3000);
                 fetchData(); 
             } else {
-                 alert(`Erro: ${data.error || 'Falha na operação.'}`);
+                 const error = data && typeof data === 'object' && 'error' in data ? (data as any).error : 'Falha na operação.';
+                 alert(`Erro: ${error}`);
             }
         } catch (e: any) { console.error(e); alert("Erro de conexão."); }
     };
@@ -199,7 +199,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
             if (res.ok) {
                 setSuccessMessage('Negociação criada! Contrato disponível no app do cliente.');
-                setTimeout(() => setSuccessMessage(null as any), 3000);
+                setTimeout(() => setSuccessMessage(null), 3000);
                 setShowNegotiationModal(false);
                 setSelectedInvoiceIds(new Set());
                 fetchData();

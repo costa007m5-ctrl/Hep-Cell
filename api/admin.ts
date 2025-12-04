@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from "@google/genai";
@@ -118,14 +119,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 await supabase.from('profiles').update({ coins_balance: profile.coins_balance - coinsUsed }).eq('id', userId);
             }
         }
-        
-        // Se for crediário e o dia de vencimento foi informado, salva no perfil se ainda não tiver
-        if (saleType === 'crediario' && dueDay) {
-             const { data: profile } = await supabase.from('profiles').select('preferred_due_day').eq('id', userId).single();
-             if (!profile?.preferred_due_day) {
-                 await supabase.from('profiles').update({ preferred_due_day: dueDay }).eq('id', userId);
-             }
-        }
 
         // Contrato
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
@@ -153,7 +146,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         if (invoiceAmount > 0) {
             let notes = `Compra Direta Contrato ${contract.id}`;
             if (isCrediario) {
-                // NOTA FORMATADA PARA WEBHOOK: ENTRADA|CONTRATO|RESTANTE|PARCELAS|DIA
                 const remaining = finalTotalAmount - invoiceAmount;
                 notes = `ENTRADA|${contract.id}|${remaining}|${installments}|${dueDay || 10}`;
             }
@@ -267,7 +259,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                         d.setDate(Math.min(dueDay || 10, 28)); 
                         invs.push({
                             user_id: userId,
-                            month: `Parcela ${i}/${installments}`,
+                            month: `Parcela ${i}/${installments} - ${productName}`,
                             due_date: d.toISOString().split('T')[0],
                             amount: installmentVal,
                             status: 'Em aberto',
@@ -279,8 +271,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 paymentData = { type: 'cash' };
             }
         } 
+        // Crediário sem entrada (raro, mas possível se entrada for 0)
         else if (isCrediario) {
-             // Se a entrada for 0 (caso especial)
              const installmentVal = finalTotalAmount / installments;
              const invs = [];
              for(let i=1; i<=installments; i++) {
@@ -289,7 +281,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 d.setDate(Math.min(dueDay || 10, 28));
                 invs.push({
                     user_id: userId,
-                    month: `Parcela ${i}/${installments}`,
+                    month: `Parcela ${i}/${installments} - ${productName}`,
                     due_date: d.toISOString().split('T')[0],
                     amount: installmentVal,
                     status: 'Em aberto',
@@ -308,99 +300,55 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleUpdateDueDay(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    try {
-        const { userId, newDay } = req.body;
-        
-        if (![5, 15, 25].includes(newDay)) throw new Error("Dia inválido.");
-
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        if (!profile) throw new Error("Perfil não encontrado.");
-
-        // Regra de 90 dias
-        if (profile.last_limit_request_date) { // Reutilizando campo ou criando novo? Vamos criar lógica.
-             // A verificação de data foi feita no frontend, aqui confiamos ou revalidamos se tiver a coluna correta
-        }
-
-        // Atualiza Perfil
-        // Nota: last_due_date_change deve ser criado no banco se não existir. 
-        // Por enquanto usamos last_limit_request_date como proxy ou criamos custom metadata
-        // Vamos assumir que a coluna last_due_date_change existe ou usaremos update_at
-        
-        // Atualiza faturas em aberto
-        const { data: invoices } = await supabase.from('invoices').select('*').eq('user_id', userId).eq('status', 'Em aberto');
-        
-        if (invoices) {
-            for (const inv of invoices) {
-                const currentDue = new Date(inv.due_date);
-                // Mantém o mês e ano, muda só o dia
-                // Cuidado com meses que não tem dia 31 (mas aqui é 5, 15, 25 então ok)
-                currentDue.setDate(newDay);
-                
-                // Se a nova data for no passado (ex: era dia 25, mudou pra 5, mas hoje é 10), 
-                // talvez devesse pular pro próximo mês? 
-                // Regra simples: muda o dia do vencimento corrente.
-                
-                await supabase.from('invoices').update({ due_date: currentDue.toISOString().split('T')[0] }).eq('id', inv.id);
-            }
-        }
-
-        // Salva no perfil
-        // Aqui simulamos uma coluna 'last_due_date_change' usando metadados ou coluna real se existir
-        // Usaremos uma coluna fictícia JSON 'internal_notes' para guardar metadados se não puder alterar schema agora
-        
-        await supabase.from('profiles').update({ preferred_due_day: newDay }).eq('id', userId);
-        
-        await logAction(supabase, 'DUE_DAY_CHANGE', 'SUCCESS', `Vencimento alterado para dia ${newDay}`, { userId });
-        
-        return res.status(200).json({ success: true });
-    } catch (e: any) {
-        return res.status(500).json({ error: e.message });
-    }
-}
-
 async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body;
-        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'negotiation_interest').single();
-        const interestRate = parseFloat(setting?.value || '0'); 
 
+        // 1. Busca taxa de juros de negociação
+        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'negotiation_interest').single();
+        const interestRate = parseFloat(setting?.value || '0'); // %
+
+        // 2. Aplica Juros
         const totalWithInterest = totalAmount * (1 + (interestRate / 100));
         const installmentValue = totalWithInterest / installments;
 
+        // 3. Cria Contrato de Renegociação
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: 'Renegociação de Dívida',
-            items: `Renegociação faturas: ${invoiceIds.join(', ')}. Juros: ${interestRate}%. Obs: ${notes}`,
+            items: `Acordo de renegociação referente às faturas: ${invoiceIds.join(', ')}. Juros aplicados: ${interestRate}%. Observações: ${notes}`,
             total_value: totalWithInterest,
             installments: installments,
-            status: 'pending_signature',
+            status: 'pending_signature', // Cliente precisa assinar
             created_at: new Date().toISOString()
         }).select().single();
 
         if (contractError) throw contractError;
 
+        // 4. Cria Novas Faturas
         const newInvoices = [];
         const firstDate = new Date(firstDueDate);
 
         for (let i = 0; i < installments; i++) {
             const dueDate = new Date(firstDate);
             dueDate.setMonth(dueDate.getMonth() + i);
+            
             newInvoices.push({
                 user_id: userId,
                 month: `Renegociação ${i + 1}/${installments}`,
                 due_date: dueDate.toISOString().split('T')[0],
                 amount: installmentValue,
-                status: 'Aguardando Assinatura',
+                status: 'Aguardando Assinatura', // Só ativa após assinar
                 notes: `Contrato ${contract.id}`
             });
         }
         await supabase.from('invoices').insert(newInvoices);
+
+        // 5. Cancela Faturas Antigas
         await supabase.from('invoices').update({ status: 'Cancelado', notes: `Renegociado no Contrato ${contract.id}` }).in('id', invoiceIds);
 
-        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Renegociação criada.`, { contractId: contract.id });
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Renegociação criada para user ${userId}. Total: ${totalWithInterest}`, { contractId: contract.id });
 
         return res.status(200).json({ success: true });
     } catch (e: any) {
@@ -408,15 +356,34 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+// --- NOVA FUNÇÃO: Gerenciamento Manual de Fatura ---
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { invoiceId, action } = req.body;
-        if (action === 'delete') await supabase.from('invoices').delete().eq('id', invoiceId);
-        else if (action === 'pay') await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
-        else if (action === 'cancel') await supabase.from('invoices').update({ status: 'Cancelado' }).eq('id', invoiceId);
+        const { invoiceId, action } = req.body; // action: 'pay' | 'cancel' | 'delete'
+
+        if (action === 'delete') {
+            await supabase.from('invoices').delete().eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} excluída manualmente.`);
+        } else if (action === 'pay') {
+            await supabase.from('invoices').update({ 
+                status: 'Paga', 
+                payment_date: new Date().toISOString(),
+                notes: 'Baixa manual pelo admin' 
+            }).eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} marcada como Paga.`);
+        } else if (action === 'cancel') {
+            await supabase.from('invoices').update({ 
+                status: 'Cancelado', 
+                notes: 'Cancelamento manual pelo admin' 
+            }).eq('id', invoiceId);
+            await logAction(supabase, 'INVOICE_MANAGE', 'SUCCESS', `Fatura ${invoiceId} cancelada.`);
+        }
+
         return res.json({ success: true });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
 }
 
 async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse) {
@@ -451,15 +418,13 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    const SQL = `
-        ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;
-        ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "last_due_date_change" timestamp with time zone;
-        ALTER TABLE "public"."profiles" ADD COLUMN IF NOT EXISTS "preferred_due_day" integer DEFAULT 10;
-    `;
+    // Garante que a coluna existe para negociações
+    const SQL = `ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;`;
     await supabase.rpc('execute_admin_sql', { sql_query: SQL });
-    return res.json({ message: "Database updated." });
+    return res.json({ message: "Database checked." });
 }
 
+// ... Other Handlers (Coins, Polls, Icons, Products, Logs, etc - Mantidos simplificados para caber)
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, type } = req.body;
@@ -518,9 +483,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         if (req.method === 'POST') {
             if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
-            if (path === '/api/admin/update-due-day') return await handleUpdateDueDay(req, res); // Nova Rota
             if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res);
-            if (path === '/api/admin/manage-invoice') return await handleManageInvoice(req, res); 
+            if (path === '/api/admin/manage-invoice') return await handleManageInvoice(req, res); // Rota Nova
             if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);

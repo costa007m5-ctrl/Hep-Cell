@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, Profile } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
@@ -16,7 +17,7 @@ interface PurchaseModalProps {
 
 type SaleType = 'crediario' | 'direct';
 type PaymentMethod = 'pix' | 'boleto' | 'redirect';
-type Step = 'config' | 'date_selection' | 'contract' | 'processing' | 'payment'; // Adicionado date_selection
+type Step = 'config' | 'contract' | 'processing' | 'payment';
 
 const PaymentResultModal: React.FC<{ data: any; onClose: () => void }> = ({ data, onClose }) => {
     return (
@@ -64,7 +65,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [downPayment, setDownPayment] = useState<string>('');
     const [installments, setInstallments] = useState<number>(1);
     const [signature, setSignature] = useState<string | null>(null);
-    const [selectedDueDay, setSelectedDueDay] = useState(profile.preferred_due_day || 10); // Usa do perfil ou 10
+    const [selectedDueDay, setSelectedDueDay] = useState(10);
     const [countdown, setCountdown] = useState<number | null>(null);
     
     // Coins
@@ -209,24 +210,16 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 setError(validationStatus.message || "Verifique os dados.");
                 return;
             }
-            
-            // Se for crediário e pagamento não total, verificar se precisa escolher a data
-            if (saleType === 'crediario' && !isFullPayment) {
-                // Se não tem data preferida no perfil, vai para seleção de data
-                if (!profile.preferred_due_day) {
-                     setStep('date_selection');
+            if (saleType === 'crediario') {
+                if (isFullPayment) {
+                    setStep('processing');
+                    setCountdown(5);
                 } else {
-                     setStep('contract');
+                    setStep('contract');
                 }
-            } else if (saleType === 'crediario' && isFullPayment) {
-                 setStep('processing');
-                 setCountdown(5);
             } else {
-                handleConfirmPurchase(); // Venda Direta
+                handleConfirmPurchase();
             }
-
-        } else if (step === 'date_selection') {
-            setStep('contract');
         } else if (step === 'contract') {
             if (!signature) {
                 setError("Você precisa assinar o contrato.");
@@ -336,32 +329,6 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.`;
             </div>
         );
     };
-    
-    const renderDateSelectionStep = () => (
-        <div className="space-y-6 text-center p-4">
-             <h3 className="text-lg font-bold text-slate-900 dark:text-white">Escolha o Dia do Vencimento</h3>
-             <p className="text-sm text-slate-600 dark:text-slate-300">
-                Para sua comodidade, escolha o melhor dia para o pagamento das suas parcelas mensais.
-             </p>
-             
-             <div className="grid grid-cols-3 gap-4 my-6">
-                 {[5, 15, 25].map(day => (
-                     <button
-                        key={day}
-                        onClick={() => setSelectedDueDay(day)}
-                        className={`p-4 rounded-xl border-2 transition-all ${selectedDueDay === day ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold shadow-md transform scale-105' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                     >
-                         <span className="text-2xl block mb-1">{day}</span>
-                         <span className="text-[10px] uppercase">De cada mês</span>
-                     </button>
-                 ))}
-             </div>
-             
-             <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-xl text-xs text-yellow-800 dark:text-yellow-200 border border-yellow-200 dark:border-yellow-800 text-left">
-                 <strong>Atenção:</strong> Esta escolha será salva no seu perfil. Futuras alterações só poderão ser feitas a cada 90 dias através do menu "Configurações" no seu perfil.
-             </div>
-        </div>
-    );
 
     const renderContractStep = () => (
         <div className="space-y-4 h-full flex flex-col">
@@ -506,7 +473,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.`;
                 {step !== 'processing' && (
                     <div className="flex justify-between items-center mb-4 shrink-0">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                            {step === 'config' ? 'Configuração do Pedido' : step === 'date_selection' ? 'Vencimento' : 'Contrato Digital'}
+                            {step === 'config' ? 'Configuração do Pedido' : 'Contrato Digital'}
                         </h2>
                         <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">✕</button>
                     </div>
@@ -514,7 +481,6 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.`;
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
                     {step === 'config' && renderConfigStep()}
-                    {step === 'date_selection' && renderDateSelectionStep()}
                     {step === 'contract' && renderContractStep()}
                     {step === 'processing' && renderProcessingStep()}
                 </div>
@@ -523,15 +489,15 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.`;
 
                 {step !== 'processing' && (
                     <div className="mt-6 flex gap-3 shrink-0 pt-4 border-t border-slate-100 dark:border-slate-800">
-                        {step !== 'config' && (
-                            <button onClick={() => setStep(step === 'contract' && saleType === 'crediario' && !profile.preferred_due_day ? 'date_selection' : 'config')} className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold">Voltar</button>
+                        {step === 'contract' && (
+                            <button onClick={() => setStep('config')} className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold">Voltar</button>
                         )}
                         <button 
                             onClick={nextStep} 
-                            disabled={isProcessing || (saleType === 'crediario' && !validationStatus.isValid) || (step === 'date_selection' && !selectedDueDay)} 
+                            disabled={isProcessing || (saleType === 'crediario' && !validationStatus.isValid)} 
                             className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                         >
-                            {isProcessing ? <LoadingSpinner /> : (step === 'config' ? (isFullPayment ? 'Pagar Agora' : 'Continuar') : step === 'date_selection' ? 'Confirmar Dia' : 'Finalizar e Pagar')}
+                            {isProcessing ? <LoadingSpinner /> : (step === 'config' ? (isFullPayment ? 'Pagar Agora' : 'Revisar Contrato') : 'Finalizar e Pagar')}
                         </button>
                     </div>
                 )}
