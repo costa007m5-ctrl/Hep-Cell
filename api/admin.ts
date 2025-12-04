@@ -40,8 +40,7 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
     }
 }
 
-// --- Status Test Handlers (Restaurados) ---
-
+// --- Status Test Handlers ---
 async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
@@ -87,7 +86,7 @@ async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) 
     }
 }
 
-// --- Core Sale Logic ---
+// --- Core Logic ---
 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -95,7 +94,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { 
             userId, totalAmount, installments, productName, saleType, 
             paymentMethod, downPayment, coinsUsed, dueDay, 
-            sellerName, couponCode, signature 
+            sellerName, couponCode, signature, contractItems 
         } = req.body;
 
         if (!userId || !totalAmount) return res.status(400).json({ error: "Dados incompletos." });
@@ -125,7 +124,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: `Compra: ${productName}`,
-            items: `${productName} (Vendedor: ${sellerName || 'Sistema'})`,
+            items: contractItems || `${productName} (Vendedor: ${sellerName || 'Sistema'})`,
             total_value: finalTotalAmount,
             installments: installments,
             status: saleType === 'crediario' ? 'Assinado' : 'Ativo',
@@ -143,12 +142,11 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         let paymentData: any = null;
         let invoiceId = null;
 
-        // Gera Fatura de Entrada / Venda à Vista se valor > 0
+        // Gera Fatura de Entrada / Venda à Vista
         if (invoiceAmount > 0) {
             let notes = `Compra Direta Contrato ${contract.id}`;
             if (isCrediario) {
                 const remaining = finalTotalAmount - invoiceAmount;
-                // A nota carrega metadados para que o webhook gere as parcelas se a entrada for paga
                 notes = `ENTRADA|${contract.id}|${remaining}|${installments}|${dueDay || 10}`;
             }
 
@@ -166,7 +164,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             if (invError) throw invError;
             invoiceId = invoice.id;
 
-            // Integração MP Imediata
+            // Integração MP
             if (['pix', 'boleto', 'redirect'].includes(paymentMethod)) {
                 const mpClient = getMercadoPagoClient();
                 const { data: user } = await supabase.auth.admin.getUserById(userId);
@@ -246,23 +244,19 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                     }
                 } catch (mpError: any) {
                     console.error("Erro MP:", mpError);
-                    // Não falha a venda se o MP falhar, mas avisa
-                    paymentData = { type: 'error', message: 'Venda registrada, mas falha ao gerar Pix/Boleto. Tente novamente pela aba Faturas.' };
+                    paymentData = { type: 'error', message: 'Venda registrada, mas falha ao gerar Pix/Boleto.' };
                 }
             } else if (paymentMethod === 'cash') {
-                // Pagamento em dinheiro: Marca como pago e gera parcelas imediatamente
                 await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
                 
                 if (isCrediario) {
                     const remaining = finalTotalAmount - invoiceAmount;
                     const installmentVal = remaining / installments;
                     const invs = [];
-                    // Gera as parcelas futuras
                     for(let i=1; i<=installments; i++) {
                         const d = new Date();
                         d.setMonth(d.getMonth() + i);
                         d.setDate(Math.min(dueDay || 10, 28)); 
-                        
                         invs.push({
                             user_id: userId,
                             month: `Parcela ${i}/${installments} - ${productName}`,
@@ -277,7 +271,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 paymentData = { type: 'cash' };
             }
         } 
-        // Caso raro: Crediário sem entrada (backend suporta, mas frontend deve bloquear)
+        // Crediário sem entrada (raro, mas possível se entrada for 0)
         else if (isCrediario) {
              const installmentVal = finalTotalAmount / installments;
              const invs = [];
@@ -285,7 +279,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 const d = new Date();
                 d.setMonth(d.getMonth() + i);
                 d.setDate(Math.min(dueDay || 10, 28));
-                
                 invs.push({
                     user_id: userId,
                     month: `Parcela ${i}/${installments} - ${productName}`,
@@ -307,26 +300,109 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
+async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    const SQL = `ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;`;
     try {
-        await supabase.rpc('execute_admin_sql', { sql_query: SQL });
-        return res.status(200).json({ message: "Schema updated successfully." });
+        const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body;
+
+        // 1. Busca taxa de juros de negociação
+        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'negotiation_interest').single();
+        const interestRate = parseFloat(setting?.value || '0'); // %
+
+        // 2. Aplica Juros
+        const totalWithInterest = totalAmount * (1 + (interestRate / 100));
+        const installmentValue = totalWithInterest / installments;
+
+        // 3. Cria Contrato de Renegociação
+        const { data: contract, error: contractError } = await supabase.from('contracts').insert({
+            user_id: userId,
+            title: 'Renegociação de Dívida',
+            items: `Acordo de renegociação referente às faturas: ${invoiceIds.join(', ')}. Juros aplicados: ${interestRate}%. Observações: ${notes}`,
+            total_value: totalWithInterest,
+            installments: installments,
+            status: 'pending_signature', // Cliente precisa assinar
+            created_at: new Date().toISOString()
+        }).select().single();
+
+        if (contractError) throw contractError;
+
+        // 4. Cria Novas Faturas
+        const newInvoices = [];
+        const firstDate = new Date(firstDueDate);
+
+        for (let i = 0; i < installments; i++) {
+            const dueDate = new Date(firstDate);
+            dueDate.setMonth(dueDate.getMonth() + i);
+            
+            newInvoices.push({
+                user_id: userId,
+                month: `Renegociação ${i + 1}/${installments}`,
+                due_date: dueDate.toISOString().split('T')[0],
+                amount: installmentValue,
+                status: 'Aguardando Assinatura', // Só ativa após assinar
+                notes: `Contrato ${contract.id}`
+            });
+        }
+        await supabase.from('invoices').insert(newInvoices);
+
+        // 5. Cancela Faturas Antigas
+        await supabase.from('invoices').update({ status: 'Cancelado', notes: `Renegociado no Contrato ${contract.id}` }).in('id', invoiceIds);
+
+        await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Renegociação criada para user ${userId}. Total: ${totalWithInterest}`, { contractId: contract.id });
+
+        return res.status(200).json({ success: true });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
 }
 
+async function handleManageLimitRequest(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const { requestId, action, manualLimit, manualScore, responseReason } = req.body;
+        if (action === 'reject') {
+            await supabase.from('limit_requests').update({ status: 'rejected', admin_response_reason: responseReason }).eq('id', requestId);
+        } else if (action === 'approve_manual') {
+            const { data: reqData } = await supabase.from('limit_requests').select('user_id').eq('id', requestId).single();
+            if (reqData) {
+                await supabase.from('profiles').update({ credit_limit: manualLimit, credit_score: manualScore }).eq('id', reqData.user_id);
+                await supabase.from('limit_requests').update({ status: 'approved', admin_response_reason: responseReason }).eq('id', requestId);
+            }
+        }
+        return res.json({ success: true });
+    } catch(e:any) { return res.status(500).json({ error: e.message }); }
+}
+
+async function handleSettings(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    if (req.method === 'GET') {
+        const { data } = await supabase.from('system_settings').select('*');
+        const settings = data?.reduce((acc:any, curr:any) => { acc[curr.key] = curr.value; return acc; }, {}) || {};
+        return res.json(settings);
+    } else {
+        const { key, value } = req.body;
+        await supabase.from('system_settings').upsert({ key, value: String(value) });
+        return res.json({ success: true });
+    }
+}
+
+async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    // Garante que a coluna existe para negociações
+    const SQL = `ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;`;
+    await supabase.rpc('execute_admin_sql', { sql_query: SQL });
+    return res.json({ message: "Database checked." });
+}
+
+// ... Other Handlers (Coins, Polls, Icons, Products, Logs, etc - Mantidos simplificados para caber)
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, type } = req.body;
-    const { data: p } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
-    const newBal = type === 'credit' ? (p?.coins_balance||0) + amount : (p?.coins_balance||0) - amount;
+    const { data } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
+    const newBal = type === 'credit' ? (data?.coins_balance||0) + amount : (data?.coins_balance||0) - amount;
     await supabase.from('profiles').update({ coins_balance: newBal }).eq('id', userId);
-    return res.json({ success: true });
+    return res.json({success:true});
 }
-
 async function handleGeneratePoll(req: VercelRequest, res: VercelResponse) {
     const genAI = getGeminiClient();
     const response = await genAI.models.generateContent({
@@ -336,16 +412,17 @@ async function handleGeneratePoll(req: VercelRequest, res: VercelResponse) {
     });
     return res.json(JSON.parse(response.text || '{}'));
 }
-
 async function handleUploadPwaIcon(_req: VercelRequest, res: VercelResponse) { return res.json({ok:true}); }
-async function handleManageLimitRequest(_req: VercelRequest, res: VercelResponse) { return res.json({ok:true}); }
-async function handleSettings(_req: VercelRequest, res: VercelResponse) { return res.json({ok:true}); }
 async function handleProducts(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('products').select('*');
     return res.json(data);
 }
-async function handleGetLogs(_req: VercelRequest, res: VercelResponse) { return res.json([]); }
+async function handleGetLogs(_req: VercelRequest, res: VercelResponse) { 
+    const supabase = getSupabaseAdminClient();
+    const { data } = await supabase.from('action_logs').select('*').order('created_at', {ascending:false});
+    return res.json(data);
+}
 async function handleGetProfiles(_req: VercelRequest, res: VercelResponse) { 
     const supabase = getSupabaseAdminClient();
     const { data } = await supabase.from('profiles').select('*');
@@ -361,7 +438,13 @@ async function handleGetLimitRequests(_req: VercelRequest, res: VercelResponse) 
     const { data } = await supabase.from('limit_requests').select('*, profiles(*)');
     return res.json(data);
 }
-async function handleClientDocuments(_req: VercelRequest, res: VercelResponse) { return res.json({uploads:[], contracts:[]}); }
+async function handleClientDocuments(req: VercelRequest, res: VercelResponse) { 
+    const supabase = getSupabaseAdminClient();
+    const { userId } = req.query;
+    const { data: uploads } = await supabase.from('client_documents').select('*').eq('user_id', userId);
+    const { data: contracts } = await supabase.from('contracts').select('*').eq('user_id', userId);
+    return res.json({ uploads, contracts });
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
@@ -370,19 +453,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
         if (req.method === 'POST') {
             if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
+            if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res); // Rota Nova
             if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
+            if (path === '/api/admin/manage-limit-request') return await handleManageLimitRequest(req, res);
+            if (path === '/api/admin/settings') return await handleSettings(req, res);
+            if (path === '/api/admin/upload-pwa-icon') return await handleUploadPwaIcon(req, res);
             
             // Test Routes
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
             if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
             if (path === '/api/admin/test-mercadolivre') return await handleTestMercadoLivre(req, res);
-            
-            if (path === '/api/admin/upload-pwa-icon') return await handleUploadPwaIcon(req, res);
-            if (path === '/api/admin/manage-limit-request') return await handleManageLimitRequest(req, res);
-            if (path === '/api/admin/settings') return await handleSettings(req, res);
         }
         
         if (req.method === 'GET') {

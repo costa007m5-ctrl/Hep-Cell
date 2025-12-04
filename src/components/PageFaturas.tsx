@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import PaymentForm from './PaymentForm';
 import { Invoice, Profile } from '../types';
@@ -11,24 +12,24 @@ import PixPayment from './PixPayment';
 import BoletoPayment from './BoletoPayment';
 import BoletoDetails from './BoletoDetails';
 import { useToast } from './Toast';
-import jsPDF from 'jspdf'; // Necessário para gerar o PDF
+import jsPDF from 'jspdf'; 
 
+// ... (Imports e Interfaces PurchaseGroup mantidos) ...
 interface PageFaturasProps {
     mpPublicKey: string;
 }
 
-type ViewTab = 'open' | 'current' | 'paid' | 'statement'; // 'adhoc' removido, 'current' adicionado
+type ViewTab = 'open' | 'current' | 'paid' | 'statement'; 
 type PaymentStep = 'list' | 'select_method' | 'pay_pix' | 'pay_boleto' | 'boleto_details';
 
-// Interface ajustada para Agrupamento Rigoroso por ID
 interface PurchaseGroup {
-    id: string; // Contract ID 
-    title: string; // Nome da Compra (ex: iPhone 15)
+    id: string; 
+    title: string; 
     invoices: Invoice[];
     totalRemaining: number;
     nextDue: string;
     status: 'active' | 'paid' | 'late';
-    type: 'crediario' | 'avista'; // Novo campo para separação
+    type: 'crediario' | 'avista'; 
 }
 
 // --- Ícones ---
@@ -44,10 +45,10 @@ const PackageIcon = () => (
     </svg>
 );
 
-// --- Funções Auxiliares (PDF e Share) ---
-
+// --- Funções Auxiliares (PDF e Share - Mantidas) ---
 const generateInvoicePDF = (invoice: Invoice) => {
-    const doc = new jsPDF();
+    // ... (mantido igual ao anterior)
+     const doc = new jsPDF();
     
     // Header
     doc.setFontSize(18);
@@ -103,6 +104,7 @@ const generateInvoicePDF = (invoice: Invoice) => {
 };
 
 const shareInvoice = async (invoice: Invoice) => {
+    // ... (mantido igual ao anterior)
     const text = `Comprovante Relp Cell\nFatura: ${invoice.month}\nValor: ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\nPago em: ${new Date(invoice.payment_date || invoice.created_at).toLocaleDateString('pt-BR')}`;
     
     if (navigator.share) {
@@ -121,7 +123,7 @@ const shareInvoice = async (invoice: Invoice) => {
 };
 
 // --- Componentes Visuais ---
-
+// ... (SummaryCard mantido) ...
 const SummaryCard: React.FC<{ 
     currentMonthDue: number;
     creditLimit: number;
@@ -197,7 +199,6 @@ const PurchaseGroupCard: React.FC<{
 }> = ({ group, showValues, onPay }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    // Identifica se há atraso em alguma parcela deste grupo
     const hasLate = group.invoices.some(inv => new Date(inv.due_date) < new Date() && inv.status === 'Em aberto');
 
     return (
@@ -236,16 +237,24 @@ const PurchaseGroupCard: React.FC<{
             <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
                 <div className="divide-y divide-slate-100 dark:divide-slate-700">
                     {group.invoices.map((inv) => {
-                        const isLate = new Date(inv.due_date) < new Date() && inv.status === 'Em aberto';
-                        // Extrai apenas o número da parcela da descrição para ficar limpo
+                        const now = new Date().getTime();
+                        const dueDate = new Date(inv.due_date + 'T23:59:59').getTime();
+                        const hours48 = 48 * 60 * 60 * 1000;
+                        
+                        const isOverdue48h = (dueDate + hours48) < now && inv.status === 'Em aberto' && !inv.month.startsWith('Entrada');
+                        const isLate = dueDate < now && inv.status === 'Em aberto';
+                        
                         const parcelLabel = inv.month.match(/Parcela \d+\/\d+/) || [inv.month];
                         
                         return (
-                            <div key={inv.id} className={`p-4 flex justify-between items-center transition-colors ${isLate ? 'bg-red-50/50 dark:bg-red-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/20'}`}>
+                            <div key={inv.id} className={`p-4 flex justify-between items-center transition-colors ${isOverdue48h ? 'bg-red-100 dark:bg-red-900/30 animate-pulse' : isLate ? 'bg-red-50/50 dark:bg-red-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/20'}`}>
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${isLate ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                    <div className={`w-2 h-2 rounded-full ${isLate ? 'bg-red-500' : 'bg-green-500'}`}></div>
                                     <div>
-                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{parcelLabel[0]}</p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{parcelLabel[0]}</p>
+                                            {isOverdue48h && <span className="bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">URGENTE (+48h)</span>}
+                                        </div>
                                         <p className={`text-[10px] ${isLate ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
                                             Vence: {new Date(inv.due_date).toLocaleDateString('pt-BR')}
                                         </p>
@@ -257,7 +266,7 @@ const PurchaseGroupCard: React.FC<{
                                     </span>
                                     <button 
                                         onClick={() => onPay(inv)}
-                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm active:scale-95 transition-all"
+                                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm active:scale-95 transition-all ${isOverdue48h ? 'bg-red-600 hover:bg-red-700 shadow-red-500/30' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                                     >
                                         Pagar
                                     </button>
@@ -271,7 +280,7 @@ const PurchaseGroupCard: React.FC<{
     );
 };
 
-// Histórico de Pagamentos
+// ... (PaymentHistoryCard e PageFaturas principal mantidos) ...
 const PaymentHistoryCard: React.FC<{ invoice: Invoice; showValues: boolean }> = ({ invoice, showValues }) => (
     <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md group">
         <div className="flex justify-between items-center mb-3">
@@ -319,7 +328,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const [showValues, setShowValues] = useState(true);
     const [showConfetti, setShowConfetti] = useState(false);
     
-    // Coins & Payment State
     const [useCoins, setUseCoins] = useState(false);
     const [coinsBalance, setCoinsBalance] = useState(0);
     const { addToast } = useToast();
@@ -349,11 +357,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
     const coinsValue = coinsBalance / 100;
 
-    // --- LÓGICA DE FILTROS E AGRUPAMENTO ---
     const openInvoices = useMemo(() => invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado'), [invoices]);
     const paidInvoices = useMemo(() => invoices.filter(i => i.status === 'Paga').sort((a,b) => new Date(b.payment_date || b.created_at).getTime() - new Date(a.payment_date || a.created_at).getTime()), [invoices]);
     
-    // Faturas do Mês Corrente
     const currentMonthInvoices = useMemo(() => {
         const now = new Date();
         return openInvoices.filter(inv => {
@@ -379,7 +385,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const totalDebt = openInvoices.reduce((acc, inv) => acc + inv.amount, 0);
     const creditLimit = profile?.credit_limit || 0;
 
-    // Função de Agrupamento - AGORA COM ID RIGOROSO
     const groupInvoices = (list: Invoice[]) => {
         const groups: Record<string, PurchaseGroup> = {};
         
@@ -388,7 +393,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             let title = 'Faturas Avulsas';
             let type: 'crediario' | 'avista' = 'avista';
             
-            // Tenta extrair o ID do Contrato das notas (formato: "Contrato ID" ou "ENTRADA|ID...")
             if (inv.notes) {
                 const matchContract = inv.notes.match(/Contrato\s+([a-f0-9-]+)/);
                 const matchEntry = inv.notes.match(/ENTRADA\|([a-f0-9-]+)/);
@@ -397,10 +401,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 else if (matchEntry) { key = matchEntry[1]; type = 'avista'; }
             }
 
-            // Se a fatura tem "Parcela X/Y", é crediário
             if (inv.month.includes('Parcela')) type = 'crediario';
 
-            // Título amigável extraído da descrição da fatura
             const nameMatch = inv.month.match(/.* - (.+)/);
             if (nameMatch) title = nameMatch[1].trim();
             else title = inv.month;
@@ -423,11 +425,9 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     const groupedOpenInvoices = useMemo(() => groupInvoices(openInvoices), [openInvoices]);
     const groupedCurrentInvoices = useMemo(() => groupInvoices(currentMonthInvoices), [currentMonthInvoices]);
     
-    // Separar Crediário de À Vista/Entradas
     const crediarioGroups = groupedOpenInvoices.filter(g => g.type === 'crediario');
     const avistaGroups = groupedOpenInvoices.filter(g => g.type === 'avista');
 
-    // Payment Logic
     const handlePaymentMethodSelection = async (method: string) => {
         if (!selectedInvoice) return;
         
@@ -611,7 +611,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                             </div>
                         )}
 
-                        {/* OUTRAS ABAS (Lógica Simplificada) */}
+                        {/* OUTRAS ABAS (Mantidas iguais) */}
                         {viewTab === 'current' && (
                             <div className="space-y-4 animate-fade-in-up">
                                 {groupedCurrentInvoices.map(group => (

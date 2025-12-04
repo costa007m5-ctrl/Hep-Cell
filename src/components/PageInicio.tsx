@@ -16,6 +16,27 @@ interface PageInicioProps {
     setActiveTab: (tab: Tab) => void;
 }
 
+// --- ALERTS ---
+
+const OverdueAlert: React.FC<{ count: number; onAction: () => void }> = ({ count, onAction }) => (
+    <div className="mx-4 mt-4 p-4 bg-red-100 dark:bg-red-900/40 border-l-4 border-red-600 rounded-r-xl shadow-md animate-bounce-slow flex flex-col gap-2">
+        <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-200 dark:bg-red-800 rounded-full text-red-800 dark:text-red-100">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+            <div>
+                <h3 className="font-bold text-red-900 dark:text-white">Regularize seu Crediário</h3>
+                <p className="text-xs text-red-800 dark:text-red-200 mt-1">
+                    Você possui <strong>{count} fatura(s)</strong> com mais de 48h de atraso. Evite o bloqueio de novas compras e juros adicionais.
+                </p>
+            </div>
+        </div>
+        <button onClick={onAction} className="w-full py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-sm shadow transition-colors">
+            Ver Faturas em Atraso
+        </button>
+    </div>
+);
+
 const EntryPaymentAlert: React.FC<{ invoice: Invoice; onPay: () => void }> = ({ invoice, onPay }) => (
     <div className="mx-4 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
         <div className="flex items-start gap-3">
@@ -37,6 +58,7 @@ const EntryPaymentAlert: React.FC<{ invoice: Invoice; onPay: () => void }> = ({ 
     </div>
 );
 
+// ... (PendingContractAlert, LimitRequestStatus, StoryCircle, ActionButton, ActivityItem mantidos iguais) ...
 const PendingContractAlert: React.FC<{ contract: Contract; onSign: () => void }> = ({ contract, onSign }) => (
     <div className="mx-4 mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl shadow-sm animate-pulse flex flex-col gap-3">
         <div className="flex items-start gap-3">
@@ -133,6 +155,7 @@ const ActivityItem: React.FC<{ title: string; date: string; amount?: string; typ
     );
 };
 
+
 const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile & { coins_balance?: number } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -157,6 +180,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       { id: 'dicas', img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
   ];
 
+  // ... (Restante do código de PWA e Fetch mantido) ...
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -279,6 +303,19 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
   const nextInvoice = invoices.filter(i => !i.notes?.includes('ENTRADA') && (i.status === 'Em aberto' || i.status === 'Boleto Gerado')).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
 
+  // Detectar faturas vencidas há mais de 48h (que não sejam entradas)
+  const overdueCount = useMemo(() => {
+      const now = new Date().getTime();
+      const hours48 = 48 * 60 * 60 * 1000;
+      return invoices.filter(i => {
+          const dueTime = new Date(i.due_date + 'T23:59:59').getTime();
+          const isLate = (dueTime + hours48) < now;
+          // Filtra entradas
+          const isEntry = i.notes?.includes('ENTRADA') || i.month.startsWith('Entrada');
+          return i.status === 'Em aberto' && isLate && !isEntry;
+      }).length;
+  }, [invoices]);
+
   const formatValue = (value: number) => {
       if (!showValues) return '••••••';
       return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -333,7 +370,8 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             </div>
         </div>
 
-        {/* Alerts */}
+        {/* Alerts Priority */}
+        {overdueCount > 0 && <OverdueAlert count={overdueCount} onAction={() => setActiveTab(Tab.FATURAS)} />}
         {entryInvoice && <EntryPaymentAlert invoice={entryInvoice} onPay={() => setActiveTab(Tab.FATURAS)} />}
         {pendingContract && !entryInvoice && <PendingContractAlert contract={pendingContract} onSign={() => { setModalView('sign_contract'); setIsModalOpen(true); }} />}
         {activeLimitNotification && <LimitRequestStatus status={activeLimitNotification.status} onClick={handleLimitNotificationClick} />}
@@ -438,14 +476,11 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       </div>
 
       {/* --- OVERLAYS --- */}
-      
-      {/* Story Pages */}
+      {/* ... (Mantidos) ... */}
       {activeStory === 'ofertas' && <OffersPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'seguranca' && <SecurityPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'novidades' && <NewsPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'dicas' && <TipsPage onClose={() => setActiveStory(null)} />}
-
-      {/* Legacy Modals */}
       {modalView === 'score' && isModalOpen && (
           <ScoreHistoryView currentScore={profileData?.credit_score ?? 0} onClose={() => setIsModalOpen(false)} onNavigate={(tab: Tab) => { setIsModalOpen(false); setActiveTab(tab); }} />
       )}
