@@ -5,7 +5,7 @@ import LoadingSpinner from '../LoadingSpinner';
 import Alert from '../Alert';
 import SignaturePad from '../SignaturePad';
 import Modal from '../Modal';
-import Logo from '../Logo'; // Importando Logo para o contrato
+import Logo from '../Logo'; 
 import { supabase } from '../../services/clients';
 
 interface PurchaseModalProps {
@@ -116,9 +116,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const creditLimit = profile.credit_limit || 0;
     const availableMonthlyLimit = Math.max(0, creditLimit - usedMonthlyLimit);
     
-    // Limita a entrada ao valor do produto
     const downPaymentValue = Math.min(parseFloat(downPayment) || 0, product.price);
-    const isFullPayment = downPaymentValue >= product.price; // Verifica se está pagando tudo
+    const isFullPayment = downPaymentValue >= product.price;
 
     const coinsValue = coinsBalance / 100;
     const coinsDiscount = useCoins ? Math.min(downPaymentValue > 0 ? downPaymentValue : product.price, coinsValue) : 0;
@@ -139,10 +138,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         if (isFullPayment) return { isValid: true, message: 'Pagamento Integral (À Vista)' };
 
         const requiredMinEntry = product.price * minEntryPercentage;
-        
         const maxFinanceable = availableMonthlyLimit * installments;
         const minEntryForLimit = Math.max(0, product.price - maxFinanceable);
-        
         const finalRequiredEntry = Math.max(requiredMinEntry, minEntryForLimit);
         const isSufficient = downPaymentValue >= finalRequiredEntry;
 
@@ -159,7 +156,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         return { isValid: limitAnalysis.isValid, message: limitAnalysis.message };
     }, [saleType, limitAnalysis]);
 
-    // Countdown Timer Logic
+    // Countdown Timer
     useEffect(() => {
         if (countdown === null) return;
         if (countdown === 0) {
@@ -186,14 +183,14 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     productName: product.name,
                     totalAmount: saleType === 'crediario' ? (downPaymentValue + totalFinancedWithInterest) : product.price,
                     installments: (isFullPayment || saleType === 'direct') ? 1 : installments,
-                    signature: isFullPayment ? 'AUTO_SIGNED_FULL_PAYMENT' : signature, // Assinatura automática se pago a vista
-                    saleType: isFullPayment ? 'direct' : saleType, // Converte para direct se pagou tudo
+                    signature: isFullPayment ? 'AUTO_SIGNED_FULL_PAYMENT' : signature,
+                    saleType: isFullPayment ? 'direct' : saleType,
                     paymentMethod: paymentMethod,
                     downPayment: effectiveCashDownPayment,
                     coinsUsed: coinsUsedAmount,
                     dueDay: selectedDueDay,
                     couponCode: '',
-                    contractItems: generatedContractText // Salva o texto exato do contrato
+                    contractItems: generatedContractText
                 }),
             });
             const result = await response.json();
@@ -201,7 +198,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             setPaymentResult(result.paymentData);
         } catch (err: any) {
             setError(err.message);
-            setStep('config'); // Volta se der erro
+            setStep('config');
         } finally {
             setIsProcessing(false);
         }
@@ -215,7 +212,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             }
             if (saleType === 'crediario') {
                 if (isFullPayment) {
-                    // Se pagou tudo, pula contrato e inicia countdown
                     setStep('processing');
                     setCountdown(5);
                 } else {
@@ -239,43 +235,118 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             const d = new Date();
             d.setMonth(today.getMonth() + i + 1);
             d.setDate(Math.min(selectedDueDay, 28));
-            return `${i+1}ª Parcela: R$ ${installmentValue.toFixed(2)} - Vencimento: ${d.toLocaleDateString('pt-BR')}`;
-        }).join('\n');
+            return `<tr><td style="border: 1px solid #ddd; padding: 4px;">${i+1}ª</td><td style="border: 1px solid #ddd; padding: 4px;">R$ ${installmentValue.toFixed(2)}</td><td style="border: 1px solid #ddd; padding: 4px;">${d.toLocaleDateString('pt-BR')}</td></tr>`;
+        }).join('');
 
-        return `CONTRATO DE COMPRA E VENDA COM RESERVA DE DOMÍNIO
+        // Retorna texto puro para armazenamento e visualização simples, mas formatado
+        return `CONTRATO DE COMPRA E VENDA MERCANTIL COM RESERVA DE DOMÍNIO
+Nº PEDIDO: ${Date.now().toString().slice(-8)}
 
-IDENTIFICAÇÃO DAS PARTES:
-VENDEDOR: RELP CELL ELETRÔNICOS, CNPJ: 43.735.304/0001-00.
-COMPRADOR: ${profile.first_name} ${profile.last_name}, CPF: ${profile.identification_number}.
+1. DAS PARTES
+VENDEDOR: RELP CELL ELETRÔNICOS LTDA, inscrita no CNPJ sob nº 43.735.304/0001-00, com sede em Macapá/AP.
+COMPRADOR: ${profile.first_name} ${profile.last_name}, CPF nº ${profile.identification_number}.
 
-OBJETO DO CONTRATO:
-Produto: ${product.name}
-Valor Total: R$ ${(downPaymentValue + totalFinancedWithInterest).toFixed(2)}
+2. DO OBJETO
+O presente contrato tem como objeto a venda do seguinte produto:
+Item: ${product.name}
+Valor à Vista: R$ ${product.price.toFixed(2)}
 
-CONDIÇÕES DE PAGAMENTO (CREDIÁRIO):
-1. Entrada: R$ ${downPaymentValue.toFixed(2)} (Pagamento Imediato via ${paymentMethod.toUpperCase()}).
-2. Saldo Financiado: R$ ${principalAmount.toFixed(2)} acrescido de juros de ${interestRate}% a.m.
-3. Plano: ${installments} parcelas mensais fixas.
+3. DO PREÇO E CONDIÇÕES DE PAGAMENTO
+O COMPRADOR pagará à VENDEDORA a importância total de R$ ${(downPaymentValue + totalFinancedWithInterest).toFixed(2)}, da seguinte forma:
+3.1. Entrada de R$ ${downPaymentValue.toFixed(2)}, a ser paga na data de assinatura deste instrumento.
+3.2. O saldo remanescente de R$ ${principalAmount.toFixed(2)} será acrescido de juros de ${interestRate}% a.m., totalizando R$ ${totalFinancedWithInterest.toFixed(2)}, dividido em ${installments} parcelas mensais e consecutivas.
 
-CRONOGRAMA DE DESEMBOLSO:
-${installmentsList}
+4. CRONOGRAMA DE VENCIMENTOS
+As parcelas vencerão todo dia ${selectedDueDay} de cada mês.
 
-CLÁUSULAS GERAIS:
-1. O não pagamento de qualquer parcela na data de vencimento acarretará em multa de 2% e juros de mora de 1% ao mês, além de correção monetária.
-2. O atraso superior a 30 dias poderá ensejar a inclusão do nome do COMPRADOR nos órgãos de proteção ao crédito (SPC/SERASA).
-3. O produto permanece como propriedade da VENDEDORA (Reserva de Domínio) até a quitação integral do preço.
+5. DA INADIMPLÊNCIA
+O não pagamento de qualquer parcela na data de vencimento acarretará:
+a) Multa de mora de 2% (dois por cento) sobre o valor do débito;
+b) Juros de mora de 1% (um por cento) ao mês;
+c) Vencimento antecipado de todas as parcelas vincendas;
+d) Inclusão do nome do COMPRADOR nos órgãos de proteção ao crédito (SPC/SERASA) após 5 dias de atraso.
 
-FORO:
+6. DA RESERVA DE DOMÍNIO
+Em conformidade com os arts. 521 a 528 do Código Civil Brasileiro, a VENDEDORA reserva para si a propriedade do bem objeto deste contrato até que o preço esteja integralmente pago pelo COMPRADOR.
+
+7. DO FORO
 Fica eleito o foro da comarca de Macapá/AP para dirimir quaisquer dúvidas oriundas deste contrato.
 
-Macapá, ${today.toLocaleDateString('pt-BR')}.
-`;
+Macapá, ${today.toLocaleDateString('pt-BR')}.`;
     };
 
-    // --- Renderização dos Passos ---
+    // Renderização do Contrato Visual
+    const renderVisualContract = () => {
+        const text = generateContractText();
+        const today = new Date();
+        
+        return (
+            <div className="bg-white p-8 shadow-sm text-slate-900 font-serif text-xs leading-relaxed border border-slate-200 select-none">
+                {/* Header Papel Timbrado */}
+                <div className="flex justify-between items-center border-b-2 border-slate-800 pb-4 mb-6">
+                    <Logo className="h-10 w-10 text-slate-900" showText={false} />
+                    <div className="text-right">
+                        <h1 className="font-bold text-sm uppercase">Relp Cell Eletrônicos</h1>
+                        <p className="text-[10px] text-slate-500">CNPJ: 43.735.304/0001-00</p>
+                        <p className="text-[10px] text-slate-500">Macapá - Amapá</p>
+                    </div>
+                </div>
+
+                <div className="text-center mb-6">
+                    <h2 className="font-bold text-base underline">CONTRATO DE COMPRA E VENDA</h2>
+                </div>
+
+                {/* Conteúdo Texto */}
+                <div className="whitespace-pre-wrap mb-8 font-normal text-justify">
+                    {text}
+                </div>
+
+                {/* Assinatura da Empresa */}
+                <div className="mt-10 mb-6">
+                    <div className="relative w-48">
+                        <div className="absolute bottom-2 left-0 text-[8px] text-slate-400 font-mono">
+                            Assinado digitalmente em {today.toLocaleString()} <br/>
+                            Hash: {Math.random().toString(36).substring(2, 15)}
+                        </div>
+                        <img src="/logo.svg" alt="Assinatura Empresa" className="h-12 w-12 opacity-20 absolute -top-4 left-10" />
+                        <div className="border-b border-slate-400 mb-1"></div>
+                        <p className="text-[10px] font-bold">RELP CELL ELETRÔNICOS LTDA</p>
+                        <p className="text-[8px]">Vendedor Autorizado</p>
+                    </div>
+                </div>
+
+                {/* Área para Assinatura do Cliente (Visualização) */}
+                <div className="mt-10">
+                    <div className="w-full h-24 bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg flex items-center justify-center relative">
+                        {signature ? (
+                            <img src={signature} className="max-h-full" alt="Sua Assinatura" />
+                        ) : (
+                            <span className="text-slate-300 text-[10px]">Sua assinatura aparecerá aqui</span>
+                        )}
+                    </div>
+                    <p className="text-center text-[10px] mt-1 font-bold">{profile.first_name} {profile.last_name}</p>
+                </div>
+            </div>
+        );
+    };
+
+    const renderContractStep = () => (
+        <div className="space-y-4 h-full flex flex-col">
+            <div className="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-inner">
+                {renderVisualContract()}
+            </div>
+            
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg z-10">
+                <label className="block text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">Assine para concordar:</label>
+                <SignaturePad onEnd={setSignature} />
+            </div>
+        </div>
+    );
 
     const renderConfigStep = () => (
+        // ... (Mantido igual ao NewSaleTab logicamente, apenas adaptado para o modal)
         <div className="space-y-6">
+            {/* Seleção de Tipo */}
             <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
                 <button onClick={() => { setSaleType('crediario'); setInstallments(1); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'crediario' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Crediário</button>
                 <button onClick={() => { setSaleType('direct'); setInstallments(1); setDownPayment(''); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${saleType === 'direct' ? 'bg-white dark:bg-slate-700 text-green-600 shadow-sm' : 'text-slate-500'}`}>À Vista</button>
@@ -283,6 +354,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
 
             {saleType === 'crediario' && (
                 <>
+                    {/* Info Limites */}
                     <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
                         <div className="flex justify-between mb-3 pb-2 border-b border-slate-200 dark:border-slate-700">
                             <span className="text-xs font-bold text-slate-500 uppercase">Valor do Produto</span>
@@ -300,6 +372,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                         </div>
                     </div>
 
+                    {/* Input Entrada */}
                     <div>
                         <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Sua Entrada (R$)</label>
                         <div className="relative">
@@ -307,7 +380,6 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                                 type="number" 
                                 value={downPayment} 
                                 onChange={e => { 
-                                    // Impede valor maior que o preço
                                     const val = Math.min(parseFloat(e.target.value), product.price);
                                     setDownPayment(isNaN(val) ? '' : String(val)); 
                                     setError(null); 
@@ -316,31 +388,19 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                                 className={`w-full p-3 border rounded-lg dark:bg-slate-800 dark:text-white font-bold text-lg focus:ring-2 outline-none transition-all ${!limitAnalysis.isValid ? 'border-amber-400 ring-1 ring-amber-400' : 'border-slate-200 focus:ring-indigo-500'}`}
                                 placeholder="0.00" 
                             />
-                            {isFullPayment && (
-                                <span className="absolute right-3 top-3.5 text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded">
-                                    Pagamento Total
-                                </span>
-                            )}
+                            {isFullPayment && <span className="absolute right-3 top-3.5 text-xs font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded">Total</span>}
                         </div>
-                        {!limitAnalysis.isValid && (
-                            <p className="text-xs text-amber-600 mt-1 font-bold animate-pulse">
-                                {limitAnalysis.message}
-                            </p>
-                        )}
-                        {isFullPayment && (
-                            <p className="text-xs text-green-600 mt-1 font-bold">
-                                Você está pagando o valor total. O contrato será dispensado.
-                            </p>
-                        )}
+                        {!limitAnalysis.isValid && <p className="text-xs text-amber-600 mt-1 font-bold">{limitAnalysis.message}</p>}
                     </div>
                     
+                    {/* Coins */}
                     {coinsBalance > 0 && (
                         <div className="flex items-center justify-between bg-yellow-50 p-3 rounded-lg border border-yellow-200">
                             <div className="flex items-center gap-2">
                                 <span className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center text-[10px] text-yellow-900 font-bold">RC</span>
                                 <div>
-                                    <p className="text-xs font-bold text-yellow-900">Usar Saldo (Coins)</p>
-                                    <p className="text-[10px] text-yellow-700">Disponível: R$ {coinsValue.toFixed(2)}</p>
+                                    <p className="text-xs font-bold text-yellow-900">Usar Saldo</p>
+                                    <p className="text-[10px] text-yellow-700">Disp: R$ {coinsValue.toFixed(2)}</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -350,6 +410,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                         </div>
                     )}
 
+                    {/* Parcelas */}
                     {!isFullPayment && (
                         <div>
                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Parcelas</label>
@@ -364,6 +425,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                         </div>
                     )}
 
+                    {/* Resumo Parcela */}
                     {!isFullPayment && (
                         <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">
                             <div className="flex justify-between items-center">
@@ -380,6 +442,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                 </>
             )}
 
+            {/* Forma de Pagamento */}
             <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Forma de Pagamento (Entrada/Total)</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -391,70 +454,41 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
         </div>
     );
 
-    const renderContractStep = () => (
-        <div className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Contrato Digital
-            </h3>
-            <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs text-slate-600 dark:text-slate-300 max-h-[50vh] overflow-y-auto border border-slate-200 dark:border-slate-700 font-mono leading-relaxed text-justify shadow-inner">
-                <div className="flex justify-center mb-4">
-                    <Logo className="h-12 w-12" showText={true} />
-                </div>
-                <div className="whitespace-pre-wrap">
-                    {generateContractText()}
-                </div>
-            </div>
-            
-            <div className="bg-yellow-50 dark:bg-yellow-900/10 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800">
-                <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                    <strong>Atenção:</strong> Ao assinar, você concorda com os termos acima e reconhece a dívida. O contrato ficará disponível em seu perfil.
-                </p>
-            </div>
-
-            <div>
-                <label className="block text-sm font-medium mb-2 text-slate-700 dark:text-slate-300">Assine abaixo:</label>
-                <SignaturePad onEnd={setSignature} />
-            </div>
-        </div>
-    );
-
     const renderProcessingStep = () => (
         <div className="flex flex-col items-center justify-center py-10 text-center">
             <div className="w-20 h-20 relative mb-6">
-                 <svg className="animate-spin w-full h-full text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                 <LoadingSpinner />
                 <div className="absolute inset-0 flex items-center justify-center font-bold text-lg text-indigo-600">
                     {countdown}
                 </div>
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Gerando Pagamento...</h3>
-            <p className="text-slate-500">Como você optou pelo pagamento total, o contrato foi dispensado.</p>
+            <p className="text-slate-500">Contrato dispensado (Pagamento Total).</p>
         </div>
     );
 
     return (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh] flex flex-col">
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-hidden flex flex-col max-h-[90vh]">
                 {step !== 'processing' && (
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex justify-between items-center mb-4 shrink-0">
                         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                            {step === 'config' ? 'Configuração do Pedido' : 'Contrato'}
+                            {step === 'config' ? 'Configuração do Pedido' : 'Contrato Digital'}
                         </h2>
                         <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">✕</button>
                     </div>
                 )}
 
-                {step === 'config' && renderConfigStep()}
-                {step === 'contract' && renderContractStep()}
-                {step === 'processing' && renderProcessingStep()}
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                    {step === 'config' && renderConfigStep()}
+                    {step === 'contract' && renderContractStep()}
+                    {step === 'processing' && renderProcessingStep()}
+                </div>
 
-                {error && <div className="mt-4"><Alert message={error} type="error" /></div>}
+                {error && <div className="mt-4 shrink-0"><Alert message={error} type="error" /></div>}
 
                 {step !== 'processing' && (
-                    <div className="mt-6 flex gap-3">
+                    <div className="mt-6 flex gap-3 shrink-0 pt-4 border-t border-slate-100 dark:border-slate-800">
                         {step === 'contract' && (
                             <button onClick={() => setStep('config')} className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white rounded-xl font-bold">Voltar</button>
                         )}
@@ -463,7 +497,7 @@ Macapá, ${today.toLocaleDateString('pt-BR')}.
                             disabled={isProcessing || (saleType === 'crediario' && !validationStatus.isValid)} 
                             className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                         >
-                            {isProcessing ? <LoadingSpinner /> : (step === 'config' ? (isFullPayment ? 'Pagar Agora (Sem Contrato)' : 'Revisar Contrato') : 'Finalizar Pedido')}
+                            {isProcessing ? <LoadingSpinner /> : (step === 'config' ? (isFullPayment ? 'Pagar Agora' : 'Revisar Contrato') : 'Finalizar e Pagar')}
                         </button>
                     </div>
                 )}

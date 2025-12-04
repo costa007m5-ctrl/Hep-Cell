@@ -14,7 +14,6 @@ import BoletoDetails from './BoletoDetails';
 import { useToast } from './Toast';
 import jsPDF from 'jspdf'; 
 
-// ... (Imports e Interfaces PurchaseGroup mantidos) ...
 interface PageFaturasProps {
     mpPublicKey: string;
 }
@@ -45,9 +44,58 @@ const PackageIcon = () => (
     </svg>
 );
 
+const TimerIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+);
+
+// --- Componente Temporizador ---
+const EntryTimer: React.FC<{ createdAt: string }> = ({ createdAt }) => {
+    const [timeLeft, setTimeLeft] = useState('');
+    const [isExpired, setIsExpired] = useState(false);
+
+    useEffect(() => {
+        const created = new Date(createdAt).getTime();
+        const expireTime = created + (24 * 60 * 60 * 1000); // 24 horas
+
+        const updateTimer = () => {
+            const now = new Date().getTime();
+            const distance = expireTime - now;
+
+            if (distance < 0) {
+                setIsExpired(true);
+                setTimeLeft("Expirado");
+                return;
+            }
+
+            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+            setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+        };
+
+        const interval = setInterval(updateTimer, 1000);
+        updateTimer();
+
+        return () => clearInterval(interval);
+    }, [createdAt]);
+
+    if (isExpired) {
+        return <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">Tempo Esgotado</span>;
+    }
+
+    return (
+        <div className="flex items-center gap-1 text-xs font-mono font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded">
+            <TimerIcon />
+            {timeLeft}
+        </div>
+    );
+};
+
 // --- Funções Auxiliares (PDF e Share - Mantidas) ---
 const generateInvoicePDF = (invoice: Invoice) => {
-    // ... (mantido igual ao anterior)
      const doc = new jsPDF();
     
     // Header
@@ -104,7 +152,6 @@ const generateInvoicePDF = (invoice: Invoice) => {
 };
 
 const shareInvoice = async (invoice: Invoice) => {
-    // ... (mantido igual ao anterior)
     const text = `Comprovante Relp Cell\nFatura: ${invoice.month}\nValor: ${invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}\nPago em: ${new Date(invoice.payment_date || invoice.created_at).toLocaleDateString('pt-BR')}`;
     
     if (navigator.share) {
@@ -123,7 +170,6 @@ const shareInvoice = async (invoice: Invoice) => {
 };
 
 // --- Componentes Visuais ---
-// ... (SummaryCard mantido) ...
 const SummaryCard: React.FC<{ 
     currentMonthDue: number;
     creditLimit: number;
@@ -197,9 +243,14 @@ const PurchaseGroupCard: React.FC<{
     showValues: boolean;
     onPay: (invoice: Invoice) => void;
 }> = ({ group, showValues, onPay }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(true); // Expandido por padrão para ver as faturas
 
-    const hasLate = group.invoices.some(inv => new Date(inv.due_date) < new Date() && inv.status === 'Em aberto');
+    // Atraso SÓ é considerado se não for entrada e se a data já passou
+    const hasLate = group.invoices.some(inv => {
+        const isEntry = inv.notes?.includes('ENTRADA') || inv.month.startsWith('Entrada');
+        if (isEntry) return false; // Entrada não fica 'atrasada', fica 'expirada' (controlado pelo Timer)
+        return new Date(inv.due_date) < new Date() && inv.status === 'Em aberto';
+    });
 
     return (
         <div className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border overflow-hidden mb-4 animate-fade-in-up transition-all ${hasLate ? 'border-red-200 dark:border-red-900/50' : 'border-slate-100 dark:border-slate-700'}`}>
@@ -224,7 +275,7 @@ const PurchaseGroupCard: React.FC<{
                 </div>
                 <div className="text-right flex items-center gap-3">
                     <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Restante</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total</p>
                         <p className="font-bold text-slate-900 dark:text-white text-sm">
                             {showValues ? group.totalRemaining.toLocaleString('pt-BR', {style:'currency', currency:'BRL'}) : 'R$ •••'}
                         </p>
@@ -241,23 +292,39 @@ const PurchaseGroupCard: React.FC<{
                         const dueDate = new Date(inv.due_date + 'T23:59:59').getTime();
                         const hours48 = 48 * 60 * 60 * 1000;
                         
-                        const isOverdue48h = (dueDate + hours48) < now && inv.status === 'Em aberto' && !inv.month.startsWith('Entrada');
-                        const isLate = dueDate < now && inv.status === 'Em aberto';
+                        const isEntry = inv.notes?.includes('ENTRADA') || inv.month.startsWith('Entrada');
                         
+                        // Lógica de Status Visual
+                        let isOverdue48h = false;
+                        let isLate = false;
+
+                        if (!isEntry) {
+                             isOverdue48h = (dueDate + hours48) < now && inv.status === 'Em aberto';
+                             isLate = dueDate < now && inv.status === 'Em aberto';
+                        }
+                        
+                        // Limpa o nome da parcela
                         const parcelLabel = inv.month.match(/Parcela \d+\/\d+/) || [inv.month];
                         
                         return (
                             <div key={inv.id} className={`p-4 flex justify-between items-center transition-colors ${isOverdue48h ? 'bg-red-100 dark:bg-red-900/30 animate-pulse' : isLate ? 'bg-red-50/50 dark:bg-red-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-700/20'}`}>
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${isLate ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                                    <div className={`w-2 h-2 rounded-full ${isLate ? 'bg-red-500' : isEntry ? 'bg-orange-500' : 'bg-green-500'}`}></div>
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{parcelLabel[0]}</p>
                                             {isOverdue48h && <span className="bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">URGENTE (+48h)</span>}
                                         </div>
-                                        <p className={`text-[10px] ${isLate ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                                            Vence: {new Date(inv.due_date).toLocaleDateString('pt-BR')}
-                                        </p>
+                                        
+                                        {isEntry ? (
+                                            <div className="mt-1">
+                                                <EntryTimer createdAt={inv.created_at} />
+                                            </div>
+                                        ) : (
+                                            <p className={`text-[10px] ${isLate ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                                                Vence: {new Date(inv.due_date).toLocaleDateString('pt-BR')}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -266,7 +333,7 @@ const PurchaseGroupCard: React.FC<{
                                     </span>
                                     <button 
                                         onClick={() => onPay(inv)}
-                                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm active:scale-95 transition-all ${isOverdue48h ? 'bg-red-600 hover:bg-red-700 shadow-red-500/30' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                        className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm active:scale-95 transition-all ${isOverdue48h ? 'bg-red-600 hover:bg-red-700 shadow-red-500/30' : isEntry ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
                                     >
                                         Pagar
                                     </button>
@@ -280,7 +347,6 @@ const PurchaseGroupCard: React.FC<{
     );
 };
 
-// ... (PaymentHistoryCard e PageFaturas principal mantidos) ...
 const PaymentHistoryCard: React.FC<{ invoice: Invoice; showValues: boolean }> = ({ invoice, showValues }) => (
     <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm transition-all hover:shadow-md group">
         <div className="flex justify-between items-center mb-3">
@@ -611,7 +677,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                             </div>
                         )}
 
-                        {/* OUTRAS ABAS (Mantidas iguais) */}
+                        {/* OUTRAS ABAS */}
                         {viewTab === 'current' && (
                             <div className="space-y-4 animate-fade-in-up">
                                 {groupedCurrentInvoices.map(group => (

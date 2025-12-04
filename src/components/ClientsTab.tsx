@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -146,8 +145,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
     };
 
     const handleManageInvoice = async (invoiceId: string, action: 'pay' | 'cancel' | 'delete') => {
-        if (!confirm(`Confirmação: Deseja realmente ${action === 'pay' ? 'dar baixa' : action === 'cancel' ? 'cancelar' : 'excluir'} esta fatura?`)) return;
-
         try {
              const res = await fetch('/api/admin/manage-invoice', {
                 method: 'POST',
@@ -155,16 +152,28 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 body: JSON.stringify({ invoiceId, action })
             });
              
-             const data = await res.json();
+             const data = await res.json() as any;
 
              if (res.ok) {
                 setSuccessMessage('Operação realizada com sucesso!');
                 setTimeout(() => setSuccessMessage(null), 3000);
-                fetchData(); // Recarrega dados
+                fetchData(); 
             } else {
                  alert(`Erro: ${data.error || 'Falha na operação.'}`);
             }
-        } catch (e) { console.error(e); alert("Erro de conexão."); }
+        } catch (e: any) { console.error(e); alert("Erro de conexão."); }
+    };
+
+    const handleBulkAction = async (action: 'pay' | 'cancel' | 'delete') => {
+        if (selectedInvoiceIds.size === 0) return;
+        if (!confirm(`Tem certeza que deseja aplicar '${action}' em ${selectedInvoiceIds.size} faturas?`)) return;
+
+        const ids = Array.from(selectedInvoiceIds);
+        // Processa um por um para simplificar (idealmente seria batch no backend)
+        for (const id of ids) {
+            await handleManageInvoice(id, action);
+        }
+        setSelectedInvoiceIds(new Set());
     };
 
     const handleNegotiateSubmit = async () => {
@@ -207,11 +216,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         if(!selectedClientId) return;
         setIsSavingNotes(true);
         try {
-             // Simplesmente atualiza o perfil via endpoint genérico de settings ou crie um específico se preferir.
-             // Aqui vamos simular atualizando via uma rota que aceita updates parciais de profile
-             // Como não temos uma rota dedicada 'update-profile-admin', vamos usar a logica existente
-             // Idealmente: await fetch('/api/admin/update-profile', ...)
-             alert("Nota salva localmente (Implementar persistência no backend se necessário)");
+             // Simulação de salvamento (falta rota de update profile admin completa)
+             alert("Nota salva localmente.");
         } finally {
             setIsSavingNotes(false);
         }
@@ -328,11 +334,14 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                              {activeDrawerTab === 'faturas' && (
                                 <div className="space-y-4">
                                     {selectedInvoiceIds.size > 0 && (
-                                        <div className="sticky top-0 z-10 bg-slate-800 text-white p-3 rounded-lg shadow-lg flex justify-between items-center animate-fade-in-up">
+                                        <div className="sticky top-0 z-10 bg-slate-800 text-white p-3 rounded-lg shadow-lg flex flex-col sm:flex-row justify-between items-center animate-fade-in-up gap-2">
                                             <span className="text-xs font-bold">{selectedInvoiceIds.size} Selecionadas</span>
-                                            <button onClick={() => setShowNegotiationModal(true)} className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded font-bold transition-colors">
-                                                Renegociar Selecionadas
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleBulkAction('pay')} className="text-xs bg-green-600 hover:bg-green-700 px-3 py-1.5 rounded font-bold transition-colors">Baixar</button>
+                                                <button onClick={() => handleBulkAction('cancel')} className="text-xs bg-orange-600 hover:bg-orange-700 px-3 py-1.5 rounded font-bold transition-colors">Cancelar</button>
+                                                <button onClick={() => handleBulkAction('delete')} className="text-xs bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded font-bold transition-colors">Excluir</button>
+                                                <button onClick={() => setShowNegotiationModal(true)} className="text-xs bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded font-bold transition-colors">Negociar</button>
+                                            </div>
                                         </div>
                                     )}
                                     
@@ -358,21 +367,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                                                 
                                                 <div className="text-right flex flex-col items-end gap-2">
                                                     <p className="font-black text-slate-900 dark:text-white">R$ {inv.amount.toFixed(2)}</p>
-                                                    
-                                                    {/* Ações Rápidas na Fatura */}
-                                                    {inv.status !== 'Paga' && inv.status !== 'Cancelado' && (
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => handleManageInvoice(inv.id, 'pay')} title="Marcar como Paga" className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg border border-green-200">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                                                            </button>
-                                                            <button onClick={() => handleManageInvoice(inv.id, 'cancel')} title="Cancelar Fatura" className="p-1.5 bg-orange-50 text-orange-600 hover:bg-orange-100 rounded-lg border border-orange-200">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-                                                            </button>
-                                                            <button onClick={() => handleManageInvoice(inv.id, 'delete')} title="Excluir Definitivamente" className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg border border-red-200">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                                            </button>
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </div>
                                         ))
@@ -384,7 +378,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 </div>
             )}
 
-            {/* Modal de Negociação com Juros e Estilos Corrigidos */}
+            {/* Modal de Negociação */}
             <Modal isOpen={showNegotiationModal} onClose={() => setShowNegotiationModal(false)}>
                 <div className="space-y-4 text-slate-900 dark:text-white">
                     <h3 className="text-xl font-bold">Renegociar Dívida</h3>
@@ -437,10 +431,6 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                             className="w-full p-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none" 
                             rows={3}
                         ></textarea>
-                    </div>
-
-                    <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 border border-yellow-200">
-                        ⚠️ Ao confirmar, as faturas originais serão canceladas e um novo contrato será gerado para assinatura do cliente.
                     </div>
 
                     <button onClick={handleNegotiateSubmit} disabled={isNegotiating} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 disabled:opacity-50 flex justify-center shadow-lg">
