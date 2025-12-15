@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -92,7 +93,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
         } catch (e: any) {
             console.error("Failed to load CRM data", e);
-            setErrorMsg(e.message);
+            setErrorMsg(e instanceof Error ? e.message : String(e));
         } finally {
             setIsDataLoading(false);
         }
@@ -159,10 +160,14 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 setTimeout(() => setSuccessMessage(null), 3000);
                 fetchData(); 
             } else {
-                 const error = data && typeof data === 'object' && 'error' in data ? (data as any).error : 'Falha na operação.';
+                 const error = data && typeof data === 'object' && 'error' in data ? String((data as any).error) : 'Falha na operação.';
                  alert(`Erro: ${error}`);
             }
-        } catch (e: any) { console.error(e); alert("Erro de conexão."); }
+        } catch (e: unknown) { 
+            console.error(e); 
+            const errorMsg = e instanceof Error ? e.message : 'Erro de conexão.';
+            alert(errorMsg); 
+        }
     };
 
     const handleBulkAction = async (action: 'pay' | 'cancel' | 'delete') => {
