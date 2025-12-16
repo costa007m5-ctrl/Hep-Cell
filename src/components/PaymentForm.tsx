@@ -64,6 +64,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     // Limpa o container antes de renderizar
     container.innerHTML = '';
 
+    // Detecta tema escuro
+    const isDarkMode = document.documentElement.classList.contains('dark');
+
     try {
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
         const bricksBuilder = mp.bricks();
@@ -79,7 +82,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                 customization: {
                     visual: {
                         style: {
-                            theme: 'default', // 'default' | 'dark' | 'bootstrap' | 'flat'
+                            theme: isDarkMode ? 'dark' : 'default', // Adapta ao tema
                         },
                         hidePaymentButton: false, // Botão padrão do Brick
                     },
@@ -160,10 +163,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     }
 
     return () => {
-        // Cleanup se o componente desmontar
+        // Cleanup do Brick para evitar erros ao desmontar ou re-renderizar
         if (brickController) {
-            // O SDK V2 não tem um método unmount simples documentado publicamente de forma consistente,
-            // mas remover o nó do DOM é seguro.
+            try {
+                brickController.unmount();
+            } catch(e) {
+                // Ignora erro se já desmontado
+            }
         }
     };
 

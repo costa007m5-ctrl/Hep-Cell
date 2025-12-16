@@ -49,7 +49,8 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
                 payer: { email: payerEmail },
                 back_urls: back_urls || { success: 'https://relpcell.com', failure: 'https://relpcell.com' },
                 auto_return: 'approved',
-                notification_url: getNotificationUrl(req)
+                notification_url: getNotificationUrl(req),
+                statement_descriptor: 'RELP CELL'
             }
         });
         res.status(200).json({ id: result.id, init_point: result.init_point });
@@ -90,6 +91,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
                 identification: payer.identification
             },
             external_reference,
+            statement_descriptor: 'RELP CELL', // Nome na fatura do cartão
             notification_url: getNotificationUrl(req)
         };
 
