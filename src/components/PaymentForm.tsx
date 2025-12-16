@@ -24,31 +24,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
-  const [payerPhone, setPayerPhone] = useState<{ areaCode: string, number: string } | null>(null);
-  const [paymentMethodIcon, setPaymentMethodIcon] = useState<string | null>(null);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
-  const [isFormMounted, setIsFormMounted] = useState(false);
+  const [brickController, setBrickController] = useState<any>(null); // Controller do Brick
   
-  // Busca dados do usuário (Email e Telefone) para antifraude
+  // Busca dados do usuário (Email) para antifraude
   useEffect(() => {
     const fetchUser = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
             setPayerEmail(user.email || 'cliente@relpcell.com');
-            
-            // Busca perfil para pegar o telefone
-            const profile = await getProfile(user.id);
-            if (profile && profile.phone) {
-                // Remove não numéricos
-                const cleanPhone = profile.phone.replace(/\D/g, '');
-                // Assume formato BR (XX) 9XXXX-XXXX (11 digitos) ou (XX) XXXX-XXXX (10 digitos)
-                if (cleanPhone.length >= 10) {
-                    setPayerPhone({
-                        areaCode: cleanPhone.substring(0, 2),
-                        number: cleanPhone.substring(2)
-                    });
-                }
-            }
         }
     };
     fetchUser();
@@ -69,161 +53,129 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
       }
   }, []);
 
+  // Inicializa o Card Payment Brick V2
   useEffect(() => {
     if (!payerEmail || !mpPublicKey || !isScriptLoaded) return;
+    if (brickController) return; // Já inicializado
 
-    // Evita remontagem se já estiver montado ou processando
-    if (isFormMounted || status !== PaymentStatus.IDLE) return;
+    const container = document.getElementById('cardPaymentBrick_container');
+    if (!container) return;
 
-    const cardContainer = document.getElementById('form-checkout__cardNumber');
-    if (!cardContainer) return; // Elemento ainda não renderizado
-
-    let cardForm: any;
+    // Limpa o container antes de renderizar
+    container.innerHTML = '';
 
     try {
         const mp = new window.MercadoPago(mpPublicKey, { locale: 'pt-BR' });
-        
-        cardForm = mp.cardForm({
-          amount: String(invoice.amount),
-          iframe: true,
-          form: {
-            id: "form-checkout",
-            cardNumber: { id: "form-checkout__cardNumber", placeholder: "Número do cartão" },
-            expirationDate: { id: "form-checkout__expirationDate", placeholder: "MM/YY" },
-            securityCode: { id: "form-checkout__securityCode", placeholder: "CVC" },
-            cardholderName: { id: "form-checkout__cardholderName", placeholder: "Titular do cartão" },
-            issuer: { id: "form-checkout__issuer", placeholder: "Banco emissor" },
-            installments: { id: "form-checkout__installments", placeholder: "Parcelas" },
-            identificationType: { id: "form-checkout__identificationType", placeholder: "Tipo de documento" },
-            identificationNumber: { id: "form-checkout__identificationNumber", placeholder: "Número do documento" },
-            cardholderEmail: { id: "form-checkout__cardholderEmail", placeholder: "E-mail" },
-          },
-          callbacks: {
-            onFormMounted: (error: any) => {
-              if (error) return console.warn("Erro ao montar formulário:", error);
-              setIsFormMounted(true);
-            },
-            onPaymentMethodChange: (data: any) => {
-                // Atualiza o ícone da bandeira (Visa, Master, etc)
-                if (data && (data.secure_thumbnail || data.thumbnail)) {
-                    setPaymentMethodIcon(data.secure_thumbnail || data.thumbnail);
-                } else {
-                    setPaymentMethodIcon(null);
-                }
-            },
-            onSubmit: (event: any) => {
-              event.preventDefault();
-              
-              // Limpa mensagens anteriores
-              setMessage('');
-              
-              const formData = cardForm.getCardFormData();
-              
-              if (!formData.token) {
-                  setMessage('Dados do cartão inválidos ou incompletos. Verifique o número e o CVC.');
-                  return;
-              }
+        const bricksBuilder = mp.bricks();
 
-              if (formData.paymentMethodId === 'debit_card') {
-                  setMessage('Somente cartão de crédito é aceito nesta modalidade.');
-                  return;
-              }
-
-              setStatus(PaymentStatus.PENDING);
-
-              // *** 1. IDENTIFICADOR DO DISPOSITIVO ***
-              const deviceId = mp.getDeviceId();
-
-              // *** 2. DETALHES DO ITEM (ANTIFRAUDE) ***
-              const items = [
-                  {
-                      id: invoice.id,
-                      title: `Fatura ${invoice.month}`,
-                      description: invoice.notes || `Pagamento referente a ${invoice.month}`,
-                      quantity: 1,
-                      unit_price: Number(formData.amount),
-                      category_id: 'electronics' // Categoria genérica para eletrônicos/serviços
-                  }
-              ];
-
-              const payload = {
-                token: formData.token,
-                issuer_id: formData.issuerId,
-                payment_method_id: formData.paymentMethodId,
-                transaction_amount: Number(formData.amount),
-                installments: Number(formData.installments),
-                description: `Fatura ${invoice.month}`,
-                payer: {
-                  email: formData.cardholderEmail || payerEmail,
-                  identification: { 
-                      type: formData.identificationType, 
-                      number: formData.identificationNumber 
-                  },
-                  // *** 3. TELEFONE DO COMPRADOR ***
-                  phone: payerPhone ? {
-                      area_code: payerPhone.areaCode,
-                      number: payerPhone.number
-                  } : undefined
+        const renderCardPaymentBrick = async () => {
+            const settings = {
+                initialization: {
+                    amount: invoice.amount,
+                    payer: {
+                        email: payerEmail,
+                    },
                 },
-                external_reference: invoice.id,
-                deviceId: deviceId, // Device ID na raiz
-                items: items // Itens na raiz (backend move para additional_info)
-              };
+                customization: {
+                    visual: {
+                        style: {
+                            theme: 'default', // 'default' | 'dark' | 'bootstrap' | 'flat'
+                        },
+                        hidePaymentButton: false, // Botão padrão do Brick
+                    },
+                    paymentMethods: {
+                        maxInstallments: 12,
+                    }
+                },
+                callbacks: {
+                    onReady: () => {
+                        // Brick pronto
+                    },
+                    onSubmit: async (cardFormData: any) => {
+                        setStatus(PaymentStatus.PENDING);
+                        setMessage("Processando pagamento seguro...");
 
-              fetch('/api/mercadopago/process-payment', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-              })
-              .then(async (response) => {
-                  const result = await response.json();
-                  if (!response.ok) throw new Error(result.message || result.error || 'Erro ao processar pagamento.');
-                  
-                  if (result.status === 'approved') {
-                      const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
-                      setMessage(successMsg);
-                      setStatus(PaymentStatus.SUCCESS);
-                      setTimeout(() => onPaymentSuccess(result.id), 4000);
-                  } else if (result.status === 'in_process') {
-                      setMessage("Seu pagamento está em análise de segurança.");
-                      setStatus(PaymentStatus.SUCCESS);
-                      setTimeout(() => onPaymentSuccess(result.id), 4000);
-                  } else {
-                      throw new Error(result.message || 'Pagamento recusado.');
-                  }
-              })
-              .catch((error: any) => {
-                  console.error('Erro:', error);
-                  setStatus(PaymentStatus.ERROR);
-                  setMessage(error.message || 'Erro ao processar. Verifique os dados.');
-              });
-            },
-          }
-        });
+                        // Adiciona ID da fatura para o backend
+                        const payload = {
+                            ...cardFormData,
+                            description: `Fatura ${invoice.month}`,
+                            external_reference: invoice.id,
+                            payer: {
+                                ...cardFormData.payer,
+                                email: payerEmail // Garante email
+                            }
+                        };
+
+                        try {
+                            const response = await fetch('/api/mercadopago/process-payment', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(payload),
+                            });
+
+                            const result = await response.json();
+
+                            if (!response.ok) {
+                                throw new Error(result.message || result.error || 'Erro ao processar.');
+                            }
+
+                            if (result.status === 'approved') {
+                                const successMsg = await generateSuccessMessage('Cliente', String(invoice.amount));
+                                setMessage(successMsg);
+                                setStatus(PaymentStatus.SUCCESS);
+                                // Chama o callback do pai após um delay visual
+                                setTimeout(() => onPaymentSuccess(result.id), 2500);
+                            } else if (result.status === 'in_process') {
+                                setMessage("Pagamento em análise. Você será notificado em breve.");
+                                setStatus(PaymentStatus.SUCCESS);
+                                setTimeout(() => onPaymentSuccess(result.id), 3000);
+                            } else {
+                                throw new Error(result.message || 'Pagamento recusado.');
+                            }
+
+                        } catch (error: any) {
+                            console.error('Erro no pagamento:', error);
+                            setStatus(PaymentStatus.ERROR);
+                            setMessage(error.message || 'Falha na transação. Verifique os dados.');
+                        }
+                    },
+                    onError: (error: any) => {
+                        console.error(error);
+                        setStatus(PaymentStatus.ERROR);
+                        setMessage('Erro nos dados do cartão. Verifique e tente novamente.');
+                    },
+                },
+            };
+            
+            const controller = await bricksBuilder.create('cardPayment', 'cardPaymentBrick_container', settings);
+            setBrickController(controller);
+        };
+
+        renderCardPaymentBrick();
+
     } catch (e) {
-        console.error("Erro ao inicializar MP:", e);
-        setMessage("Erro ao carregar sistema de pagamento. Tente recarregar a página.");
+        console.error("Erro SDK:", e);
         setStatus(PaymentStatus.ERROR);
+        setMessage("Erro ao carregar módulo de pagamento.");
     }
 
     return () => {
-        // Cleanup básico se o componente desmontar
-        if (cardForm) {
-            try { cardForm.unmount(); } catch(e) {}
+        // Cleanup se o componente desmontar
+        if (brickController) {
+            // O SDK V2 não tem um método unmount simples documentado publicamente de forma consistente,
+            // mas remover o nó do DOM é seguro.
         }
     };
-  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, payerPhone, onPaymentSuccess, isScriptLoaded, isFormMounted]);
 
-  const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
-  const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
+  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, isScriptLoaded]);
 
   const renderContent = () => {
     if (status === PaymentStatus.PENDING) {
         return (
             <div className="flex flex-col items-center justify-center p-8 space-y-4 min-h-[300px]">
                 <LoadingSpinner />
-                <p className="text-slate-600 dark:text-slate-300 font-medium">Validando segurança...</p>
-                <p className="text-xs text-slate-400">Não feche esta janela.</p>
+                <p className="text-slate-600 dark:text-slate-300 font-medium">Processando...</p>
+                <p className="text-xs text-slate-400">Validando com o banco...</p>
             </div>
         );
     }
@@ -237,65 +189,21 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
     }
 
     return (
-        <form id="form-checkout" className="space-y-4">
-            {status === PaymentStatus.ERROR && <Alert message={message} type="error" />}
-            
-            <div className="relative">
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Cartão (Crédito)</label>
-                <div id="form-checkout__cardNumber" className={containerStyle}></div>
-                {paymentMethodIcon && (
-                    <div className="absolute top-7 right-3 pointer-events-none bg-white dark:bg-slate-700 pl-2 z-10">
-                        <img src={paymentMethodIcon} alt="Bandeira" className="h-5 w-auto" />
-                    </div>
-                )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Validade</label>
-                    <div id="form-checkout__expirationDate" className={containerStyle}></div>
+        <div className="w-full">
+            {status === PaymentStatus.ERROR && (
+                <div className="mb-4">
+                    <Alert message={message} type="error" />
+                    <button 
+                        onClick={() => { setStatus(PaymentStatus.IDLE); setMessage(''); }}
+                        className="mt-2 text-sm text-indigo-600 underline"
+                    >
+                        Tentar novamente
+                    </button>
                 </div>
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">CVV</label>
-                    <div id="form-checkout__securityCode" className={containerStyle}></div>
-                </div>
-            </div>
-
-            <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Titular do Cartão</label>
-                <input type="text" id="form-checkout__cardholderName" className={inputStyle} placeholder="Nome como no cartão" />
-            </div>
-
-            {/* Campos ocultos/visíveis conforme necessidade do SDK, mas o usuário precisa preencher se o SDK exigir */}
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Banco</label>
-                    <select id="form-checkout__issuer" className={inputStyle}></select>
-                </div>
-                <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Tipo Doc.</label>
-                    <select id="form-checkout__identificationType" className={inputStyle}></select>
-                </div>
-            </div>
-
-            <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Número do Documento</label>
-                <input type="text" id="form-checkout__identificationNumber" className={inputStyle} placeholder="CPF do titular" />
-            </div>
-
-            <div>
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parcelamento</label>
-                <select id="form-checkout__installments" className={inputStyle}></select>
-            </div>
-
-            <input type="email" id="form-checkout__cardholderEmail" value={payerEmail} readOnly className="hidden" />
-
-            <div className="pt-4">
-                <button type="submit" id="form-checkout__submit" className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg transition-colors active:scale-95">
-                    Pagar R$ {invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </button>
-            </div>
-        </form>
+            )}
+            {/* O container onde o Brick será injetado */}
+            <div id="cardPaymentBrick_container"></div>
+        </div>
     );
   };
 
@@ -308,7 +216,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         </p>
       </div>
 
-      <div className="p-6">
+      <div className="p-4">
         {renderContent()}
       </div>
       

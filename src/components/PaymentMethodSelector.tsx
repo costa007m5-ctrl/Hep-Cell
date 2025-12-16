@@ -47,21 +47,30 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
 
     const paymentOptions = [
       { 
-          id: 'redirect', 
-          name: 'App Mercado Pago', 
-          description: "Pague com Saldo, Cartão ou Crédito MP", 
-          icon: <ExternalLinkIcon />,
-          badge: null,
-          badgeColor: "",
-          disabled: false
-      },
-      { 
           id: 'pix', 
           name: 'PIX', 
           description: "Liberação imediata", 
           icon: <PixIcon />, 
-          badge: "Aprova na hora",
+          badge: "Recomendado",
           badgeColor: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+          disabled: false
+      },
+      { 
+          id: 'credit_card', 
+          name: 'Cartão de Crédito', 
+          description: "Até 12x", 
+          icon: <CreditCardIcon />, 
+          badge: "Transparente",
+          badgeColor: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300",
+          disabled: false
+      },
+      { 
+          id: 'redirect', 
+          name: 'App Mercado Pago', 
+          description: "Pague com Saldo ou Cartão no App", 
+          icon: <ExternalLinkIcon />,
+          badge: null,
+          badgeColor: "",
           disabled: false
       },
       { 

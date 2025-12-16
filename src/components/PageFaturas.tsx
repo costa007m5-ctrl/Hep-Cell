@@ -19,7 +19,7 @@ interface PageFaturasProps {
 }
 
 type ViewTab = 'open' | 'current' | 'paid' | 'statement'; 
-type PaymentStep = 'list' | 'select_method' | 'pay_pix' | 'pay_boleto' | 'boleto_details';
+type PaymentStep = 'list' | 'select_method' | 'pay_pix' | 'pay_boleto' | 'pay_credit' | 'boleto_details';
 
 interface PurchaseGroup {
     id: string; 
@@ -519,6 +519,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
 
         if (method === 'pix') setPaymentStep('pay_pix');
         else if (method === 'boleto') setPaymentStep('pay_boleto');
+        else if (method === 'credit_card') setPaymentStep('pay_credit'); // Novo step para cartão
         else if (method === 'redirect') {
             try {
                 const { data: { user } } = await supabase.auth.getUser();
@@ -585,6 +586,7 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                 );
             case 'pay_pix': return <PixPayment invoice={invoiceWithExtras} onBack={() => setPaymentStep('list')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
             case 'pay_boleto': return <BoletoPayment invoice={invoiceWithExtras} onBack={() => {setPaymentStep('list'); setSelectedInvoice(null);}} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
+            case 'pay_credit': return <PaymentForm invoice={invoiceWithExtras} mpPublicKey={mpPublicKey} onBack={() => setPaymentStep('select_method')} onPaymentSuccess={() => { setPaymentStep('list'); fetchInvoices(); setShowConfetti(true); }} />; // Renderiza o formulário de cartão
             case 'boleto_details': return <BoletoDetails invoice={selectedInvoice} onBack={() => setPaymentStep('list')} />;
             default: return null;
         }

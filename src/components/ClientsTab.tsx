@@ -164,7 +164,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                  const error = data && typeof data === 'object' && 'error' in data ? String((data as any).error) : 'Falha na operação.';
                  alert(`Erro: ${error}`);
             }
-        } catch (e: any) { 
+        } catch (e: unknown) { 
             console.error(e); 
             const errorMsg = e instanceof Error ? e.message : 'Erro de conexão.';
             alert(errorMsg); 

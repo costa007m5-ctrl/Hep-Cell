@@ -59,11 +59,12 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// Handler: Processar Pagamento Cartão (Transparente)
+// Handler: Processar Pagamento Cartão (Transparente - Brick V2)
 async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = await getMercadoPagoClient(supabase);
+        // Recebe os dados do Brick V2
         const { 
             token, 
             issuer_id, 
@@ -72,9 +73,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             installments, 
             description, 
             payer, 
-            external_reference,
-            deviceId, 
-            items 
+            external_reference 
         } = req.body;
 
         const payment = new Payment(client);
@@ -87,30 +86,31 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             installments: Number(installments),
             description,
             payer: {
-                ...payer,
+                email: payer.email,
+                identification: payer.identification
             },
             external_reference,
-            device_id: deviceId, 
-            metadata: { device_id: deviceId },
-            notification_url: getNotificationUrl(req),
-            
-            additional_info: {
-                items: items, 
-                ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-                payer: {
-                    first_name: payer.first_name,
-                    last_name: payer.last_name,
-                    phone: payer.phone 
-                }
-            }
+            notification_url: getNotificationUrl(req)
         };
 
         const result = await payment.create({ body });
         
+        // ATUALIZAÇÃO IMEDIATA DO BANCO SE APROVADO
         if (result.status === 'approved') {
-             await supabase.from('invoices')
-                .update({ status: 'Paga', payment_date: new Date().toISOString() })
-                .eq('id', external_reference);
+             const updateResult = await supabase.from('invoices')
+                .update({ 
+                    status: 'Paga', 
+                    payment_date: new Date().toISOString(),
+                    payment_id: String(result.id),
+                    payment_method: 'credit_card'
+                })
+                .eq('id', external_reference); // ID da Fatura
+             
+             if (updateResult.error) {
+                 console.error("Falha ao atualizar fatura no banco:", updateResult.error);
+             } else {
+                 await logAction(supabase, 'CARD_PAYMENT_SUCCESS', 'SUCCESS', `Fatura ${external_reference} paga via cartão.`, { paymentId: result.id });
+             }
         }
 
         res.status(200).json({ status: result.status, id: result.id, message: result.status_detail });
@@ -215,8 +215,8 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
             if (paymentDetails && paymentDetails.status === 'approved') {
                 // Atualiza fatura para Paga
                 const { data: invoices } = await supabase.from('invoices')
-                    .update({ status: 'Paga', payment_date: new Date().toISOString() })
-                    .eq('payment_id', String(paymentId))
+                    .update({ status: 'Paga', payment_date: new Date().toISOString(), payment_id: String(paymentId) })
+                    .eq('id', paymentDetails.external_reference) // Busca pelo ID da Fatura (External Reference)
                     .select();
                 
                 if (invoices && invoices.length > 0) {
