@@ -170,6 +170,27 @@ const MercadoPagoIntegration: React.FC = () => {
         }
     };
 
+    const handleDisconnect = async () => {
+        if (!confirm("Tem certeza que deseja desconectar o Mercado Pago? As vendas automáticas pararão de funcionar.")) {
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const response = await fetch('/api/admin/disconnect-mercadopago', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Erro ao desconectar');
+            
+            setMpConnected(false);
+            setSuccessMsg(data.message);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const webhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/mercadopago/webhook` : '';
 
     return (
@@ -199,12 +220,21 @@ const MercadoPagoIntegration: React.FC = () => {
                     )}
                     
                     {mpConnected === true && (
-                        <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800/50">
-                           <div className="bg-green-100 dark:bg-green-800 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>
-                           <div>
-                               <p className="font-bold text-sm">Conectado com Sucesso!</p>
-                               <p className="text-xs opacity-80">O sistema está pronto para vender.</p>
-                           </div>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800/50">
+                                <div className="bg-green-100 dark:bg-green-800 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>
+                                <div>
+                                    <p className="font-bold text-sm">Conectado com Sucesso!</p>
+                                    <p className="text-xs opacity-80">O sistema está pronto para vender.</p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={handleDisconnect} 
+                                disabled={isLoading} 
+                                className="w-full sm:w-auto py-2 px-4 border border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-bold text-xs transition-colors"
+                            >
+                                {isLoading ? <LoadingSpinner /> : 'Desconectar Conta'}
+                            </button>
                         </div>
                     )}
                     

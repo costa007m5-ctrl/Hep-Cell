@@ -113,6 +113,26 @@ async function handleGenerateMpToken(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleDisconnectMercadoPago(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    try {
+        const keysToRemove = ['mp_access_token', 'mp_public_key', 'mp_refresh_token', 'mp_user_id', 'mp_expires_in'];
+        
+        const { error } = await supabase
+            .from('system_settings')
+            .delete()
+            .in('key', keysToRemove);
+
+        if (error) throw error;
+
+        await logAction(supabase, 'MP_DISCONNECT', 'SUCCESS', 'Integração Mercado Pago removida pelo admin.');
+        
+        return res.json({ success: true, message: 'Conta desconectada com sucesso.' });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
 // --- Status Test Handlers ---
 async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
@@ -579,6 +599,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             // MP Auth Routes (NOVOS)
             if (path === '/api/admin/get-mp-auth-url') return await handleGetMpAuthUrl(req, res);
             if (path === '/api/admin/generate-mercadopago-token') return await handleGenerateMpToken(req, res);
+            if (path === '/api/admin/disconnect-mercadopago') return await handleDisconnectMercadoPago(req, res);
         }
         
         if (req.method === 'GET') {
