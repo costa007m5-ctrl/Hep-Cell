@@ -17,6 +17,15 @@ function getMercadoPagoClient() {
     return new MercadoPagoConfig({ accessToken });
 }
 
+// Helper para obter URL de Webhook dinâmica
+function getNotificationUrl(req: VercelRequest): string {
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const host = req.headers['host'];
+    // Em localhost, webhooks não funcionam diretamente sem tunnel (ngrok), 
+    // mas a URL é gerada corretamente para produção.
+    return `${protocol}://${host}/api/mercadopago/webhook`;
+}
+
 // Log no Banco
 async function logAction(supabase: any, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
     try { await supabase.from('action_logs').insert({ action_type, status, description, details }); } catch (e) { console.error('Log failed', e); }
@@ -34,7 +43,8 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
                 external_reference: id,
                 payer: { email: payerEmail },
                 back_urls: back_urls || { success: 'https://relpcell.com', failure: 'https://relpcell.com' },
-                auto_return: 'approved'
+                auto_return: 'approved',
+                notification_url: getNotificationUrl(req) // Adiciona URL de notificação
             }
         });
         res.status(200).json({ id: result.id, init_point: result.init_point });
@@ -56,14 +66,13 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         description, 
         payer, 
         external_reference,
-        deviceId, // Identificador do dispositivo
-        items // Lista de itens detalhada para antifraude
+        deviceId, 
+        items 
     } = req.body;
 
     try {
         const payment = new Payment(client);
         
-        // Constrói o corpo da requisição com foco em Antifraude (additional_info)
         const body: any = {
             token,
             issuer_id,
@@ -73,29 +82,25 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             description,
             payer: {
                 ...payer,
-                // Garante que o telefone esteja no formato correto se enviado
-                // payer.phone deve ser { area_code: string, number: string }
             },
             external_reference,
-            // Device ID na raiz (ou metadata dependendo da versão, raiz é padrão v1/payments)
             device_id: deviceId, 
-            metadata: { device_id: deviceId }, // Redundância para segurança
+            metadata: { device_id: deviceId },
+            notification_url: getNotificationUrl(req), // Adiciona URL de notificação
             
-            // Dados estendidos para melhorar aprovação
             additional_info: {
-                items: items, // [ {id, title, description, category_id, quantity, unit_price} ]
+                items: items, 
                 ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
                 payer: {
-                    first_name: payer.first_name, // Opcional se já estiver no payer raiz, mas bom reforçar
+                    first_name: payer.first_name,
                     last_name: payer.last_name,
-                    phone: payer.phone // Importante para antifraude
+                    phone: payer.phone 
                 }
             }
         };
 
         const result = await payment.create({ body });
         
-        // Se aprovado imediatamente, podemos atualizar a fatura (opcional, o webhook também faz isso)
         if (result.status === 'approved') {
              const supabase = getSupabaseAdminClient();
              await supabase.from('invoices')
@@ -127,11 +132,11 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
                     last_name: lastName,
                     identification: { type: 'CPF', number: identificationNumber }
                 },
-                external_reference: invoiceId
+                external_reference: invoiceId,
+                notification_url: getNotificationUrl(req) // Adiciona URL de notificação
             }
         });
         
-        // Retorna dados necessários para exibir o QR Code
         res.status(200).json({ 
             paymentId: result.id, 
             qrCode: result.point_of_interaction?.transaction_data?.qr_code, 
@@ -168,7 +173,8 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                         federal_unit: payer.federalUnit
                     }
                 },
-                external_reference: invoiceId
+                external_reference: invoiceId,
+                notification_url: getNotificationUrl(req) // Adiciona URL de notificação
             }
         });
         res.status(200).json({ 
@@ -188,6 +194,9 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     try {
         const client = getMercadoPagoClient();
         const { body } = req;
+
+        // Log da notificação recebida para debug
+        // console.log("Webhook received:", JSON.stringify(body));
 
         if (body?.type === 'payment' && body.data?.id) {
             const paymentId = body.data.id;
@@ -217,7 +226,6 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                     }
 
                     // 2. Gerar Parcelas Restantes (Se for Entrada de Crediário)
-                    // A nota deve estar no formato: ENTRADA|CONTRACT_ID|REMAINING_AMOUNT|INSTALLMENTS|DUE_DAY
                     if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
                         const parts = invoice.notes.split('|');
                         if (parts.length >= 5) {
