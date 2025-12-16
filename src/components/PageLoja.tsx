@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Product, CartItem, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';

@@ -901,6 +901,7 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
     };
 
     if (loading) return <div className="flex justify-center p-10"><LoadingSpinner /></div>;
+    // Safety check: ensure data is not null before access
     if (!data) return <div className="p-10 text-center text-slate-500">Erro ao carregar dados.</div>;
 
     // Níveis de Embaixador
@@ -927,10 +928,10 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
                     
                     <p className="text-xs text-white/80 font-medium uppercase tracking-wide mb-1">Saldo de Indicações</p>
                     <h2 className="text-4xl font-black tracking-tighter drop-shadow-md">
-                        R$ {(data.totalEarnings || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                        R$ {(data?.totalEarnings || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                     </h2>
                     
-                    {(data.pendingEarnings || 0) > 0 && (
+                    {(data?.pendingEarnings || 0) > 0 && (
                         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-lg border border-white/10 backdrop-blur-md">
                             <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
                             <span className="text-xs font-medium text-white/90">R$ {data.pendingEarnings.toLocaleString('pt-BR', {minimumFractionDigits: 2})} pendentes</span>
@@ -942,7 +943,7 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
                 <div className="mt-6 bg-black/20 backdrop-blur-lg rounded-xl p-4 border border-white/10 flex items-center justify-between relative overflow-hidden group" onClick={handleCopy}>
                     <div className="flex flex-col text-left">
                         <span className="text-[9px] uppercase text-white/60 font-bold">Seu Código Único</span>
-                        <span className="font-mono text-xl font-bold tracking-widest text-white group-active:scale-95 transition-transform">{data.referralCode}</span>
+                        <span className="font-mono text-xl font-bold tracking-widest text-white group-active:scale-95 transition-transform">{data?.referralCode || '...'}</span>
                     </div>
                     <button className="p-2 bg-white text-slate-900 rounded-lg shadow-lg hover:bg-slate-100 active:scale-90 transition-all">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" /><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" /></svg>
@@ -985,7 +986,7 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
             <div className="px-2">
                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 pl-2">Histórico de Amigos</h3>
                 
-                {!data.referrals || data.referrals.length === 0 ? (
+                {!data?.referrals || data.referrals.length === 0 ? (
                     <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
                         <div className="text-4xl mb-2">😢</div>
                         <p className="text-slate-500 font-medium">Nenhuma indicação ainda.</p>
@@ -1567,7 +1568,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                         <MenuItem 
                             label="Configurações" 
                             description="Preferências do app"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
                             onClick={() => setActiveView('settings')}
                         />
 

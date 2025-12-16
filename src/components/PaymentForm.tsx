@@ -117,6 +117,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
               setStatus(PaymentStatus.PENDING);
 
+              // *** IMPLEMENTAÇÃO DO DEVICE ID ***
+              const deviceId = mp.getDeviceId();
+
               const payload = {
                 token: formData.token,
                 issuer_id: formData.issuerId,
@@ -131,7 +134,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                       number: formData.identificationNumber 
                   }
                 },
-                external_reference: invoice.id
+                external_reference: invoice.id,
+                deviceId: deviceId // Enviando o Device ID para o backend
               };
 
               fetch('/api/mercadopago/process-payment', {

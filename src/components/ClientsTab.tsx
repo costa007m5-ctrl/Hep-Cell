@@ -84,16 +84,17 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
             if (settingsRes.ok) {
                 const settings = await settingsRes.json();
-                setNegotiationInterest(parseFloat(settings.negotiation_interest) || 0);
+                setNegotiationInterest(parseFloat(String(settings.negotiation_interest)) || 0);
             }
 
             setProfiles(await profilesRes.json());
             setInvoices(await invoicesRes.json());
             if(requestsRes.ok) setLimitRequests(await requestsRes.json());
 
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Failed to load CRM data", e);
-            setErrorMsg(e instanceof Error ? e.message : String(e));
+            const message = e instanceof Error ? e.message : String(e);
+            setErrorMsg(message);
         } finally {
             setIsDataLoading(false);
         }
@@ -165,8 +166,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             }
         } catch (e: unknown) { 
             console.error(e); 
-            const errorMsg = e instanceof Error ? e.message : 'Erro de conexão.';
-            alert(errorMsg); 
+            const errorMsg = e instanceof Error ? e.message : String(e);
+            alert(errorMsg || 'Erro de conexão.'); 
         }
     };
 

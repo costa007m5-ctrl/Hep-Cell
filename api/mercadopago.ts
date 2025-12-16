@@ -1,3 +1,4 @@
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
 import { createClient } from '@supabase/supabase-js';
@@ -40,6 +41,57 @@ async function handleCreatePreference(req: VercelRequest, res: VercelResponse) {
     } catch(e: any) { 
         console.error(e);
         res.status(500).json({ error: e.message }); 
+    }
+}
+
+// Handler: Processar Pagamento Cartão (Transparente)
+async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
+    const client = getMercadoPagoClient();
+    const { 
+        token, 
+        issuer_id, 
+        payment_method_id, 
+        transaction_amount, 
+        installments, 
+        description, 
+        payer, 
+        external_reference,
+        deviceId // Recebe o Device ID do frontend
+    } = req.body;
+
+    try {
+        const payment = new Payment(client);
+        
+        const body: any = {
+            token,
+            issuer_id,
+            payment_method_id,
+            transaction_amount: Number(transaction_amount),
+            installments: Number(installments),
+            description,
+            payer,
+            external_reference
+        };
+
+        // Adiciona metadata com o device_id para auxiliar na prevenção de fraudes
+        if (deviceId) {
+            body.metadata = { device_id: deviceId };
+        }
+
+        const result = await payment.create({ body });
+        
+        // Se aprovado imediatamente, podemos atualizar a fatura (opcional, o webhook também faz isso)
+        if (result.status === 'approved') {
+             const supabase = getSupabaseAdminClient();
+             await supabase.from('invoices')
+                .update({ status: 'Paga', payment_date: new Date().toISOString() })
+                .eq('id', external_reference);
+        }
+
+        res.status(200).json({ status: result.status, id: result.id, message: result.status_detail });
+    } catch(e: any) {
+        console.error(e);
+        res.status(500).json({ error: e.message || "Erro ao processar pagamento com cartão." });
     }
 }
 
@@ -200,6 +252,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   if (path.includes('webhook')) return await handleWebhook(req, res);
   if (path.includes('create-preference')) return await handleCreatePreference(req, res);
+  if (path.includes('process-payment')) return await handleProcessPayment(req, res);
   if (path.includes('create-pix-payment')) return await handleCreatePixPayment(req, res);
   if (path.includes('create-boleto-payment')) return await handleCreateBoletoPayment(req, res);
 
