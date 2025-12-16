@@ -164,7 +164,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                  const error = data && typeof data === 'object' && 'error' in data ? String((data as any).error) : 'Falha na operação.';
                  alert(`Erro: ${error}`);
             }
-        } catch (e: any) { 
+        } catch (e: unknown) { 
             console.error(e); 
             const errorMsg = e instanceof Error ? e.message : String(e);
             alert(errorMsg || 'Erro de conexão.'); 
@@ -212,7 +212,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             } else {
                 throw new Error('Erro ao negociar');
             }
-        } catch (e) {
+        } catch (e: unknown) {
             alert('Falha ao criar negociação.');
         } finally {
             setIsNegotiating(false);
