@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -163,7 +164,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                  const error = data && typeof data === 'object' && 'error' in data ? String((data as any).error) : 'Falha na operação.';
                  alert(`Erro: ${error}`);
             }
-        } catch (e: unknown) { 
+        } catch (e: any) { 
             console.error(e); 
             const errorMsg = e instanceof Error ? e.message : String(e);
             alert(errorMsg || 'Erro de conexão.'); 

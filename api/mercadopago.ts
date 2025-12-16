@@ -177,10 +177,14 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
                 notification_url: getNotificationUrl(req) // Adiciona URL de notificação
             }
         });
+        
+        // Cast result to any to access barcode property safely
+        const paymentData = result as any;
+        
         res.status(200).json({ 
             paymentId: result.id, 
             boletoUrl: result.transaction_details?.external_resource_url,
-            boletoBarcode: result.barcode?.content 
+            boletoBarcode: paymentData.barcode?.content 
         });
     } catch(e: any) { 
         console.error(e);
