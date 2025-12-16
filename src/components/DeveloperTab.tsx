@@ -94,17 +94,23 @@ const emailTemplateHTML = `
 </html>
 `;
 
-const MercadoPagoIntegration: React.FC = () => {
+const IntegrationsManager: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [mpConnected, setMpConnected] = useState<boolean | null>(null);
+    const [mlConnected, setMlConnected] = useState<boolean | null>(null);
 
-    // Verifica o status da conexão ao carregar a página
+    // Verifica o status das conexões
     useEffect(() => {
+        // Verifica Mercado Pago (Pagamentos)
         fetch('/api/admin/test-mercadopago', { method: 'POST' })
             .then(res => setMpConnected(res.ok));
+            
+        // Verifica Mercado Livre (Produtos - Env Vars)
+        fetch('/api/admin/test-mercadolivre', { method: 'POST' })
+            .then(res => setMlConnected(res.ok));
     }, []);
 
     // Processa o retorno do Mercado Pago após a autorização
@@ -144,12 +150,11 @@ const MercadoPagoIntegration: React.FC = () => {
         }
     }, []);
     
-    // Inicia o processo de conexão
-    const handleConnect = async () => {
+    // Inicia o processo de conexão MP
+    const handleConnectMP = async () => {
         setIsConnecting(true);
         setError(null);
         try {
-            // Gera e armazena o verificador para o fluxo PKCE
             const verifier = base64URLEncode(window.crypto.getRandomValues(new Uint8Array(32)));
             const challenge = await generateCodeChallenge(verifier);
             sessionStorage.setItem('mp_code_verifier', verifier);
@@ -170,7 +175,7 @@ const MercadoPagoIntegration: React.FC = () => {
         }
     };
 
-    const handleDisconnect = async () => {
+    const handleDisconnectMP = async () => {
         if (!confirm("Tem certeza que deseja desconectar o Mercado Pago? As vendas automáticas pararão de funcionar.")) {
             return;
         }
@@ -195,43 +200,43 @@ const MercadoPagoIntegration: React.FC = () => {
 
     return (
         <section>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Pago</h2>
-            <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-6 shadow-sm">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integrações de Venda</h2>
+            
+            {/* Seção Mercado Pago */}
+            <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-6 shadow-sm mb-6">
                 <div className="flex items-start gap-4">
                     <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     </div>
                     <div>
-                        <h3 className="font-bold text-lg text-slate-900 dark:text-white">Conexão Automática</h3>
+                        <h3 className="font-bold text-lg text-slate-900 dark:text-white">Pagamentos (Mercado Pago)</h3>
                         <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                            Clique no botão abaixo para autorizar o Relp Cell a processar pagamentos na sua conta do Mercado Pago.
-                            O token será gerado e salvo automaticamente no sistema.
+                            Conecte sua conta para receber pagamentos via Pix e Cartão automaticamente.
                         </p>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-100 dark:border-slate-700">
-                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Status da Integração</h4>
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Status da Conexão</h4>
                     
                     {mpConnected === null && (
                          <div className="flex items-center gap-2 text-sm text-slate-500">
-                            <LoadingSpinner /> Verificando conexão...
+                            <LoadingSpinner /> Verificando...
                         </div>
                     )}
                     
                     {mpConnected === true && (
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800/50">
+                        <div className="flex flex-col sm:flex-row items-center gap-4">
+                            <div className="flex-1 flex items-center gap-3 p-3 w-full bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800/50">
                                 <div className="bg-green-100 dark:bg-green-800 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>
                                 <div>
-                                    <p className="font-bold text-sm">Conectado com Sucesso!</p>
-                                    <p className="text-xs opacity-80">O sistema está pronto para vender.</p>
+                                    <p className="font-bold text-sm">Conectado com Sucesso</p>
                                 </div>
                             </div>
                             <button 
-                                onClick={handleDisconnect} 
+                                onClick={handleDisconnectMP} 
                                 disabled={isLoading} 
-                                className="w-full sm:w-auto py-2 px-4 border border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-bold text-xs transition-colors"
+                                className="w-full sm:w-auto py-3 px-6 border border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-bold text-xs transition-colors"
                             >
                                 {isLoading ? <LoadingSpinner /> : 'Desconectar Conta'}
                             </button>
@@ -242,14 +247,14 @@ const MercadoPagoIntegration: React.FC = () => {
                         <div className="space-y-4">
                             <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-100">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                <span>Sistema desconectado. Vendas indisponíveis.</span>
+                                <span>Pagamentos indisponíveis. Conecte uma conta.</span>
                             </div>
                             <button 
-                                onClick={handleConnect} 
+                                onClick={handleConnectMP} 
                                 disabled={isLoading || isConnecting} 
                                 className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg shadow-blue-500/30 transition-all active:scale-[0.98]"
                             >
-                                {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar Agora'}
+                                {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar Mercado Pago'}
                             </button>
                         </div>
                     )}
@@ -259,15 +264,44 @@ const MercadoPagoIntegration: React.FC = () => {
                  {successMsg && <Alert message={successMsg} type="success" />}
 
                 {/* Webhook Info */}
-                <div className="pt-6 border-t border-slate-200 dark:border-slate-700">
-                    <h3 className="font-bold text-slate-800 dark:text-white mb-2 text-sm">Configuração de Retorno (Webhook)</h3>
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-2 text-sm">URL de Retorno (Webhook)</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                        Para baixa automática de pagamentos, cadastre esta URL no painel do Mercado Pago (Seu Negócio {'>'} Configurações {'>'} Notificações).
+                        Para baixa automática, cadastre no Mercado Pago:
                     </p>
                     <CodeBlock 
-                        title="URL do Webhook" 
+                        title="" 
                         code={webhookUrl} 
                     />
+                </div>
+            </div>
+
+            {/* Seção Mercado Livre (Produtos) */}
+            <div className="p-6 rounded-xl bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 space-y-4 shadow-sm">
+                <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 bg-yellow-100 dark:bg-yellow-800 rounded-full flex items-center justify-center text-yellow-700 dark:text-yellow-200 shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-lg text-slate-900 dark:text-white">Importação de Produtos (Mercado Livre)</h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                            Permite importar dados de produtos usando o link. Configurada via variáveis de ambiente.
+                        </p>
+                    </div>
+                </div>
+                
+                <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-700 flex items-center gap-3">
+                    {mlConnected === null ? <LoadingSpinner /> : mlConnected ? (
+                        <>
+                            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Configurado e Ativo</span>
+                        </>
+                    ) : (
+                        <>
+                            <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Não configurado (Adicione ML_CLIENT_ID na Vercel)</span>
+                        </>
+                    )}
                 </div>
             </div>
         </section>
@@ -530,7 +564,7 @@ CREATE POLICY "Users update own contracts" ON "public"."contracts" FOR UPDATE US
                 />
             </section>
 
-            <MercadoPagoIntegration />
+            <IntegrationsManager />
         </div>
     );
 };

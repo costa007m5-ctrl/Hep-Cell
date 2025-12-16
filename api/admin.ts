@@ -53,10 +53,8 @@ async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) {
     if (!clientId) return res.status(500).json({ error: 'ML_CLIENT_ID (App ID) não configurado na Vercel.' });
 
     const redirectUri = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/admin`; // Redireciona para admin para capturar o code
-    // Nota: Na prática o frontend manda a redirectUri correta baseada na window.location
     
     // URL oficial de Auth do Mercado Pago
-    // state e code_challenge são para segurança (PKCE)
     const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${clientId}&response_type=code&platform_id=mp&state=${code_challenge}&redirect_uri=${encodeURIComponent(req.body.redirectUri || redirectUri)}`;
     
     return res.json({ authUrl });
@@ -116,17 +114,14 @@ async function handleGenerateMpToken(req: VercelRequest, res: VercelResponse) {
 async function handleDisconnectMercadoPago(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const keysToRemove = ['mp_access_token', 'mp_public_key', 'mp_refresh_token', 'mp_user_id', 'mp_expires_in'];
-        
         const { error } = await supabase
             .from('system_settings')
             .delete()
-            .in('key', keysToRemove);
+            .in('key', ['mp_access_token', 'mp_public_key', 'mp_refresh_token', 'mp_user_id', 'mp_expires_in']);
 
         if (error) throw error;
 
-        await logAction(supabase, 'MP_DISCONNECT', 'SUCCESS', 'Integração Mercado Pago removida pelo admin.');
-        
+        await logAction(supabase, 'MP_DISCONNECT', 'SUCCESS', 'Integração Mercado Pago desconectada manualmente.');
         return res.json({ success: true, message: 'Conta desconectada com sucesso.' });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
@@ -522,7 +517,7 @@ async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     return res.json({ message: "Database checked." });
 }
 
-// ... Other Handlers (Coins, Polls, Icons, Products, Logs, etc - Mantidos simplificados para caber)
+// ... Other Handlers
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, type } = req.body;
