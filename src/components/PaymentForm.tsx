@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PaymentStatus, Invoice } from '../types';
 import { generateSuccessMessage } from '../services/geminiService';
 import { supabase } from '../services/clients';
+import { getProfile } from '../services/profileService';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
 
@@ -23,18 +24,31 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
   const [status, setStatus] = useState<PaymentStatus>(PaymentStatus.IDLE);
   const [message, setMessage] = useState('');
   const [payerEmail, setPayerEmail] = useState<string>('');
+  const [payerPhone, setPayerPhone] = useState<{ areaCode: string, number: string } | null>(null);
   const [paymentMethodIcon, setPaymentMethodIcon] = useState<string | null>(null);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const [isFormMounted, setIsFormMounted] = useState(false);
   
-  // Busca email do usuário logado
+  // Busca dados do usuário (Email e Telefone) para antifraude
   useEffect(() => {
     const fetchUser = async () => {
         const { data: { user } } = await supabase.auth.getUser();
-        if (user && user.email) {
-            setPayerEmail(user.email);
-        } else {
-            setPayerEmail('cliente@relpcell.com');
+        if (user) {
+            setPayerEmail(user.email || 'cliente@relpcell.com');
+            
+            // Busca perfil para pegar o telefone
+            const profile = await getProfile(user.id);
+            if (profile && profile.phone) {
+                // Remove não numéricos
+                const cleanPhone = profile.phone.replace(/\D/g, '');
+                // Assume formato BR (XX) 9XXXX-XXXX (11 digitos) ou (XX) XXXX-XXXX (10 digitos)
+                if (cleanPhone.length >= 10) {
+                    setPayerPhone({
+                        areaCode: cleanPhone.substring(0, 2),
+                        number: cleanPhone.substring(2)
+                    });
+                }
+            }
         }
     };
     fetchUser();
@@ -117,8 +131,20 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
 
               setStatus(PaymentStatus.PENDING);
 
-              // *** IMPLEMENTAÇÃO DO DEVICE ID ***
+              // *** 1. IDENTIFICADOR DO DISPOSITIVO ***
               const deviceId = mp.getDeviceId();
+
+              // *** 2. DETALHES DO ITEM (ANTIFRAUDE) ***
+              const items = [
+                  {
+                      id: invoice.id,
+                      title: `Fatura ${invoice.month}`,
+                      description: invoice.notes || `Pagamento referente a ${invoice.month}`,
+                      quantity: 1,
+                      unit_price: Number(formData.amount),
+                      category_id: 'electronics' // Categoria genérica para eletrônicos/serviços
+                  }
+              ];
 
               const payload = {
                 token: formData.token,
@@ -132,10 +158,16 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                   identification: { 
                       type: formData.identificationType, 
                       number: formData.identificationNumber 
-                  }
+                  },
+                  // *** 3. TELEFONE DO COMPRADOR ***
+                  phone: payerPhone ? {
+                      area_code: payerPhone.areaCode,
+                      number: payerPhone.number
+                  } : undefined
                 },
                 external_reference: invoice.id,
-                deviceId: deviceId // Enviando o Device ID para o backend
+                deviceId: deviceId, // Device ID na raiz
+                items: items // Itens na raiz (backend move para additional_info)
               };
 
               fetch('/api/mercadopago/process-payment', {
@@ -153,7 +185,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
                       setStatus(PaymentStatus.SUCCESS);
                       setTimeout(() => onPaymentSuccess(result.id), 4000);
                   } else if (result.status === 'in_process') {
-                      setMessage("Seu pagamento está em análise.");
+                      setMessage("Seu pagamento está em análise de segurança.");
                       setStatus(PaymentStatus.SUCCESS);
                       setTimeout(() => onPaymentSuccess(result.id), 4000);
                   } else {
@@ -180,7 +212,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
             try { cardForm.unmount(); } catch(e) {}
         }
     };
-  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, onPaymentSuccess, isScriptLoaded, isFormMounted]);
+  }, [mpPublicKey, invoice.amount, invoice.id, payerEmail, payerPhone, onPaymentSuccess, isScriptLoaded, isFormMounted]);
 
   const inputStyle = "w-full h-10 px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-900 dark:text-white transition-all";
   const containerStyle = "h-10 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg px-3 flex items-center overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 transition-all";
@@ -190,7 +222,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ invoice, mpPublicKey, onBack,
         return (
             <div className="flex flex-col items-center justify-center p-8 space-y-4 min-h-[300px]">
                 <LoadingSpinner />
-                <p className="text-slate-600 dark:text-slate-300 font-medium">Processando pagamento...</p>
+                <p className="text-slate-600 dark:text-slate-300 font-medium">Validando segurança...</p>
                 <p className="text-xs text-slate-400">Não feche esta janela.</p>
             </div>
         );

@@ -56,12 +56,14 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         description, 
         payer, 
         external_reference,
-        deviceId // Recebe o Device ID do frontend
+        deviceId, // Identificador do dispositivo
+        items // Lista de itens detalhada para antifraude
     } = req.body;
 
     try {
         const payment = new Payment(client);
         
+        // Constrói o corpo da requisição com foco em Antifraude (additional_info)
         const body: any = {
             token,
             issuer_id,
@@ -69,14 +71,27 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
             transaction_amount: Number(transaction_amount),
             installments: Number(installments),
             description,
-            payer,
-            external_reference
+            payer: {
+                ...payer,
+                // Garante que o telefone esteja no formato correto se enviado
+                // payer.phone deve ser { area_code: string, number: string }
+            },
+            external_reference,
+            // Device ID na raiz (ou metadata dependendo da versão, raiz é padrão v1/payments)
+            device_id: deviceId, 
+            metadata: { device_id: deviceId }, // Redundância para segurança
+            
+            // Dados estendidos para melhorar aprovação
+            additional_info: {
+                items: items, // [ {id, title, description, category_id, quantity, unit_price} ]
+                ip_address: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+                payer: {
+                    first_name: payer.first_name, // Opcional se já estiver no payer raiz, mas bom reforçar
+                    last_name: payer.last_name,
+                    phone: payer.phone // Importante para antifraude
+                }
+            }
         };
-
-        // Adiciona metadata com o device_id para auxiliar na prevenção de fraudes
-        if (deviceId) {
-            body.metadata = { device_id: deviceId };
-        }
 
         const result = await payment.create({ body });
         
