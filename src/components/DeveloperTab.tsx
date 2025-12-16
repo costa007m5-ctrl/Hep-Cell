@@ -5,7 +5,6 @@ import Alert from './Alert';
 
 // --- Funções de Criptografia para PKCE (Proof Key for Code Exchange) ---
 
-// Converte um buffer de dados para uma string no formato Base64URL
 function base64URLEncode(str: ArrayBuffer): string {
     return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(str))))
         .replace(/\+/g, '-')
@@ -13,7 +12,6 @@ function base64URLEncode(str: ArrayBuffer): string {
         .replace(/=/g, '');
 }
 
-// Gera o "desafio" a partir do "verificador", usando hash SHA-256
 async function generateCodeChallenge(verifier: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(verifier);
@@ -100,8 +98,8 @@ const MercadoPagoIntegration: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [accessToken, setAccessToken] = useState<string | null>(null);
-    const [mpConnected, setMpConnected] = useState<boolean | null>(null); // null = verificando, true = conectado, false = desconectado
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [mpConnected, setMpConnected] = useState<boolean | null>(null);
 
     // Verifica o status da conexão ao carregar a página
     useEffect(() => {
@@ -117,7 +115,7 @@ const MercadoPagoIntegration: React.FC = () => {
         if (code) {
             const codeVerifier = sessionStorage.getItem('mp_code_verifier');
             if (!codeVerifier) {
-                setError("Erro de segurança: o verificador de código não foi encontrado. Tente conectar novamente.");
+                setError("Erro de segurança: verifique se você iniciou a conexão por esta página.");
                 sessionStorage.removeItem('mp_code_verifier');
                 return;
             }
@@ -125,6 +123,7 @@ const MercadoPagoIntegration: React.FC = () => {
             setIsLoading(true);
             const redirectUri = window.location.origin + window.location.pathname;
             
+            // Troca o código pelo token e SALVA NO BANCO automaticamente
             fetch('/api/admin/generate-mercadopago-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -133,8 +132,8 @@ const MercadoPagoIntegration: React.FC = () => {
             .then(res => res.json())
             .then(data => {
                 if (data.error) throw new Error(data.message || data.error);
-                setAccessToken(data.accessToken);
-                setMpConnected(true); // Atualiza o status para conectado
+                setSuccessMsg("Integração concluída! O sistema já está processando pagamentos.");
+                setMpConnected(true);
             })
             .catch(err => setError(err.message))
             .finally(() => {
@@ -175,23 +174,23 @@ const MercadoPagoIntegration: React.FC = () => {
 
     return (
         <section>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Livre / Mercado Pago</h2>
-            <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-4">
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Siga os passos abaixo para conectar sua conta de forma segura e gerar o token de acesso para pagamentos e produtos.
-                </p>
-                <div>
-                    <h3 className="font-bold">Passo 1: Configure as Variáveis de Ambiente</h3>
-                    <p className="text-xs text-slate-500 mt-1 mb-2">Adicione as seguintes chaves no painel do seu projeto na Vercel:</p>
-                     <ul className="list-disc list-inside text-sm font-mono space-y-1">
-                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">ML_CLIENT_ID</code></li>
-                        <li><code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs">ML_CLIENT_SECRET</code></li>
-                    </ul>
-                     <p className="text-xs text-slate-500 mt-2">Você pode encontrar essas chaves nas <strong>Credenciais</strong> da sua aplicação no <a href="https://www.mercadopago.com.br/developers" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline">painel de desenvolvedor do Mercado Pago</a>.</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Integração com Mercado Pago</h2>
+            <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 space-y-6 shadow-sm">
+                <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-lg text-slate-900 dark:text-white">Conexão Automática</h3>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                            Clique no botão abaixo para autorizar o Relp Cell a processar pagamentos na sua conta do Mercado Pago.
+                            O token será gerado e salvo automaticamente no sistema.
+                        </p>
+                    </div>
                 </div>
-                 <div>
-                    <h3 className="font-bold">Passo 2: Gere seu Access Token</h3>
-                    <p className="text-xs text-slate-500 mt-1 mb-2">Clique no botão abaixo para autorizar o aplicativo. Você será redirecionado e depois voltará para esta tela.</p>
+
+                <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-slate-100 dark:border-slate-700">
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Status da Integração</h4>
                     
                     {mpConnected === null && (
                          <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -200,45 +199,44 @@ const MercadoPagoIntegration: React.FC = () => {
                     )}
                     
                     {mpConnected === true && (
-                        <div className="flex items-center gap-2 p-3 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-md text-sm font-medium">
-                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span>Conexão Ativa! O Access Token está configurado no servidor.</span>
+                        <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800/50">
+                           <div className="bg-green-100 dark:bg-green-800 p-1 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg></div>
+                           <div>
+                               <p className="font-bold text-sm">Conectado com Sucesso!</p>
+                               <p className="text-xs opacity-80">O sistema está pronto para vender.</p>
+                           </div>
                         </div>
                     )}
                     
                     {mpConnected === false && (
-                         <button onClick={handleConnect} disabled={isLoading || isConnecting} className="py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50">
-                            {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar com Mercado Pago e Gerar Token'}
-                        </button>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-100">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                                <span>Sistema desconectado. Vendas indisponíveis.</span>
+                            </div>
+                            <button 
+                                onClick={handleConnect} 
+                                disabled={isLoading || isConnecting} 
+                                className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-lg shadow-blue-500/30 transition-all active:scale-[0.98]"
+                            >
+                                {isLoading || isConnecting ? <LoadingSpinner /> : 'Conectar Agora'}
+                            </button>
+                        </div>
                     )}
                 </div>
-                 {error && <Alert message={error} type="error" />}
-                 {accessToken && (
-                    <div className="animate-fade-in">
-                        <h3 className="font-bold">Passo 3: Salve seu Access Token</h3>
-                        <p className="text-xs text-slate-500 mt-1 mb-2">Token gerado com sucesso! Copie o valor abaixo e cole na variável de ambiente <code className="bg-slate-200 dark:bg-slate-700 p-1 rounded text-xs font-mono">MERCADO_PAGO_ACCESS_TOKEN</code> no seu painel da Vercel.</p>
-                        <CodeBlock title="Seu Access Token de Produção" code={accessToken} />
-                    </div>
-                )}
 
-                {/* Passo 4: Webhook Configuration */}
-                <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
-                    <h3 className="font-bold mb-2">Passo 4: Configurar Webhook (Retorno Automático)</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Para que as faturas sejam baixadas automaticamente quando o cliente paga, você precisa cadastrar esta URL no Mercado Pago:
-                        <br/>
-                        1. Vá em <strong>Seu Negócio {'>'} Configurações {'>'} Notificações</strong>.
-                        <br/>
-                        2. Em <strong>Webhooks</strong>, cole a URL abaixo.
-                        <br/>
-                        3. Marque os eventos: <strong>Pagamentos</strong> (payments).
+                 {error && <Alert message={error} type="error" />}
+                 {successMsg && <Alert message={successMsg} type="success" />}
+
+                {/* Webhook Info */}
+                <div className="pt-6 border-t border-slate-200 dark:border-slate-700">
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-2 text-sm">Configuração de Retorno (Webhook)</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                        Para baixa automática de pagamentos, cadastre esta URL no painel do Mercado Pago (Seu Negócio {'>'} Configurações {'>'} Notificações).
                     </p>
                     <CodeBlock 
                         title="URL do Webhook" 
                         code={webhookUrl} 
-                        explanation="Cole esta URL nas configurações de Webhook do Mercado Pago."
                     />
                 </div>
             </div>
@@ -259,7 +257,7 @@ const InvoiceCheckTester: React.FC = () => {
             
             let msg = "";
             if (data.success) {
-                msg = `Sucesso! ${data.notifications} notificações enviadas e ${data.emails} emails simulados.`;
+                msg = `Sucesso! ${data.notifications_sent} notificações enviadas e limpeza realizada.`;
             } else {
                 msg = data.message || data.error || "Erro desconhecido";
             }

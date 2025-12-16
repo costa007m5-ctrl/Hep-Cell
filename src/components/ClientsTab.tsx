@@ -166,8 +166,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             }
         } catch (e: unknown) { 
             console.error(e); 
-            const errorMsg = e instanceof Error ? e.message : String(e);
-            alert(errorMsg || 'Erro de conexão.'); 
+            const errorMsg = e instanceof Error ? e.message : 'Erro de conexão.';
+            alert(errorMsg); 
         }
     };
 

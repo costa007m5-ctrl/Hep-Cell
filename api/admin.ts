@@ -24,8 +24,12 @@ function getGeminiClient() {
     return new GoogleGenAI({ apiKey });
 }
 
-function getMercadoPagoClient() {
-    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+// Modificado para suportar teste com token do banco ou env
+async function getMercadoPagoClient(supabase: SupabaseClient) {
+    // Tenta pegar do banco primeiro
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
+    const accessToken = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    
     if (!accessToken) {
         throw new Error('O Access Token do Mercado Pago não está configurado.');
     }
@@ -37,6 +41,75 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
         await supabase.from('action_logs').insert({ action_type, status, description, details });
     } catch (e) {
         console.error('Log error', e);
+    }
+}
+
+// --- Mercado Pago OAuth Handlers ---
+
+async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) {
+    const { code_challenge } = req.body;
+    const clientId = process.env.ML_CLIENT_ID; // Usando ML_CLIENT_ID como App ID do MP
+    
+    if (!clientId) return res.status(500).json({ error: 'ML_CLIENT_ID (App ID) não configurado na Vercel.' });
+
+    const redirectUri = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/admin`; // Redireciona para admin para capturar o code
+    // Nota: Na prática o frontend manda a redirectUri correta baseada na window.location
+    
+    // URL oficial de Auth do Mercado Pago
+    // state e code_challenge são para segurança (PKCE)
+    const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${clientId}&response_type=code&platform_id=mp&state=${code_challenge}&redirect_uri=${encodeURIComponent(req.body.redirectUri || redirectUri)}`;
+    
+    return res.json({ authUrl });
+}
+
+async function handleGenerateMpToken(req: VercelRequest, res: VercelResponse) {
+    const { code, redirectUri, codeVerifier } = req.body;
+    const clientId = process.env.ML_CLIENT_ID;
+    const clientSecret = process.env.ML_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) return res.status(500).json({ error: 'Credenciais do App (Client ID/Secret) não configuradas.' });
+
+    try {
+        const response = await fetch('https://api.mercadopago.com/oauth/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                client_id: clientId,
+                client_secret: clientSecret,
+                code: code,
+                grant_type: 'authorization_code',
+                redirect_uri: redirectUri,
+                code_verifier: codeVerifier // Para PKCE
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error('Erro MP OAuth:', data);
+            throw new Error(data.message || 'Falha na autenticação com Mercado Pago');
+        }
+
+        // Salva Automaticamente no Supabase
+        const supabase = getSupabaseAdminClient();
+        
+        await supabase.from('system_settings').upsert([
+            { key: 'mp_access_token', value: data.access_token },
+            { key: 'mp_public_key', value: data.public_key },
+            { key: 'mp_refresh_token', value: data.refresh_token },
+            { key: 'mp_user_id', value: String(data.user_id) },
+            { key: 'mp_expires_in', value: String(data.expires_in) }
+        ], { onConflict: 'key' });
+
+        await logAction(supabase, 'MP_INTEGRATION', 'SUCCESS', 'Integração Mercado Pago realizada com sucesso via OAuth.');
+
+        return res.json({ success: true, message: 'Conectado com sucesso! Tokens salvos.' });
+
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
     }
 }
 
@@ -68,8 +141,10 @@ async function handleTestGemini(_req: VercelRequest, res: VercelResponse) {
 
 async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
     try {
-        const client = getMercadoPagoClient();
+        const supabase = getSupabaseAdminClient();
+        const client = await getMercadoPagoClient(supabase);
         const payment = new Payment(client);
+        // Tenta buscar pagamentos recentes para validar o token
         await payment.search({ options: { limit: 1 } });
         return res.status(200).json({ message: "Mercado Pago OK!" });
     } catch (e: any) {
@@ -166,7 +241,9 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
             // Integração MP
             if (['pix', 'boleto', 'redirect'].includes(paymentMethod)) {
-                const mpClient = getMercadoPagoClient();
+                // Obtém cliente MP (Dinamico)
+                const mpClient = await getMercadoPagoClient(supabase);
+                
                 const { data: user } = await supabase.auth.admin.getUserById(userId);
                 const email = user?.user?.email || 'cliente@relpcell.com';
                 const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -221,9 +298,10 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                             }
                         });
                         if (result.barcode) {
+                             const barcode = (result as any).barcode?.content;
                              paymentData = {
                                 type: 'boleto',
-                                barcode: result.barcode.content,
+                                barcode: barcode,
                                 url: result.transaction_details?.external_resource_url,
                                 paymentId: result.id
                              };
@@ -484,7 +562,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (req.method === 'POST') {
             if (path === '/api/admin/create-sale') return await handleCreateSale(req, res);
             if (path === '/api/admin/negotiate-debt') return await handleNegotiateDebt(req, res);
-            if (path === '/api/admin/manage-invoice') return await handleManageInvoice(req, res); // Rota Nova
+            if (path === '/api/admin/manage-invoice') return await handleManageInvoice(req, res);
             if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
             if (path === '/api/admin/manage-coins') return await handleManageCoins(req, res);
             if (path === '/api/admin/generate-poll') return await handleGeneratePoll(req, res);
@@ -497,6 +575,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
             if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
             if (path === '/api/admin/test-mercadolivre') return await handleTestMercadoLivre(req, res);
+            
+            // MP Auth Routes (NOVOS)
+            if (path === '/api/admin/get-mp-auth-url') return await handleGetMpAuthUrl(req, res);
+            if (path === '/api/admin/generate-mercadopago-token') return await handleGenerateMpToken(req, res);
         }
         
         if (req.method === 'GET') {
