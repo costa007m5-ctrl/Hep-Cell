@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 export const generateSuccessMessage = async (
@@ -13,12 +14,14 @@ export const generateSuccessMessage = async (
   try {
     const prompt = `Gere uma mensagem curta, amigável e profissional de confirmação de pagamento para um cliente chamado "${customerName}". O valor pago foi de R$ ${amount}. Agradeça ao cliente por sua pontualidade e por escolher a "Relp Cell". A mensagem deve ser em português do Brasil.`;
 
+    // Fix: Updated to recommended model gemini-3-flash-preview
     const response = await genAIClient.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     });
 
-    return response.text;
+    // Fix: Using .text property with fallback
+    return response.text || `Obrigado, ${customerName}! Seu pagamento de R$ ${amount} foi processado com sucesso. Agradecemos por escolher a Relp Cell.`;
   } catch (error) {
     console.error("Error generating success message with Gemini:", error);
     return `Obrigado, ${customerName}! Seu pagamento de R$ ${amount} foi processado com sucesso. Agradecemos por escolher a Relp Cell.`;

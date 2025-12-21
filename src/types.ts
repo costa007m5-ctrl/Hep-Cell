@@ -39,12 +39,12 @@ export interface Product {
   processor?: string;
   ram?: string;
   storage?: string;
-  display?: string;
-  os?: string;
-  camera?: string;
-  battery?: string;
-  connectivity?: string;
-  ports?: string;
+  display?: string; // Ex: 6.9" IPS LCD 120Hz
+  os?: string; // Ex: Android 15
+  camera?: string; // Ex: 50MP + 8MP
+  battery?: string; // Ex: 5200mAh
+  connectivity?: string; // Wi-Fi, NFC, 5G
+  ports?: string; // USB-C, P2
   voltage?: string;
   color?: string;
 
@@ -134,19 +134,38 @@ export interface AppNotification {
   created_at: string;
 }
 
-export interface Contract {
-    id: string;
-    user_id: string;
-    title: string;
-    items: string;
-    total_value: number;
-    installments: number;
-    status: 'Ativo' | 'Pendente' | 'Assinado' | 'Cancelado' | 'pending_signature';
-    signature_data?: string | null;
-    terms_accepted?: boolean;
-    created_at: string;
+export interface LimitRequest {
+  id: string;
+  user_id: string;
+  requested_amount: number;
+  current_limit: number;
+  justification: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_response_reason?: string;
+  created_at: string;
+  profiles?: Profile;
 }
 
+/**
+ * Fix: Added missing Contract interface
+ * Interface para os contratos assinados digitalmente.
+ */
+export interface Contract {
+  id: string;
+  user_id: string;
+  title: string;
+  items: string;
+  total_value: number;
+  status: 'pending_signature' | 'Assinado' | 'Ativo' | 'Cancelado';
+  signature_data?: string | null;
+  terms_accepted?: boolean;
+  created_at: string;
+}
+
+/**
+ * Fix: Added missing ScoreHistory interface
+ * Histórico de alterações de score de crédito.
+ */
 export interface ScoreHistory {
   id: string;
   user_id: string;
@@ -156,6 +175,10 @@ export interface ScoreHistory {
   created_at: string;
 }
 
+/**
+ * Fix: Added missing ProductReview interface
+ * Avaliações de produtos deixadas pelos clientes.
+ */
 export interface ProductReview {
   id: string;
   product_id: string;
