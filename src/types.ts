@@ -52,7 +52,7 @@ export interface Product {
   promotional_price?: number;
   max_installments: number;
   pix_discount_percent?: number;
-  cost_price?: number; // Oculto do cliente
+  cost_price: number; // Campo de custo para cálculo de lucro
 
   // Estoque
   stock: number;
@@ -145,7 +145,6 @@ export interface Contract {
     created_at: string;
 }
 
-// Added ScoreHistory to fix import error in src/components/ScoreHistoryView.tsx on line 2
 export interface ScoreHistory {
   id: string;
   user_id: string;
@@ -155,7 +154,6 @@ export interface ScoreHistory {
   created_at: string;
 }
 
-// Added ProductReview to fix import errors in src/components/store/ProductDetails.tsx on line 3 and src/components/ReviewsTab.tsx on line 3
 export interface ProductReview {
   id: string;
   product_id: string;
@@ -166,7 +164,6 @@ export interface ProductReview {
   status: 'pending' | 'approved' | 'rejected';
   reply?: string;
   created_at: string;
-  // For joined queries in admin views
   products?: {
     name: string;
     image_url: string | null;
