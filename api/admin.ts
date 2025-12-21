@@ -9,22 +9,23 @@ function getSupabaseAdmin() {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// --- IA: AUTO PREENCHIMENTO ULTRA PRECISO ---
+// --- IA: AUTO PREENCHIMENTO ULTRA DETALHADO (VERSÃO 3.0) ---
 async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     const { rawText } = req.body;
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: `Analise as especificações deste produto: "${rawText}".
+            contents: `Analise as especificações técnicas deste eletrônico: "${rawText}".
             
-            REGRAS DE CONVERSÃO OBRIGATÓRIAS:
-            1. DIMENSÕES: Se o texto informar mm (milímetros), você DEVE converter para cm (centímetros) dividindo por 10. Ex: 171,4mm vira 17.14.
-            2. PESO: Extraia o peso puro em gramas (g). Se disser "194g", o valor é 194.
-            3. DADOS: Extraia processador, RAM, armazenamento e bateria.
-            4. PREÇO: Sugira um valor de mercado se não houver no texto.
+            REGRAS DE EXTRAÇÃO:
+            1. DIMENSÕES: mm -> cm (divida por 10). Ex: 171.4mm = 17.14cm.
+            2. PESO: Extraia o número em gramas.
+            3. SKU: Crie um SKU único baseado na marca/modelo.
+            4. CONTEÚDO: Liste o que deve vir na embalagem.
+            5. PREÇO: Se não houver, estime baseado em mercado.
             
-            Retorne RIGOROSAMENTE apenas um JSON.`,
+            Retorne JSON rigoroso com os campos de Produto Eletrônico.`,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -34,18 +35,27 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
                         brand: { type: Type.STRING },
                         model: { type: Type.STRING },
                         category: { type: Type.STRING },
-                        price: { type: Type.NUMBER },
+                        sku: { type: Type.STRING },
+                        condition: { type: Type.STRING, description: "novo, lacrado ou recondicionado" },
+                        description: { type: Type.STRING },
+                        description_short: { type: Type.STRING },
+                        highlights: { type: Type.STRING },
                         processor: { type: Type.STRING },
                         ram: { type: Type.STRING },
                         storage: { type: Type.STRING },
+                        display: { type: Type.STRING },
+                        os: { type: Type.STRING },
+                        camera: { type: Type.STRING },
                         battery: { type: Type.STRING },
+                        connectivity: { type: Type.STRING },
+                        price: { type: Type.NUMBER },
                         weight: { type: Type.NUMBER },
                         height: { type: Type.NUMBER },
                         width: { type: Type.NUMBER },
                         length: { type: Type.NUMBER },
-                        description: { type: Type.STRING }
-                    },
-                    required: ["name", "price", "weight"]
+                        package_content: { type: Type.STRING },
+                        certifications: { type: Type.STRING }
+                    }
                 }
             }
         });
@@ -55,69 +65,50 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- TESTES DE CONEXÃO ---
-async function handleTestSupabase(res: VercelResponse) {
-    const supabase = getSupabaseAdmin();
-    try {
-        const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
-        if (error) throw error;
-        return res.json({ success: true, message: "Supabase Conectado." });
-    } catch (e: any) {
-        return res.status(500).json({ error: e.message });
-    }
-}
-
-async function handleTestGemini(res: VercelResponse) {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: "Diga 'IA RELP ATIVA'",
-        });
-        return res.json({ success: true, message: response.text });
-    } catch (e: any) {
-        return res.status(500).json({ error: e.message });
-    }
-}
-
-// --- SQL MANUAL E SETUP ---
-async function handleExecuteSql(req: VercelRequest, res: VercelResponse) {
-    const { sql } = req.body;
-    const supabase = getSupabaseAdmin();
-    try {
-        const { data, error } = await supabase.rpc('exec_sql', { sql_query: sql });
-        if (error) {
-            if (error.message?.includes('function exec_sql(sql_query => text) does not exist')) {
-                throw new Error("Motor SQL não instalado. Siga o Passo 1 na aba Ferramentas Dev.");
-            }
-            throw error;
-        }
-        return res.json({ success: true, data });
-    } catch (e: any) {
-        return res.status(500).json({ error: e.message });
-    }
-}
-
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     const sql = `
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
+        -- Expansão da Tabela de Produtos para o Form Completo
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS description_short TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS highlights TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS secondary_images TEXT[];
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS processor TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS ram TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS storage TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS display TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS os TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS camera TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS battery TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS connectivity TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS ports TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS voltage TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS pix_discount_percent NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_alert INTEGER DEFAULT 2;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'pronta_entrega';
         ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER DEFAULT 12;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER DEFAULT 3;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS has_invoice BOOLEAN DEFAULT TRUE;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS certifications TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS legal_info TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_highlight BOOLEAN DEFAULT FALSE;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_best_seller BOOLEAN DEFAULT FALSE;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT TRUE;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
     `;
     try {
         const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
-        if (error) {
-             if (error.message?.includes('function exec_sql(sql_query => text) does not exist')) {
-                throw new Error("Motor SQL não instalado. Siga o Passo 1 na aba Ferramentas Dev.");
-            }
-            throw error;
-        }
-        return res.json({ success: true, message: "Banco de dados sincronizado!" });
+        if (error) throw error;
+        return res.json({ success: true, message: "Banco de dados sincronizado com a versão 3.0!" });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -125,9 +116,13 @@ async function handleSetupDatabase(res: VercelResponse) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
-    if (path.includes('/test-supabase')) return await handleTestSupabase(res);
-    if (path.includes('/test-gemini')) return await handleTestGemini(res);
-    if (path.includes('/execute-sql')) return await handleExecuteSql(req, res);
+    if (path.includes('/execute-sql')) {
+        const { sql } = req.body;
+        const supabase = getSupabaseAdmin();
+        const { data, error } = await supabase.rpc('exec_sql', { sql_query: sql });
+        if (error) return res.status(500).json({ error: error.message });
+        return res.json({ success: true, data });
+    }
     if (path.includes('/setup-database')) return await handleSetupDatabase(res);
     if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
 
@@ -140,10 +135,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (path.includes('/products')) {
             const { data } = await supabase.from('products').select('*').order('name');
             return res.json(data || []);
-        }
-        if (path.includes('/settings')) {
-            const { data } = await supabase.from('system_settings').select('*');
-            return res.json(data?.reduce((acc: any, c: any) => ({...acc, [c.key]: c.value}), {}) || {});
         }
     }
 

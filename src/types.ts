@@ -28,6 +28,7 @@ export interface Product {
   
   // Descrição
   description: string | null;
+  description_short?: string | null;
   highlights: string | null;
   
   // Imagens
@@ -52,7 +53,7 @@ export interface Product {
   promotional_price?: number;
   max_installments: number;
   pix_discount_percent?: number;
-  cost_price: number; // Campo de custo para cálculo de lucro
+  cost_price: number;
 
   // Estoque
   stock: number;
@@ -71,6 +72,7 @@ export interface Product {
   has_invoice: boolean;
   certifications?: string; // Anatel, etc
   package_content?: string;
+  legal_info?: string;
 
   // Visibilidade
   is_highlight: boolean;
