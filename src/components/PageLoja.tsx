@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Product, Profile, Tab } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import { supabase } from '../services/clients';
@@ -25,8 +25,19 @@ const PageLoja: React.FC = () => {
     
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [showCepModal, setShowCepModal] = useState(false);
+    
+    // Estados do Endereço no Modal
     const [newCep, setNewCep] = useState('');
+    const [tempAddress, setTempAddress] = useState({
+        street: '',
+        neighborhood: '',
+        city: '',
+        uf: '',
+        number: '',
+        complement: ''
+    });
     const [isUpdatingCep, setIsUpdatingCep] = useState(false);
+    const numberInputRef = useRef<HTMLInputElement>(null);
 
     const { addToast } = useToast();
 
@@ -39,7 +50,6 @@ const PageLoja: React.FC = () => {
                 ]);
                 const productsData = await productsRes.json();
                 
-                // Atribui valores logísticos mockados se não existirem no banco
                 const enrichedProducts = productsData.map((p: any) => ({
                     ...p,
                     weight: p.weight || 500,
@@ -60,43 +70,77 @@ const PageLoja: React.FC = () => {
         init();
     }, []);
 
-    const handleUpdateCep = async () => {
+    // Busca automática ao digitar o CEP
+    useEffect(() => {
         const cleanCep = newCep.replace(/\D/g, '');
-        if (cleanCep.length !== 8) {
-            addToast("CEP inválido", "error");
-            return;
+        if (cleanCep.length === 8) {
+            handleLookupCep(cleanCep);
+        } else {
+            setTempAddress({ street: '', neighborhood: '', city: '', uf: '', number: '', complement: '' });
         }
+    }, [newCep]);
+
+    const handleLookupCep = async (cep: string) => {
         setIsUpdatingCep(true);
         try {
-            const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+            const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
             const data = await res.json();
             
             if (data.erro) throw new Error("CEP não encontrado");
+            if (data.uf !== 'AP') throw new Error("Entregamos apenas no Amapá.");
             
-            // Regra: Apenas Amapá
-            if (data.uf !== 'AP') {
-                throw new Error("Entregamos apenas no estado do Amapá.");
-            }
-
-            // Regra: Apenas Macapá e Santana
             const allowedCities = ['Macapá', 'Santana'];
             if (!allowedCities.includes(data.localidade)) {
-                throw new Error("No momento entregamos apenas em Macapá e Santana.");
+                throw new Error("Entregamos apenas em Macapá e Santana.");
             }
             
+            setTempAddress(prev => ({
+                ...prev,
+                street: data.logradouro,
+                neighborhood: data.bairro,
+                city: data.localidade,
+                uf: data.uf
+            }));
+
+            // Foca no campo de número após carregar o endereço
+            setTimeout(() => numberInputRef.current?.focus(), 100);
+
+        } catch (e: any) {
+            addToast(e.message || "Erro ao buscar CEP", "error");
+            setNewCep('');
+        } finally { setIsUpdatingCep(false); }
+    };
+
+    const handleConfirmLocation = async () => {
+        if (!tempAddress.number) {
+            addToast("Por favor, informe o número da residência.", "error");
+            return;
+        }
+
+        setIsUpdatingCep(true);
+        try {
+            const finalAddress = {
+                zip_code: newCep.replace(/\D/g, ''),
+                street_name: tempAddress.street,
+                street_number: tempAddress.number,
+                neighborhood: tempAddress.neighborhood,
+                city: tempAddress.city,
+                federal_unit: tempAddress.uf,
+                // Opcionalmente você pode adicionar o campo complement ao seu tipo Profile
+            };
+
             if (userProfile) {
-                const updated = { ...userProfile, zip_code: cleanCep, city: data.localidade, street_name: data.logradouro, neighborhood: data.bairro, federal_unit: data.uf };
+                const updated = { ...userProfile, ...finalAddress };
                 await updateProfile(updated);
                 setUserProfile(updated);
             } else {
-                // Se não logado, apenas salva na sessão para cálculo
-                sessionStorage.setItem('relp_temp_cep', JSON.stringify(data));
+                sessionStorage.setItem('relp_temp_location', JSON.stringify(finalAddress));
             }
 
-            addToast("Localização definida para o Amapá!", "success");
+            addToast("Localização salva com sucesso!", "success");
             setShowCepModal(false);
         } catch (e: any) {
-            addToast(e.message || "Erro ao buscar CEP", "error");
+            addToast("Erro ao salvar localização.", "error");
         } finally { setIsUpdatingCep(false); }
     };
 
@@ -120,12 +164,25 @@ const PageLoja: React.FC = () => {
                     <div className="flex items-center justify-between">
                         <Logo className="h-8 w-8" showText={true} />
                         <div 
-                            onClick={() => setShowCepModal(true)}
+                            onClick={() => {
+                                if (userProfile?.zip_code) {
+                                    setNewCep(userProfile.zip_code);
+                                    setTempAddress({
+                                        street: userProfile.street_name || '',
+                                        neighborhood: userProfile.neighborhood || '',
+                                        city: userProfile.city || '',
+                                        uf: userProfile.federal_unit || '',
+                                        number: userProfile.street_number || '',
+                                        complement: ''
+                                    });
+                                }
+                                setShowCepModal(true);
+                            }}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-full cursor-pointer hover:bg-slate-200 transition-colors"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-indigo-500" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
                             <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate max-w-[120px]">
-                                {userProfile?.zip_code ? `${userProfile.city}, AP` : 'Informe seu CEP'}
+                                {userProfile?.zip_code ? `${userProfile.city}, ${userProfile.federal_unit}` : 'Informe seu CEP'}
                             </span>
                         </div>
                     </div>
@@ -192,25 +249,70 @@ const PageLoja: React.FC = () => {
             </main>
 
             <Modal isOpen={showCepModal} onClose={() => setShowCepModal(false)}>
-                <div className="space-y-4">
+                <div className="space-y-5">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-indigo-100 rounded-xl text-indigo-600">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         </div>
-                        <h3 className="text-xl font-bold">Onde você está?</h3>
+                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">Onde você está?</h3>
                     </div>
-                    <p className="text-sm text-slate-500">No momento realizamos entregas exclusivas em <strong>Macapá</strong> e <strong>Santana</strong>.</p>
-                    <input 
-                        type="text" value={newCep} onChange={e => setNewCep(e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2'))}
-                        className="w-full p-4 text-2xl font-black text-center bg-slate-100 dark:bg-slate-700 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/20 dark:text-white"
-                        placeholder="00000-000" maxLength={9}
-                    />
-                    <button 
-                        onClick={handleUpdateCep} disabled={isUpdatingCep}
-                        className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 flex justify-center items-center gap-2"
-                    >
-                        {isUpdatingCep ? <LoadingSpinner /> : 'Definir Localização'}
-                    </button>
+                    
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Preencha seu CEP e nós cuidaremos do resto.</p>
+                    
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">CEP (Apenas Macapá/Santana)</label>
+                            <input 
+                                type="text" value={newCep} 
+                                onChange={e => setNewCep(e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2'))}
+                                className="w-full p-4 text-2xl font-black text-center bg-slate-100 dark:bg-slate-700 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/20 dark:text-white transition-all"
+                                placeholder="00000-000" maxLength={9}
+                            />
+                            {isUpdatingCep && <div className="absolute right-4 top-10"><LoadingSpinner /></div>}
+                        </div>
+
+                        {tempAddress.street && (
+                            <div className="space-y-4 animate-fade-in-up">
+                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
+                                    <p className="text-[10px] font-black uppercase text-indigo-400 mb-1">Endereço Encontrado</p>
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{tempAddress.street}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tempAddress.neighborhood}, {tempAddress.city} - {tempAddress.uf}</p>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="col-span-1">
+                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">Número</label>
+                                        <input 
+                                            ref={numberInputRef}
+                                            type="text" 
+                                            value={tempAddress.number}
+                                            onChange={e => setTempAddress({...tempAddress, number: e.target.value})}
+                                            className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            placeholder="Ex: 123"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">Complemento (Opcional)</label>
+                                        <input 
+                                            type="text" 
+                                            value={tempAddress.complement}
+                                            onChange={e => setTempAddress({...tempAddress, complement: e.target.value})}
+                                            className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            placeholder="Ex: Apto 12, Fundos..."
+                                        />
+                                    </div>
+                                </div>
+
+                                <button 
+                                    onClick={handleConfirmLocation} 
+                                    disabled={!tempAddress.number || isUpdatingCep}
+                                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all active:scale-95"
+                                >
+                                    Confirmar Localização
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </Modal>
         </div>
