@@ -16,6 +16,71 @@ export enum Tab {
   NOTIFICATIONS,
 }
 
+export interface Product {
+  id: string;
+  name: string;
+  brand: string;
+  model: string;
+  category: string;
+  sku: string;
+  status: 'active' | 'inactive';
+  condition: 'novo' | 'lacrado' | 'recondicionado';
+  
+  // Descrição
+  description: string | null;
+  highlights: string | null;
+  
+  // Imagens
+  image_url: string | null;
+  secondary_images?: string[];
+
+  // Especificações Técnicas
+  processor?: string;
+  ram?: string;
+  storage?: string;
+  display?: string;
+  os?: string;
+  camera?: string;
+  battery?: string;
+  connectivity?: string;
+  ports?: string;
+  voltage?: string;
+  color?: string;
+
+  // Preço e Pagamento
+  price: number;
+  promotional_price?: number;
+  max_installments: number;
+  pix_discount_percent?: number;
+  cost_price?: number; // Oculto do cliente
+
+  // Estoque
+  stock: number;
+  min_stock_alert: number;
+  availability: 'pronta_entrega' | 'sob_encomenda';
+
+  // Frete (Interno)
+  weight: number; // em gramas
+  height: number; // em cm
+  width: number; // em cm
+  length: number; // em cm
+  
+  // Garantia e Legal
+  warranty_manufacturer?: number; // meses
+  warranty_store?: number; // meses
+  has_invoice: boolean;
+  certifications?: string; // Anatel, etc
+  package_content?: string;
+
+  // Visibilidade
+  is_highlight: boolean;
+  is_best_seller: boolean;
+  is_new: boolean;
+  allow_reviews: boolean;
+
+  created_at: string;
+}
+
 export interface Invoice {
   id: string;
   user_id: string; 
@@ -33,19 +98,6 @@ export interface Invoice {
   notes?: string | null;
   discountValue?: number; 
   created_at: string;
-}
-
-export interface ProductReview {
-  id: string;
-  product_id: string;
-  user_id: string;
-  user_name: string;
-  rating: number;
-  comment: string;
-  reply?: string;
-  status: 'pending' | 'approved' | 'rejected';
-  created_at: string;
-  products?: { name: string; image_url: string };
 }
 
 export interface Profile {
@@ -70,49 +122,14 @@ export interface Profile {
   coins_balance?: number;
 }
 
-export interface ScoreHistory {
+export interface AppNotification {
   id: string;
   user_id: string;
-  change: number;
-  new_score: number;
-  reason: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  read: boolean;
   created_at: string;
-}
-
-export interface Product {
-  id: string;
-  name: string;
-  description: string | null;
-  price: number;
-  stock: number;
-  image_url: string | null;
-  category?: string; 
-  brand?: string; 
-  rating?: number; 
-  reviews_count?: number; 
-  is_new?: boolean; 
-  is_full?: boolean;
-  free_shipping?: boolean;
-  // Campos Logísticos (Ocultos do Cliente)
-  weight?: number; // em gramas
-  height?: number; // em cm
-  width?: number; // em cm
-  length?: number; // em cm
-  created_at: string;
-}
-
-export interface CartItem extends Product {
-    cartId: string;
-    quantity: number;
-}
-
-export interface LimitRequest {
-    id: string;
-    user_id: string;
-    requested_amount: number;
-    current_limit: number;
-    status: 'pending' | 'approved' | 'rejected';
-    created_at: string;
 }
 
 export interface Contract {
@@ -128,12 +145,30 @@ export interface Contract {
     created_at: string;
 }
 
-export interface AppNotification {
+// Added ScoreHistory to fix import error in src/components/ScoreHistoryView.tsx on line 2
+export interface ScoreHistory {
   id: string;
   user_id: string;
-  title: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'alert';
-  read: boolean;
+  change: number;
+  new_score: number;
+  reason: string;
   created_at: string;
+}
+
+// Added ProductReview to fix import errors in src/components/store/ProductDetails.tsx on line 3 and src/components/ReviewsTab.tsx on line 3
+export interface ProductReview {
+  id: string;
+  product_id: string;
+  user_id: string;
+  user_name: string;
+  rating: number;
+  comment: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reply?: string;
+  created_at: string;
+  // For joined queries in admin views
+  products?: {
+    name: string;
+    image_url: string | null;
+  };
 }
