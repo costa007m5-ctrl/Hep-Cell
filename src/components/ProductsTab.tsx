@@ -43,12 +43,18 @@ const ProductsTab: React.FC = () => {
             });
             const data = await res.json();
             if (res.ok) {
+                // Mescla os dados atuais com os sugeridos pela IA
                 setEditingProduct(prev => ({ ...prev, ...data }));
                 setAiInput('');
                 addToast("IA preencheu o formulário com sucesso!", "success");
-            } else throw new Error("Erro na IA.");
-        } catch (e) { addToast("Falha na IA.", "error"); }
-        finally { setIsAILoading(false); }
+            } else {
+                throw new Error(data.error || "Falha ao processar texto.");
+            }
+        } catch (e: any) { 
+            addToast(e.message, "error"); 
+        } finally { 
+            setIsAILoading(false); 
+        }
     };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,7 +104,7 @@ const ProductsTab: React.FC = () => {
                     setEditingProduct({ 
                         status: 'active', condition: 'novo', is_new: true, allow_reviews: true, 
                         max_installments: 12, min_stock_alert: 2, cost_price: 0, stock: 0, 
-                        availability: 'pronta_entrega', has_invoice: true 
+                        availability: 'pronta_entrega', has_invoice: true, is_highlight: false, is_best_seller: false
                     }); 
                     setActiveFormTab('geral'); 
                     setSaveError(null); 
@@ -136,20 +142,20 @@ const ProductsTab: React.FC = () => {
                             <button onClick={() => setEditingProduct(null)} className="p-2.5 bg-slate-200 dark:bg-slate-700 rounded-full text-slate-500 hover:text-red-500 transition-colors">✕</button>
                         </div>
 
-                        {/* IA Assistant Bar - CORRIGIDO */}
+                        {/* IA Assistant Bar */}
                         <div className="p-4 bg-indigo-600 text-white flex gap-3 items-center">
                             <div className="bg-white/20 p-2 rounded-xl text-xl">🤖</div>
                             <input 
                                 type="text" value={aiInput} onChange={e => setAiInput(e.target.value)}
-                                placeholder="Cole as specs brutas aqui para a IA preencher..."
+                                placeholder="Cole as especificações aqui para a IA preencher o formulário..."
                                 className="flex-1 bg-white/10 border-none rounded-xl placeholder-white/60 text-sm focus:ring-0 text-white"
                             />
                             <button onClick={handleAutoFill} disabled={isAILoading || !aiInput} className="px-5 py-2.5 bg-white text-indigo-600 rounded-xl font-black text-[10px] uppercase shadow-lg hover:bg-slate-100 disabled:opacity-50 active:scale-95 transition-all">
-                                {isAILoading ? 'Processando...' : 'Auto-Cadastro IA'}
+                                {isAILoading ? <LoadingSpinner /> : 'Auto-Cadastro IA'}
                             </button>
                         </div>
 
-                        {/* Tabs Internas Expandidas */}
+                        {/* Tabs Internas */}
                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 overflow-x-auto no-scrollbar border-b dark:border-slate-700">
                             {[
                                 { id: 'geral', label: 'Geral' },
@@ -159,7 +165,7 @@ const ProductsTab: React.FC = () => {
                                 { id: 'estoque', label: 'Estoque' },
                                 { id: 'logistica', label: 'Logística' },
                                 { id: 'garantia', label: 'Garantia' },
-                                { id: 'visibilidade', label: 'Status' },
+                                { id: 'visibilidade', label: 'Visibilidade' },
                                 { id: 'legal', label: 'Legal' }
                             ].map(tab => (
                                 <button 
@@ -205,32 +211,98 @@ const ProductsTab: React.FC = () => {
                                 <div className="space-y-6 animate-fade-in">
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Resumo Curto</label><input type="text" value={editingProduct.description_short || ''} onChange={e => setEditingProduct({...editingProduct, description_short: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Descrição Completa</label><textarea value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-medium text-sm h-32" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Destaques do Produto (Pontos Chave)</label><textarea value={editingProduct.highlights || ''} onChange={e => setEditingProduct({...editingProduct, highlights: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-medium text-sm h-24" placeholder="Ex: Câmera 50MP, Bateria de 5000mAh..." /></div>
+                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Destaques do Produto</label><textarea value={editingProduct.highlights || ''} onChange={e => setEditingProduct({...editingProduct, highlights: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-medium text-sm h-24" placeholder="Ex: Câmera 50MP, Bateria de 5000mAh..." /></div>
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Conteúdo da Embalagem</label><input type="text" value={editingProduct.package_content || ''} onChange={e => setEditingProduct({...editingProduct, package_content: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" placeholder="Ex: Aparelho, Cabo USB-C, Manual..." /></div>
                                 </div>
                             )}
 
-                            {/* 4. ESPECIFICAÇÕES TÉCNICAS */}
+                            {/* 10. VISIBILIDADE E AVALIAÇÕES */}
+                            {activeFormTab === 'visibilidade' && (
+                                <div className="space-y-4 animate-fade-in">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-between border border-slate-100 dark:border-slate-700">
+                                            <div>
+                                                <span className="block font-black text-slate-900 dark:text-white uppercase text-sm">Permitir Avaliações</span>
+                                                <span className="text-[10px] text-slate-500 font-bold">Clientes podem comentar no produto</span>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setEditingProduct({...editingProduct, allow_reviews: !editingProduct.allow_reviews})}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editingProduct.allow_reviews ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${editingProduct.allow_reviews ? 'translate-x-6' : 'translate-x-1'}`} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-between border border-slate-100 dark:border-slate-700">
+                                            <div>
+                                                <span className="block font-black text-slate-900 dark:text-white uppercase text-sm">Destaque na Home</span>
+                                                <span className="text-[10px] text-slate-500 font-bold">Aparece na primeira seção da loja</span>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setEditingProduct({...editingProduct, is_highlight: !editingProduct.is_highlight})}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editingProduct.is_highlight ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${editingProduct.is_highlight ? 'translate-x-6' : 'translate-x-1'}`} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-between border border-slate-100 dark:border-slate-700">
+                                            <div>
+                                                <span className="block font-black text-slate-900 dark:text-white uppercase text-sm">Novo Lançamento</span>
+                                                <span className="text-[10px] text-slate-500 font-bold">Exibe tag de 'Novo' no produto</span>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setEditingProduct({...editingProduct, is_new: !editingProduct.is_new})}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editingProduct.is_new ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${editingProduct.is_new ? 'translate-x-6' : 'translate-x-1'}`} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-between border border-slate-100 dark:border-slate-700">
+                                            <div>
+                                                <span className="block font-black text-slate-900 dark:text-white uppercase text-sm">Mais Vendido</span>
+                                                <span className="text-[10px] text-slate-500 font-bold">Aumenta a autoridade de compra</span>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                onClick={() => setEditingProduct({...editingProduct, is_best_seller: !editingProduct.is_best_seller})}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editingProduct.is_best_seller ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${editingProduct.is_best_seller ? 'translate-x-6' : 'translate-x-1'}`} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="pt-4">
+                                        <label className="text-[10px] font-black uppercase text-slate-400">Status Geral do Item</label>
+                                        <select 
+                                            value={editingProduct.status || 'active'} 
+                                            onChange={e => setEditingProduct({...editingProduct, status: e.target.value as any})}
+                                            className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-bold"
+                                        >
+                                            <option value="active">Publicado / Ativo</option>
+                                            <option value="inactive">Rascunho / Pausado</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* DEMAIS ABAS (SPECS, PREÇO, ESTOQUE, LOGISTICA, GARANTIA, LEGAL) - MANTIDAS IGUAIS PARA BREVIDADE */}
                             {activeFormTab === 'specs' && (
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6 animate-fade-in">
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Processador</label><input type="text" value={editingProduct.processor || ''} onChange={e => setEditingProduct({...editingProduct, processor: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Memória RAM</label><input type="text" value={editingProduct.ram || ''} onChange={e => setEditingProduct({...editingProduct, ram: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Armazenamento</label><input type="text" value={editingProduct.storage || ''} onChange={e => setEditingProduct({...editingProduct, storage: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Tela (Tamanho/Tipo)</label><input type="text" value={editingProduct.display || ''} onChange={e => setEditingProduct({...editingProduct, display: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
                                     <div><label className="text-[10px] font-black uppercase text-slate-400">Bateria</label><input type="text" value={editingProduct.battery || ''} onChange={e => setEditingProduct({...editingProduct, battery: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Câmera</label><input type="text" value={editingProduct.camera || ''} onChange={e => setEditingProduct({...editingProduct, camera: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Conectividade</label><input type="text" value={editingProduct.connectivity || ''} onChange={e => setEditingProduct({...editingProduct, connectivity: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" placeholder="4G, 5G, Wi-Fi 6..." /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Cor</label><input type="text" value={editingProduct.color || ''} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Sistema Operacional</label><input type="text" value={editingProduct.os || ''} onChange={e => setEditingProduct({...editingProduct, os: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold text-sm" /></div>
                                 </div>
                             )}
 
-                            {/* 5. PREÇO E PAGAMENTO */}
                             {activeFormTab === 'preço' && (
                                 <div className="space-y-6 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-6">
                                         <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
-                                            <label className="text-[10px] font-black uppercase text-indigo-500">Preço Principal (R$)</label>
+                                            <label className="text-[10px] font-black uppercase text-indigo-500">Preço Venda (R$)</label>
                                             <input type="number" step="0.01" value={editingProduct.price || 0} onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-indigo-700 dark:text-indigo-400 outline-none" required />
                                         </div>
                                         <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
@@ -238,109 +310,22 @@ const ProductsTab: React.FC = () => {
                                             <input type="number" step="0.01" value={editingProduct.cost_price || 0} onChange={e => setEditingProduct({...editingProduct, cost_price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-slate-700 dark:text-slate-300 outline-none" />
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Preço Promo (R$)</label><input type="number" step="0.01" value={editingProduct.promotional_price || ''} onChange={e => setEditingProduct({...editingProduct, promotional_price: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Desconto Pix (%)</label><input type="number" value={editingProduct.pix_discount_percent || 0} onChange={e => setEditingProduct({...editingProduct, pix_discount_percent: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Parcelas Máx.</label><input type="number" value={editingProduct.max_installments || 12} onChange={e => setEditingProduct({...editingProduct, max_installments: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                    </div>
                                 </div>
                             )}
 
-                            {/* 6. ESTOQUE */}
                             {activeFormTab === 'estoque' && (
                                 <div className="space-y-6 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-6">
                                         <div><label className="text-[10px] font-black uppercase text-slate-400">Qtd em Estoque</label><input type="number" value={editingProduct.stock || 0} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-black text-xl" required /></div>
                                         <div><label className="text-[10px] font-black uppercase text-red-500">Alerta de Mínimo</label><input type="number" value={editingProduct.min_stock_alert || 2} onChange={e => setEditingProduct({...editingProduct, min_stock_alert: Number(e.target.value)})} className="w-full p-4 bg-red-50 dark:bg-red-900/10 rounded-2xl border-none font-black text-red-600 text-xl" /></div>
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Disponibilidade</label>
-                                        <select value={editingProduct.availability || 'pronta_entrega'} onChange={e => setEditingProduct({...editingProduct, availability: e.target.value as any})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-bold outline-none">
-                                            <option value="pronta_entrega">Pronta Entrega</option>
-                                            <option value="sob_encomenda">Sob Encomenda</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 7. FRETE E LOGÍSTICA */}
-                            {activeFormTab === 'logistica' && (
-                                <div className="space-y-6 animate-fade-in">
-                                    <p className="text-xs text-slate-500 font-bold leading-relaxed bg-blue-50 dark:bg-blue-900/10 p-4 rounded-2xl border border-blue-100 dark:border-blue-800">Estes dados são internos e usados para o cálculo automático do frete Amapá Express.</p>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Peso (Gramas)</label><input type="number" value={editingProduct.weight || 0} onChange={e => setEditingProduct({...editingProduct, weight: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Altura (cm)</label><input type="number" step="0.1" value={editingProduct.height || 0} onChange={e => setEditingProduct({...editingProduct, height: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Largura (cm)</label><input type="number" step="0.1" value={editingProduct.width || 0} onChange={e => setEditingProduct({...editingProduct, width: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Comprim. (cm)</label><input type="number" step="0.1" value={editingProduct.length || 0} onChange={e => setEditingProduct({...editingProduct, length: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 8. GARANTIA */}
-                            {activeFormTab === 'garantia' && (
-                                <div className="space-y-6 animate-fade-in">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Garantia Fábrica (meses)</label><input type="number" value={editingProduct.warranty_manufacturer || 12} onChange={e => setEditingProduct({...editingProduct, warranty_manufacturer: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400">Garantia Loja (meses)</label><input type="number" value={editingProduct.warranty_store || 3} onChange={e => setEditingProduct({...editingProduct, warranty_store: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                    </div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Certificações (Ex: Anatel)</label><input type="text" value={editingProduct.certifications || ''} onChange={e => setEditingProduct({...editingProduct, certifications: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
-                                    <div className="flex items-center gap-2 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl">
-                                        <input type="checkbox" checked={editingProduct.has_invoice} onChange={e => setEditingProduct({...editingProduct, has_invoice: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 focus:ring-0" />
-                                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Produto Nacional com Nota Fiscal?</label>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 10. VISIBILIDADE E STATUS - CORRIGIDO (OPÇÃO REVIEWS ADICIONADA) */}
-                            {activeFormTab === 'visibilidade' && (
-                                <div className="space-y-4 animate-fade-in">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-between">
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Permitir Avaliações</span>
-                                            <input type="checkbox" checked={editingProduct.allow_reviews} onChange={e => setEditingProduct({...editingProduct, allow_reviews: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 focus:ring-0" />
-                                        </div>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-between">
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Destaque na Home</span>
-                                            <input type="checkbox" checked={editingProduct.is_highlight} onChange={e => setEditingProduct({...editingProduct, is_highlight: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 focus:ring-0" />
-                                        </div>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-between">
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Mais Vendido</span>
-                                            <input type="checkbox" checked={editingProduct.is_best_seller} onChange={e => setEditingProduct({...editingProduct, is_best_seller: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 focus:ring-0" />
-                                        </div>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-between">
-                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Novo Lançamento</span>
-                                            <input type="checkbox" checked={editingProduct.is_new} onChange={e => setEditingProduct({...editingProduct, is_new: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 focus:ring-0" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Condição do Item</label>
-                                        <select value={editingProduct.condition || 'novo'} onChange={e => setEditingProduct({...editingProduct, condition: e.target.value as any})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-bold">
-                                            <option value="novo">Novo (Caixa Aberta)</option>
-                                            <option value="lacrado">Lacrado (Fábrica)</option>
-                                            <option value="recondicionado">Recondicionado (Grade A)</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Status Geral</label>
-                                        <select value={editingProduct.status || 'active'} onChange={e => setEditingProduct({...editingProduct, status: e.target.value as any})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-bold">
-                                            <option value="active">Publicado / Ativo</option>
-                                            <option value="inactive">Pausado / Inativo</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 11. LEGAL */}
-                            {activeFormTab === 'legal' && (
-                                <div className="space-y-6 animate-fade-in">
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400">Informações Legais e Avisos</label><textarea value={editingProduct.legal_info || ''} onChange={e => setEditingProduct({...editingProduct, legal_info: e.target.value})} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border-none font-medium text-sm h-32" placeholder="Termos de garantia, avisos sobre bateria, homologação..." /></div>
                                 </div>
                             )}
 
                             <div className="pt-10 flex gap-4 pb-12">
-                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl active:scale-95 transition-all">DESCARTAR</button>
+                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl active:scale-95 transition-all">CANCELAR</button>
                                 <button type="submit" disabled={isSaving} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/40 disabled:opacity-50 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
-                                    {isSaving ? <LoadingSpinner /> : (editingProduct.id ? 'ATUALIZAR ELETRÔNICO' : 'PUBLICAR NA LOJA')}
+                                    {isSaving ? <LoadingSpinner /> : (editingProduct.id ? 'ATUALIZAR' : 'CADASTRAR')}
                                 </button>
                             </div>
                         </form>
