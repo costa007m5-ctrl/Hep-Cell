@@ -15,116 +15,47 @@ async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     
     try {
-        // Como o Supabase JS SDK não permite DDL (ALTER TABLE) diretamente por segurança,
-        // utilizamos uma RPC (Remote Procedure Call) personalizada ou tentamos inicializar via inserts de teste
-        // para forçar a criação de tabelas se o Supabase estiver em modo auto-schema.
-        
-        // No entanto, para garantir que o endpoint responda e tente sincronizar as colunas:
-        // Nota: Em ambientes de produção, colunas devem ser adicionadas via Dashboard do Supabase.
-        
-        const queries = [
-            "Adicionando colunas de logística à tabela products...",
-            "Criando tabela de banners inteligentes...",
-            "Configurando políticas de acesso RLS..."
-        ];
+        const sql_commands = `
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER DEFAULT 12;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER DEFAULT 3;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
+            ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
+        `;
 
-        // Tentativa de execução de uma RPC de manutenção se existir
-        const { error: rpcError } = await supabase.rpc('run_migrations_v2');
+        // Tenta executar via RPC customizada no Supabase
+        const { error: rpcError } = await supabase.rpc('exec_sql', { sql_query: sql_commands });
 
         return res.json({ 
             success: true, 
-            message: "Comando de sincronização enviado com sucesso!",
-            steps: queries,
-            details: rpcError ? "Aviso: Algumas alterações podem exigir execução manual no Dashboard do Supabase devido a restrições de permissão do SDK." : "Execução via RPC concluída."
+            message: "Comando de sincronização enviado!",
+            details: rpcError ? "Verifique as colunas manualmente se o erro persistir: " + rpcError.message : "Estrutura atualizada."
         });
     } catch (e: any) {
         return res.status(500).json({ error: "Erro ao processar setup: " + e.message });
     }
 }
 
-// Handler para o Assistente IA de Cadastro
-async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
-    const { rawText } = req.body;
-    if (!rawText) return res.status(400).json({ error: "Texto bruto é necessário." });
-
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Extraia as informações do seguinte produto eletrônico e retorne EXCLUSIVAMENTE um JSON válido conforme o esquema. Se não encontrar um campo, deixe nulo ou zero para números. Texto: ${rawText}`,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        name: { type: Type.STRING },
-                        brand: { type: Type.STRING },
-                        model: { type: Type.STRING },
-                        category: { type: Type.STRING },
-                        condition: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        processor: { type: Type.STRING },
-                        ram: { type: Type.STRING },
-                        storage: { type: Type.STRING },
-                        display: { type: Type.STRING },
-                        camera: { type: Type.STRING },
-                        battery: { type: Type.STRING },
-                        price: { type: Type.NUMBER },
-                        weight: { type: Type.NUMBER },
-                        height: { type: Type.NUMBER },
-                        width: { type: Type.NUMBER },
-                        length: { type: Type.NUMBER },
-                        package_content: { type: Type.STRING },
-                        warranty_manufacturer: { type: Type.INTEGER }
-                    }
-                }
-            }
-        });
-
-        const extractedData = JSON.parse(response.text || '{}');
-        return res.json(extractedData);
-    } catch (e: any) {
-        return res.status(500).json({ error: "Falha na IA: " + e.message });
-    }
-}
-
-// DIAGNÓSTICO: Teste Supabase
-async function handleTestSupabase(res: VercelResponse) {
-    try {
-        const supabase = getSupabaseAdminClient();
-        const { error } = await supabase.from('profiles').select('id').limit(1);
-        if (error) throw error;
-        return res.json({ message: "Supabase: Conexão Estável" });
-    } catch (e: any) { return res.status(500).json({ error: "Erro Supabase: " + e.message }); }
-}
-
-// DIAGNÓSTICO: Teste Gemini
-async function handleTestGemini(res: VercelResponse) {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: 'Diga "ONLINE"',
-        });
-        return res.json({ message: "Gemini: " + response.text });
-    } catch (e: any) { return res.status(500).json({ error: "Erro Gemini: " + e.message }); }
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const path = url.pathname;
 
-    // Roteamento de comandos de Administrador
+    // Roteamento de comandos especiais
     if (path.includes('/setup-database')) return await handleSetupDatabase(req, res);
-    if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
-    if (path.includes('/test-supabase')) return await handleTestSupabase(res);
-    if (path.includes('/test-gemini')) return await handleTestGemini(res);
 
     const supabase = getSupabaseAdminClient();
 
     if (req.method === 'GET') {
         if (path.includes('/profiles')) {
             const { data } = await supabase.from('profiles').select('*').order('first_name');
+            return res.json(data || []);
+        }
+        if (path.includes('/invoices')) {
+            const { data } = await supabase.from('invoices').select('*').order('due_date', { ascending: false });
             return res.json(data || []);
         }
         if (path.includes('/products')) {
@@ -144,15 +75,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST') {
         if (path.includes('/products')) {
             const product = req.body;
-            const { error } = await supabase.from('products').upsert(product);
+            const { id, created_at, ...data } = product;
+            
+            // Sanitização de dados numéricos
+            const sanitizedData = {
+                ...data,
+                price: Number(data.price) || 0,
+                cost_price: Number(data.cost_price) || 0,
+                stock: Number(data.stock) || 0,
+                weight: Number(data.weight) || 0,
+                height: Number(data.height) || 0,
+                width: Number(data.width) || 0,
+                length: Number(data.length) || 0
+            };
+
+            let query;
+            if (id && id !== "" && id !== "null") {
+                query = supabase.from('products').update(sanitizedData).eq('id', id);
+            } else {
+                query = supabase.from('products').insert(sanitizedData);
+            }
+
+            const { error, data: resultData } = await query.select();
             if (error) return res.status(500).json({ error: error.message });
-            return res.json({ success: true });
-        }
-        if (path.includes('/settings')) {
-            const { key, value } = req.body;
-            const { error } = await supabase.from('system_settings').upsert({ key, value });
-            if (error) return res.status(500).json({ error: error.message });
-            return res.json({ success: true });
+            return res.json({ success: true, data: resultData });
         }
     }
 

@@ -10,11 +10,12 @@ type FormTab = 'geral' | 'specs' | 'financeiro' | 'logistica';
 const ProductsTab: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
     const [activeFormTab, setActiveFormTab] = useState<FormTab>('geral');
     const [aiInput, setAiInput] = useState('');
     const [isAILoading, setIsAILoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
     
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { addToast } = useToast();
@@ -25,9 +26,9 @@ const ProductsTab: React.FC = () => {
             const res = await fetch('/api/admin/products');
             const data = await res.json();
             setProducts(Array.isArray(data) ? data : []);
-        } catch (e) { setError("Erro ao carregar catálogo."); }
+        } catch (e) { addToast("Erro ao carregar catálogo.", "error"); }
         finally { setIsLoading(false); }
-    }, []);
+    }, [addToast]);
 
     useEffect(() => { fetchProducts(); }, [fetchProducts]);
 
@@ -57,7 +58,6 @@ const ProductsTab: React.FC = () => {
             reader.onloadend = () => {
                 const base64 = reader.result as string;
                 setEditingProduct(prev => ({ ...prev, image_url: base64 }));
-                addToast("Imagem carregada!", "success");
             };
             reader.readAsDataURL(file);
         }
@@ -66,17 +66,31 @@ const ProductsTab: React.FC = () => {
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingProduct) return;
-        const res = await fetch('/api/admin/products', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(editingProduct)
-        });
-        if (res.ok) {
-            addToast("Produto salvo com sucesso!", "success");
-            setEditingProduct(null);
-            fetchProducts();
-        } else {
-            addToast("Erro ao salvar.", "error");
+        
+        setIsSaving(true);
+        setSaveError(null);
+
+        try {
+            const res = await fetch('/api/admin/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editingProduct)
+            });
+            
+            const result = await res.json();
+
+            if (res.ok) {
+                addToast("Produto salvo com sucesso!", "success");
+                setEditingProduct(null);
+                fetchProducts();
+            } else {
+                setSaveError(result.error || "Erro desconhecido ao salvar.");
+                addToast("Erro ao salvar produto.", "error");
+            }
+        } catch (error: any) {
+            setSaveError("Erro de conexão com o servidor.");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -86,7 +100,7 @@ const ProductsTab: React.FC = () => {
         <div className="space-y-6 animate-fade-in">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">Gerenciar Loja</h2>
-                <button onClick={() => { setEditingProduct({ status: 'active', condition: 'novo', is_new: true, allow_reviews: true, max_installments: 12 }); setActiveFormTab('geral'); }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">+ Novo Produto</button>
+                <button onClick={() => { setEditingProduct({ status: 'active', condition: 'novo', is_new: true, allow_reviews: true, max_installments: 12 }); setActiveFormTab('geral'); setSaveError(null); }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">+ Novo Produto</button>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -100,7 +114,7 @@ const ProductsTab: React.FC = () => {
                             <h3 className="text-[10px] font-black text-slate-400 uppercase mb-1">{p.brand}</h3>
                             <h4 className="text-xs font-bold text-slate-800 dark:text-white truncate">{p.name}</h4>
                             <p className="text-sm font-black text-indigo-600 mt-1">R$ {p.price.toLocaleString('pt-BR')}</p>
-                            <button onClick={() => { setEditingProduct(p); setActiveFormTab('geral'); }} className="mt-3 w-full py-2 text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-indigo-600 hover:text-white transition-all">Editar Ficha</button>
+                            <button onClick={() => { setEditingProduct(p); setActiveFormTab('geral'); setSaveError(null); }} className="mt-3 w-full py-2 text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-indigo-600 hover:text-white transition-all">Editar Ficha</button>
                         </div>
                     </div>
                 ))}
@@ -133,7 +147,6 @@ const ProductsTab: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Tabs Internas */}
                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1">
                             {[
                                 { id: 'geral', label: '1. Geral', icon: '📝' },
@@ -150,13 +163,13 @@ const ProductsTab: React.FC = () => {
                             ))}
                         </div>
 
-                        {/* Conteúdo Form */}
                         <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
                             
+                            {saveError && <Alert message={saveError} type="error" />}
+
                             {activeFormTab === 'geral' && (
                                 <div className="space-y-4 animate-fade-in">
                                     <div className="flex flex-col md:flex-row gap-6">
-                                        {/* Preview e Upload de Imagem */}
                                         <div className="w-full md:w-1/3 flex flex-col items-center">
                                             <label className="text-[10px] font-black uppercase text-slate-400 mb-2">Imagem Principal</label>
                                             <div 
@@ -172,29 +185,16 @@ const ProductsTab: React.FC = () => {
                                                     </div>
                                                 )}
                                             </div>
-                                            <input 
-                                                type="file" 
-                                                ref={fileInputRef} 
-                                                onChange={handleFileUpload} 
-                                                accept="image/*" 
-                                                className="hidden" 
-                                            />
+                                            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" />
                                             <div className="w-full mt-2">
-                                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Ou cole a URL</label>
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="https://..."
-                                                    value={editingProduct.image_url || ''} 
-                                                    onChange={e => setEditingProduct({...editingProduct, image_url: e.target.value})} 
-                                                    className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-[10px] border-none" 
-                                                />
+                                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Ou link da imagem</label>
+                                                <input type="text" value={editingProduct.image_url || ''} onChange={e => setEditingProduct({...editingProduct, image_url: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-[10px] border-none" />
                                             </div>
                                         </div>
 
-                                        {/* Campos Gerais */}
                                         <div className="flex-1 space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome do Produto</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
                                                 <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Categoria</label><input type="text" value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
                                             </div>
                                             <div className="grid grid-cols-3 gap-4">
@@ -208,7 +208,7 @@ const ProductsTab: React.FC = () => {
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição Detalhada</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm"></textarea></div>
+                                            <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm"></textarea></div>
                                         </div>
                                     </div>
                                 </div>
@@ -218,11 +218,9 @@ const ProductsTab: React.FC = () => {
                                 <div className="space-y-4 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Processador</label><input type="text" value={editingProduct.processor || ''} onChange={e => setEditingProduct({...editingProduct, processor: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Memória RAM</label><input type="text" value={editingProduct.ram || ''} onChange={e => setEditingProduct({...editingProduct, ram: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">RAM</label><input type="text" value={editingProduct.ram || ''} onChange={e => setEditingProduct({...editingProduct, ram: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
                                         <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Armazenamento</label><input type="text" value={editingProduct.storage || ''} onChange={e => setEditingProduct({...editingProduct, storage: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
                                         <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Bateria</label><input type="text" value={editingProduct.battery || ''} onChange={e => setEditingProduct({...editingProduct, battery: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Câmeras</label><input type="text" value={editingProduct.camera || ''} onChange={e => setEditingProduct({...editingProduct, camera: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Cor</label><input type="text" value={editingProduct.color || ''} onChange={e => setEditingProduct({...editingProduct, color: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
                                     </div>
                                 </div>
                             )}
@@ -231,17 +229,16 @@ const ProductsTab: React.FC = () => {
                                 <div className="space-y-4 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl">
-                                            <label className="text-[10px] font-black uppercase text-indigo-500 ml-1">Preço de Venda (R$)</label>
+                                            <label className="text-[10px] font-black uppercase text-indigo-500 ml-1">Preço (R$)</label>
                                             <input type="number" value={editingProduct.price || 0} onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-indigo-700 dark:text-indigo-300" required />
                                         </div>
                                         <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl">
-                                            <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Custo Interno (R$)</label>
+                                            <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Custo (R$)</label>
                                             <input type="number" value={editingProduct.cost_price || 0} onChange={e => setEditingProduct({...editingProduct, cost_price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-slate-700 dark:text-slate-300" />
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estoque Atual</label><input type="number" value={editingProduct.stock || 0} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estoque Mínimo</label><input type="number" value={editingProduct.min_stock_alert || 0} onChange={e => setEditingProduct({...editingProduct, min_stock_alert: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estoque</label><input type="number" value={editingProduct.stock || 0} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
                                         <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Max Parcelas</label><input type="number" value={editingProduct.max_installments || 12} onChange={e => setEditingProduct({...editingProduct, max_installments: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
                                     </div>
                                 </div>
@@ -251,21 +248,18 @@ const ProductsTab: React.FC = () => {
                                 <div className="space-y-4 animate-fade-in">
                                     <div className="grid grid-cols-4 gap-2">
                                         <div><label className="text-[10px] font-bold text-slate-400">Peso (g)</label><input type="number" value={editingProduct.weight || 0} onChange={e => setEditingProduct({...editingProduct, weight: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">Alt (cm)</label><input type="number" value={editingProduct.height || 0} onChange={e => setEditingProduct({...editingProduct, height: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">Larg (cm)</label><input type="number" value={editingProduct.width || 0} onChange={e => setEditingProduct({...editingProduct, width: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">Comp (cm)</label><input type="number" value={editingProduct.length || 0} onChange={e => setEditingProduct({...editingProduct, length: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                        <div><label className="text-[10px] font-bold text-slate-400">H (cm)</label><input type="number" value={editingProduct.height || 0} onChange={e => setEditingProduct({...editingProduct, height: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                        <div><label className="text-[10px] font-bold text-slate-400">L (cm)</label><input type="number" value={editingProduct.width || 0} onChange={e => setEditingProduct({...editingProduct, width: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                        <div><label className="text-[10px] font-bold text-slate-400">C (cm)</label><input type="number" value={editingProduct.length || 0} onChange={e => setEditingProduct({...editingProduct, length: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Garantia Fabr. (meses)</label><input type="number" value={editingProduct.warranty_manufacturer || 12} onChange={e => setEditingProduct({...editingProduct, warranty_manufacturer: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Garantia Loja (meses)</label><input type="number" value={editingProduct.warranty_store || 3} onChange={e => setEditingProduct({...editingProduct, warranty_store: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
-                                    </div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Conteúdo da Embalagem</label><input type="text" value={editingProduct.package_content || ''} onChange={e => setEditingProduct({...editingProduct, package_content: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" placeholder="Ex: Aparelho, Cabo, Adaptador" /></div>
                                 </div>
                             )}
 
                             <div className="pt-8 flex gap-4">
-                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl hover:bg-slate-200">CANCELAR</button>
-                                <button type="submit" className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">SALVAR PRODUTO</button>
+                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-bold rounded-2xl">FECHAR</button>
+                                <button type="submit" disabled={isSaving} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl disabled:opacity-50">
+                                    {isSaving ? <LoadingSpinner /> : 'SALVAR NO CATÁLOGO'}
+                                </button>
                             </div>
                         </form>
                     </div>
