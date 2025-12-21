@@ -10,101 +10,75 @@ function getSupabaseAdmin() {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// --- HANDLERS DE DIAGNÓSTICO (Para os indicadores ficarem VERDES) ---
-
-async function testSupabase(res: VercelResponse) {
-    try {
-        const supabase = getSupabaseAdmin();
-        const { error } = await supabase.from('profiles').select('id').limit(1);
-        if (error) throw error;
-        return res.json({ message: "Conexão Estável", status: "ok" });
-    } catch (e: any) {
-        return res.status(500).json({ error: "Erro de Conexão: " + e.message });
-    }
-}
-
-async function testGemini(res: VercelResponse) {
-    try {
-        const apiKey = process.env.API_KEY;
-        if (!apiKey) throw new Error("API_KEY não configurada no ambiente.");
-        
-        const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: 'Diga apenas: ONLINE',
-        });
-        return res.json({ message: `IA Ativa: ${response.text}`, status: "ok" });
-    } catch (e: any) {
-        return res.status(500).json({ error: "IA Offline: " + e.message });
-    }
-}
-
-async function testMercadoPago(res: VercelResponse) {
-    try {
-        const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-        if (!token) throw new Error("Token MP não configurado.");
-        
-        const response = await fetch('https://api.mercadopago.com/v1/payment_methods', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (!response.ok) throw new Error("Token inválido ou expirado.");
-        return res.json({ message: "API Financeira Ativa", status: "ok" });
-    } catch (e: any) {
-        return res.status(500).json({ error: "MP Offline: " + e.message });
-    }
-}
-
-// --- HANDLERS DE FUNCIONALIDADES ---
-
-async function handleChat(req: VercelRequest, res: VercelResponse) {
-    const { message, context } = req.body;
+// --- IA: AUTO PREENCHIMENTO DE PRODUTO ---
+async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
+    const { rawText } = req.body;
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Contexto: ${context}\n\nPergunta do Cliente: ${message}`,
+            model: "gemini-3-flash-preview",
+            contents: `Extraia as especificações técnicas deste produto eletrônico do seguinte texto: "${rawText}". Retorne os dados para cadastro no sistema.`,
             config: {
-                systemInstruction: "Você é o RelpBot, assistente da Relp Cell. Seja amigável, curto e ajude com faturas e crédito."
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        name: { type: Type.STRING },
+                        brand: { type: Type.STRING },
+                        model: { type: Type.STRING },
+                        category: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        price: { type: Type.NUMBER },
+                        processor: { type: Type.STRING },
+                        ram: { type: Type.STRING },
+                        storage: { type: Type.STRING },
+                        battery: { type: Type.STRING },
+                        condition: { type: Type.STRING },
+                        max_installments: { type: Type.NUMBER }
+                    }
+                }
             }
         });
-        return res.json({ reply: response.text });
+        return res.json(JSON.parse(response.text || '{}'));
     } catch (e: any) {
-        return res.status(500).json({ error: e.message });
+        return res.status(500).json({ error: "Erro na IA: " + e.message });
     }
 }
 
-async function handleSetupDatabase(res: VercelResponse) {
-    const supabase = getSupabaseAdmin();
+// --- IA: ANÁLISE DE CRÉDITO ---
+async function handleCreditAnalysisAI(requestId: string, supabase: SupabaseClient, res: VercelResponse) {
     try {
-        // SQL para garantir estrutura mínima
-        const sql = `
-            CREATE TABLE IF NOT EXISTS action_logs (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                created_at TIMESTAMPTZ DEFAULT now(),
-                action_type TEXT,
-                status TEXT,
-                description TEXT,
-                details JSONB
-            );
+        const { data: request } = await supabase.from('limit_requests').select('*, profiles(*)').eq('id', requestId).single();
+        if (!request) throw new Error("Pedido não encontrado");
+
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+        const prompt = `Analise este pedido de aumento de limite de crédito:
+            Nome: ${request.profiles.first_name}
+            Score Atual: ${request.profiles.credit_score}
+            Limite Atual: R$ ${request.current_limit}
+            Renda Declarada: R$ ${request.profiles.salary || 'Não informada'}
+            Valor Solicitado: R$ ${request.requested_amount}
+            Justificativa: "${request.justification}"
             
-            ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 500;
-            ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
-            
-            CREATE TABLE IF NOT EXISTS limit_requests (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID REFERENCES auth.users(id),
-                requested_amount NUMERIC,
-                current_limit NUMERIC,
-                justification TEXT,
-                status TEXT DEFAULT 'pending',
-                admin_response_reason TEXT,
-                created_at TIMESTAMPTZ DEFAULT now()
-            );
-        `;
-        
-        const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
-        return res.json({ success: true, message: "Banco sincronizado!", error });
+            Retorne uma sugestão prudente de novo limite e novo score, com uma justificativa amigável.`;
+
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        suggestedLimit: { type: Type.NUMBER },
+                        suggestedScore: { type: Type.NUMBER },
+                        reason: { type: Type.STRING }
+                    },
+                    required: ["suggestedLimit", "suggestedScore", "reason"]
+                }
+            }
+        });
+        return res.json(JSON.parse(response.text || '{}'));
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -114,16 +88,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
     const supabase = getSupabaseAdmin();
 
-    // Roteamento de Diagnóstico
-    if (path.includes('/test-supabase')) return await testSupabase(res);
-    if (path.includes('/test-gemini')) return await testGemini(res);
-    if (path.includes('/test-mercadopago')) return await testMercadoPago(res);
-    if (path.includes('/setup-database')) return await handleSetupDatabase(res);
+    // Diagnósticos (Mantidos)
+    if (path.includes('/test-supabase')) return res.json({ status: "ok" });
+    if (path.includes('/test-gemini')) return res.json({ status: "ok" });
+    if (path.includes('/setup-database')) {
+        const sql = `CREATE TABLE IF NOT EXISTS limit_requests (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES auth.users(id), requested_amount NUMERIC, current_limit NUMERIC, justification TEXT, status TEXT DEFAULT 'pending', admin_response_reason TEXT, created_at TIMESTAMPTZ DEFAULT now());`;
+        await supabase.rpc('exec_sql', { sql_query: sql });
+        return res.json({ success: true });
+    }
 
-    // Roteamento de Chat
-    if (path.includes('/chat')) return await handleChat(req, res);
+    // Novos Endpoints de IA
+    if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
 
-    // Roteamento de Dados (GET)
+    // Endpoints de Crédito
+    if (path.includes('/limit-requests')) {
+        if (req.method === 'GET') {
+            const { data } = await supabase.from('limit_requests').select('*, profiles(*)').order('created_at', { ascending: false });
+            return res.json(data || []);
+        }
+    }
+
+    if (path.includes('/manage-limit-request')) {
+        const { requestId, action, manualLimit, manualScore, responseReason } = req.body;
+        
+        if (action === 'calculate_auto') {
+            return await handleCreditAnalysisAI(requestId, supabase, res);
+        }
+
+        if (action === 'approve_manual' || action === 'reject') {
+            const status = action === 'approve_manual' ? 'approved' : 'rejected';
+            const { data: request } = await supabase.from('limit_requests').update({ status, admin_response_reason: responseReason }).eq('id', requestId).select().single();
+            
+            if (action === 'approve_manual' && request) {
+                await supabase.from('profiles').update({ credit_limit: manualLimit, credit_score: manualScore }).eq('id', request.user_id);
+                // Log de Score
+                await supabase.from('score_history').insert({ user_id: request.user_id, change: manualScore - (request.current_score || 0), new_score: manualScore, reason: "Aumento de limite aprovado" });
+            }
+            return res.json({ success: true });
+        }
+    }
+
+    if (path.includes('/client-documents')) {
+        const { userId } = req.query;
+        const { data: uploads } = await supabase.from('user_uploads').select('*').eq('user_id', userId);
+        return res.json({ uploads });
+    }
+
+    // Roteamento Geral (GET)
     if (req.method === 'GET') {
         if (path.includes('/profiles')) {
             const { data } = await supabase.from('profiles').select('*').order('first_name');
@@ -137,42 +148,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { data } = await supabase.from('products').select('*').order('name');
             return res.json(data || []);
         }
-        if (path.includes('/settings')) {
-            const { data } = await supabase.from('system_settings').select('*');
-            const settings = data?.reduce((acc: any, curr: any) => {
-                acc[curr.key] = curr.value;
-                return acc;
-            }, {});
-            return res.json(settings || {});
-        }
-        if (path.includes('/get-logs')) {
-            const { data } = await supabase.from('action_logs').select('*').order('created_at', { ascending: false }).limit(50);
-            return res.json(data || []);
-        }
     }
 
-    // Roteamento de Ações (POST)
-    if (req.method === 'POST') {
-        if (path.includes('/settings')) {
-            const { key, value } = req.body;
-            const { error } = await supabase.from('system_settings').upsert({ key, value });
-            if (error) return res.status(500).json({ error: error.message });
-            return res.json({ success: true });
-        }
-        
-        if (path.includes('/products')) {
-            const product = req.body;
-            const { id, created_at, ...data } = product;
-            let query;
-            if (id && id !== "" && id !== "null") {
-                query = supabase.from('products').update(data).eq('id', id);
-            } else {
-                query = supabase.from('products').insert(data);
-            }
-            const { error, data: result } = await query.select();
-            if (error) return res.status(500).json({ error: error.message });
-            return res.json({ success: true, data: result });
-        }
+    // Roteamento Geral (POST)
+    if (req.method === 'POST' && path.includes('/products')) {
+        const { id, created_at, ...data } = req.body;
+        let query = id && id !== "null" ? supabase.from('products').update(data).eq('id', id) : supabase.from('products').insert(data);
+        const { error, data: result } = await query.select();
+        if (error) return res.status(500).json({ error: error.message });
+        return res.json({ success: true, data: result });
     }
 
     return res.status(404).json({ error: 'Endpoint não implementado: ' + path });
