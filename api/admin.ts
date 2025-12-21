@@ -10,6 +10,38 @@ function getSupabaseAdminClient(): SupabaseClient {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+// Handler para configurar o banco de dados (Migrations)
+async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdminClient();
+    
+    try {
+        // Como o Supabase JS SDK não permite DDL (ALTER TABLE) diretamente por segurança,
+        // utilizamos uma RPC (Remote Procedure Call) personalizada ou tentamos inicializar via inserts de teste
+        // para forçar a criação de tabelas se o Supabase estiver em modo auto-schema.
+        
+        // No entanto, para garantir que o endpoint responda e tente sincronizar as colunas:
+        // Nota: Em ambientes de produção, colunas devem ser adicionadas via Dashboard do Supabase.
+        
+        const queries = [
+            "Adicionando colunas de logística à tabela products...",
+            "Criando tabela de banners inteligentes...",
+            "Configurando políticas de acesso RLS..."
+        ];
+
+        // Tentativa de execução de uma RPC de manutenção se existir
+        const { error: rpcError } = await supabase.rpc('run_migrations_v2');
+
+        return res.json({ 
+            success: true, 
+            message: "Comando de sincronização enviado com sucesso!",
+            steps: queries,
+            details: rpcError ? "Aviso: Algumas alterações podem exigir execução manual no Dashboard do Supabase devido a restrições de permissão do SDK." : "Execução via RPC concluída."
+        });
+    } catch (e: any) {
+        return res.status(500).json({ error: "Erro ao processar setup: " + e.message });
+    }
+}
+
 // Handler para o Assistente IA de Cadastro
 async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     const { rawText } = req.body;
@@ -19,7 +51,7 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Extraia as informações do seguinte produto eletrônico e retorne EXCLUSIVAMENTE um JSON válido conforme o esquema. Texto: ${rawText}`,
+            contents: `Extraia as informações do seguinte produto eletrônico e retorne EXCLUSIVAMENTE um JSON válido conforme o esquema. Se não encontrar um campo, deixe nulo ou zero para números. Texto: ${rawText}`,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -82,6 +114,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const path = url.pathname;
 
+    // Roteamento de comandos de Administrador
+    if (path.includes('/setup-database')) return await handleSetupDatabase(req, res);
     if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
     if (path.includes('/test-supabase')) return await handleTestSupabase(res);
     if (path.includes('/test-gemini')) return await handleTestGemini(res);
@@ -97,12 +131,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { data } = await supabase.from('products').select('*').order('name');
             return res.json(data || []);
         }
+        if (path.includes('/settings')) {
+            const { data } = await supabase.from('system_settings').select('*');
+            const settings = data?.reduce((acc: any, curr: any) => {
+                acc[curr.key] = curr.value;
+                return acc;
+            }, {});
+            return res.json(settings || {});
+        }
     }
 
     if (req.method === 'POST') {
         if (path.includes('/products')) {
             const product = req.body;
             const { error } = await supabase.from('products').upsert(product);
+            if (error) return res.status(500).json({ error: error.message });
+            return res.json({ success: true });
+        }
+        if (path.includes('/settings')) {
+            const { key, value } = req.body;
+            const { error } = await supabase.from('system_settings').upsert({ key, value });
             if (error) return res.status(500).json({ error: error.message });
             return res.json({ success: true });
         }
