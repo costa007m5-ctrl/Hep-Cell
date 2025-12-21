@@ -35,26 +35,17 @@ export interface Invoice {
   created_at: string;
 }
 
-export interface DueDateRequest {
+export interface ProductReview {
   id: string;
+  product_id: string;
   user_id: string;
-  current_day: number;
-  requested_day: number;
-  reason: string;
+  user_name: string;
+  rating: number;
+  comment: string;
+  reply?: string;
   status: 'pending' | 'approved' | 'rejected';
-  admin_notes?: string;
   created_at: string;
-  profiles?: Profile; // Join
-}
-
-export interface AppNotification {
-  id: string;
-  user_id: string;
-  title: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'alert';
-  read: boolean;
-  created_at: string;
+  products?: { name: string; image_url: string };
 }
 
 export interface Profile {
@@ -75,14 +66,17 @@ export interface Profile {
   credit_limit?: number | null;
   credit_status?: string | null;
   last_limit_request_date?: string | null;
-  notify_due_date?: boolean;
-  notify_new_invoice?: boolean;
-  notify_promotions?: boolean;
   avatar_url?: string | null;
-  preferred_due_day?: number;
-  salary?: number; 
-  internal_notes?: string; 
-  coins_balance?: number; // Novo campo para saldo de moedas
+  coins_balance?: number;
+}
+
+export interface ScoreHistory {
+  id: string;
+  user_id: string;
+  change: number;
+  new_score: number;
+  reason: string;
+  created_at: string;
 }
 
 export interface Product {
@@ -97,50 +91,19 @@ export interface Product {
   rating?: number; 
   reviews_count?: number; 
   is_new?: boolean; 
+  is_full?: boolean;
+  free_shipping?: boolean;
+  // Campos Logísticos (Ocultos do Cliente)
+  weight?: number; // em gramas
+  height?: number; // em cm
+  width?: number; // em cm
+  length?: number; // em cm
   created_at: string;
-  barcode?: string;
 }
 
 export interface CartItem extends Product {
+    cartId: string;
     quantity: number;
-    discount?: number;
-}
-
-export interface Address {
-    id: string;
-    street: string;
-    number: string;
-    neighborhood: string;
-    city: string;
-    state: string;
-    zipCode: string;
-    isDefault: boolean;
-}
-
-export interface Order {
-    id: string;
-    date: string;
-    status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-    total: number;
-    items: { name: string; quantity: number; price: number }[];
-    trackingCode?: string;
-}
-
-export interface Review {
-    id: string;
-    userName: string;
-    rating: number;
-    comment: string;
-    date: string;
-}
-
-export interface ScoreHistory {
-  id: string;
-  user_id: string;
-  change: number;
-  new_score: number;
-  reason: string;
-  created_at: string;
 }
 
 export interface LimitRequest {
@@ -148,11 +111,8 @@ export interface LimitRequest {
     user_id: string;
     requested_amount: number;
     current_limit: number;
-    justification: string | null;
     status: 'pending' | 'approved' | 'rejected';
-    admin_response_reason?: string; 
     created_at: string;
-    updated_at?: string;
 }
 
 export interface Contract {
@@ -168,27 +128,12 @@ export interface Contract {
     created_at: string;
 }
 
-// Novos Tipos para Enquetes e Logs
-export interface PollOption {
-    id: string;
-    poll_id: string;
-    text: string;
-    votes: number;
-}
-
-export interface Poll {
-    id: string;
-    question: string;
-    active: boolean;
-    created_at: string;
-    options?: PollOption[];
-}
-
-export interface ChangelogItem {
-    id: string;
-    version: string;
-    title: string;
-    description: string;
-    date: string;
-    type: 'feature' | 'fix' | 'improvement';
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  read: boolean;
+  created_at: string;
 }

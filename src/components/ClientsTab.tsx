@@ -92,8 +92,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
 
         } catch (e: unknown) {
             console.error("Failed to load CRM data", e);
-            // Fix: ensure message is a string by checking instance and using fallback
-            const message = e instanceof Error ? e.message : String(e || 'Erro desconhecido ao carregar dados.');
+            // Fixed Error: ensure message is a string by checking instance and using fallback
+            const message = e instanceof Error ? e.message : String(e ?? 'Erro desconhecido ao carregar dados.');
             setErrorMsg(message);
         } finally {
             setIsDataLoading(false);
@@ -166,7 +166,7 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             }
         } catch (e: unknown) { 
             console.error(e); 
-            // Fix: ensure errorMsg is a string by correctly handling unknown catch variable
+            // Fixed Error: ensure errorMsg is a string by correctly handling unknown catch variable
             const errorMsg = e instanceof Error ? e.message : 'Erro de conexão inesperado.';
             alert(errorMsg); 
         }
@@ -176,7 +176,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
         if (selectedInvoiceIds.size === 0) return;
         if (!confirm(`Tem certeza que deseja aplicar '${action}' em ${selectedInvoiceIds.size} faturas?`)) return;
 
-        const ids = Array.from(selectedInvoiceIds);
+        // Fixed: Explicitly treat ids as string array from the Set
+        const ids: string[] = Array.from(selectedInvoiceIds);
         // Processa um por um para simplificar (idealmente seria batch no backend)
         for (const id of ids) {
             await handleManageInvoice(id, action);
@@ -214,7 +215,8 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                 throw new Error('Erro ao negociar');
             }
         } catch (e: unknown) {
-            const errorMsg = e instanceof Error ? e.message : 'Falha ao criar negociação.';
+            // Fixed Error: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+            const errorMsg = e instanceof Error ? e.message : String(e ?? 'Falha ao criar negociação.');
             alert(errorMsg);
         } finally {
             setIsNegotiating(false);
