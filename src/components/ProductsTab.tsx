@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Product } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
@@ -16,6 +16,7 @@ const ProductsTab: React.FC = () => {
     const [aiInput, setAiInput] = useState('');
     const [isAILoading, setIsAILoading] = useState(false);
     
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const { addToast } = useToast();
 
     const fetchProducts = useCallback(async () => {
@@ -47,6 +48,19 @@ const ProductsTab: React.FC = () => {
             }
         } catch (e) { addToast("Falha na IA.", "error"); }
         finally { setIsAILoading(false); }
+    };
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result as string;
+                setEditingProduct(prev => ({ ...prev, image_url: base64 }));
+                addToast("Imagem carregada!", "success");
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     const handleSave = async (e: React.FormEvent) => {
@@ -141,23 +155,62 @@ const ProductsTab: React.FC = () => {
                             
                             {activeFormTab === 'geral' && (
                                 <div className="space-y-4 animate-fade-in">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome do Produto</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Categoria</label><input type="text" value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Marca</label><input type="text" value={editingProduct.brand || ''} onChange={e => setEditingProduct({...editingProduct, brand: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Modelo</label><input type="text" value={editingProduct.model || ''} onChange={e => setEditingProduct({...editingProduct, model: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Condição</label>
-                                            <select value={editingProduct.condition} onChange={e => setEditingProduct({...editingProduct, condition: e.target.value as any})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none">
-                                                <option value="novo">Novo</option>
-                                                <option value="lacrado">Lacrado</option>
-                                                <option value="recondicionado">Vitrine/Usado</option>
-                                            </select>
+                                    <div className="flex flex-col md:flex-row gap-6">
+                                        {/* Preview e Upload de Imagem */}
+                                        <div className="w-full md:w-1/3 flex flex-col items-center">
+                                            <label className="text-[10px] font-black uppercase text-slate-400 mb-2">Imagem Principal</label>
+                                            <div 
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="w-full aspect-square rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-indigo-500 transition-all"
+                                            >
+                                                {editingProduct.image_url ? (
+                                                    <img src={editingProduct.image_url} className="w-full h-full object-contain group-hover:opacity-75 transition-opacity" />
+                                                ) : (
+                                                    <div className="text-center p-4">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Escolher da Galeria</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <input 
+                                                type="file" 
+                                                ref={fileInputRef} 
+                                                onChange={handleFileUpload} 
+                                                accept="image/*" 
+                                                className="hidden" 
+                                            />
+                                            <div className="w-full mt-2">
+                                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Ou cole a URL</label>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="https://..."
+                                                    value={editingProduct.image_url || ''} 
+                                                    onChange={e => setEditingProduct({...editingProduct, image_url: e.target.value})} 
+                                                    className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-[10px] border-none" 
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Campos Gerais */}
+                                        <div className="flex-1 space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome do Produto</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Categoria</label><input type="text" value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Marca</label><input type="text" value={editingProduct.brand || ''} onChange={e => setEditingProduct({...editingProduct, brand: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Modelo</label><input type="text" value={editingProduct.model || ''} onChange={e => setEditingProduct({...editingProduct, model: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Condição</label>
+                                                    <select value={editingProduct.condition} onChange={e => setEditingProduct({...editingProduct, condition: e.target.value as any})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none">
+                                                        <option value="novo">Novo</option>
+                                                        <option value="lacrado">Lacrado</option>
+                                                        <option value="recondicionado">Vitrine/Usado</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição Detalhada</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm"></textarea></div>
                                         </div>
                                     </div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">URL Imagem Principal</label><input type="text" value={editingProduct.image_url || ''} onChange={e => setEditingProduct({...editingProduct, image_url: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
-                                    <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição Detalhada</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm"></textarea></div>
                                 </div>
                             )}
 
