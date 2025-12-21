@@ -10,64 +10,58 @@ function getSupabaseAdminClient(): SupabaseClient {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// Handler de Diagnóstico Supabase
-async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
+// DIAGNÓSTICO: Teste Supabase
+async function handleTestSupabase(res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { error } = await supabase.from('profiles').select('id').limit(1);
         if (error) throw error;
-        return res.json({ message: "Conexão Estável" });
-    } catch (e: any) { return res.status(500).json({ error: "Erro no Banco: " + e.message }); }
+        return res.json({ message: "Supabase: Conexão Estável" });
+    } catch (e: any) { return res.status(500).json({ error: "Erro Supabase: " + e.message }); }
 }
 
-// Handler de Diagnóstico Gemini
-async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
+// DIAGNÓSTICO: Teste Gemini
+async function handleTestGemini(res: VercelResponse) {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: 'Responda: ONLINE',
+            contents: 'Diga "ONLINE"',
         });
-        return res.json({ message: "IA Operacional: " + response.text });
-    } catch (e: any) { return res.status(500).json({ error: "Erro na IA: " + e.message }); }
+        return res.json({ message: "Gemini: " + response.text });
+    } catch (e: any) { return res.status(500).json({ error: "Erro Gemini: " + e.message }); }
 }
 
-// Handler de Setup Automático
-async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
-    const supabase = getSupabaseAdminClient();
-    const SQL = `
-        ALTER TABLE profiles ADD COLUMN IF NOT EXISTS internal_notes TEXT;
-        ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credit_status TEXT DEFAULT 'Ativo';
-        CREATE TABLE IF NOT EXISTS negotiations (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id UUID REFERENCES profiles(id),
-            message TEXT,
-            admin_id TEXT,
-            created_at TIMESTAMPTZ DEFAULT now()
-        );
-    `;
+// DIAGNÓSTICO: Teste Mercado Pago
+async function handleTestMercadoPago(res: VercelResponse) {
     try {
-        const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SQL });
-        if (error) throw error;
-        return res.json({ message: "Banco Sincronizado!" });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+        const supabase = getSupabaseAdminClient();
+        const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
+        const token = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+        if (!token) throw new Error("Token não configurado");
+        return res.json({ message: "Mercado Pago: Credenciais Ativas" });
+    } catch (e: any) { return res.status(500).json({ error: "Mercado Pago: " + e.message }); }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const path = url.pathname;
 
-    // Roteamento de Diagnóstico
-    if (path.includes('/test-supabase')) return await handleTestSupabase(req, res);
-    if (path.includes('/test-gemini')) return await handleTestGemini(req, res);
-    if (path.includes('/setup-database')) return await handleSetupDatabase(req, res);
+    // Roteamento de Diagnóstico para as cores verdes
+    if (path.includes('/test-supabase')) return await handleTestSupabase(res);
+    if (path.includes('/test-gemini')) return await handleTestGemini(res);
+    if (path.includes('/test-mercadopago')) return await handleTestMercadoPago(res);
 
     const supabase = getSupabaseAdminClient();
 
-    // CRM e Financeiro
+    // Roteamento CRUD
     if (req.method === 'GET') {
         if (path.includes('/profiles')) {
             const { data } = await supabase.from('profiles').select('*').order('first_name');
+            return res.json(data || []);
+        }
+        if (path.includes('/products')) {
+            const { data } = await supabase.from('products').select('*').order('name');
             return res.json(data || []);
         }
         if (path.includes('/invoices')) {
@@ -79,28 +73,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { data } = await supabase.from('negotiations').select('*').eq('user_id', userId).order('created_at', { ascending: false });
             return res.json(data || []);
         }
-        if (path.includes('/products')) {
-            const { data } = await supabase.from('products').select('*').order('name');
-            return res.json(data || []);
-        }
     }
 
     if (req.method === 'POST') {
+        // Pagar Fatura Manualmente
         if (path.includes('/pay-invoice')) {
             const { invoiceId } = req.body;
-            await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString() }).eq('id', invoiceId);
+            await supabase.from('invoices').update({ status: 'Paga', payment_date: new Date().toISOString(), notes: 'Baixa manual pelo administrador' }).eq('id', invoiceId);
             return res.json({ success: true });
         }
+        // Apagar Fatura
         if (path.includes('/delete-invoice')) {
             const { invoiceId } = req.body;
             await supabase.from('invoices').delete().eq('id', invoiceId);
             return res.json({ success: true });
         }
-        if (path.includes('/add-negotiation')) {
-            const { userId, message } = req.body;
-            await supabase.from('negotiations').insert({ user_id: userId, message });
-            return res.json({ success: true });
-        }
+        // Criar/Editar Produto
         if (path.includes('/products')) {
             const product = req.body;
             const { error } = await supabase.from('products').upsert(product);
@@ -109,5 +97,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
-    return res.status(404).json({ error: 'Rota administrativa não encontrada: ' + path });
+    return res.status(404).json({ error: 'Endpoint não encontrado: ' + path });
 }
