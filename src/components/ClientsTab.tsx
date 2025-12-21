@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Invoice, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -91,9 +90,10 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             setInvoices(await invoicesRes.json());
             if(requestsRes.ok) setLimitRequests(await requestsRes.json());
 
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Failed to load CRM data", e);
-            const message = e instanceof Error ? e.message : String(e);
+            // Fix: ensure message is a string by checking instance and using fallback
+            const message = e instanceof Error ? e.message : String(e || 'Erro desconhecido ao carregar dados.');
             setErrorMsg(message);
         } finally {
             setIsDataLoading(false);
@@ -164,9 +164,10 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
                  const error = data && typeof data === 'object' && 'error' in data ? String((data as any).error) : 'Falha na operação.';
                  alert(`Erro: ${error}`);
             }
-        } catch (e: any) { 
+        } catch (e: unknown) { 
             console.error(e); 
-            const errorMsg = e.message || 'Erro de conexão.';
+            // Fix: ensure errorMsg is a string by correctly handling unknown catch variable
+            const errorMsg = e instanceof Error ? e.message : 'Erro de conexão inesperado.';
             alert(errorMsg); 
         }
     };
@@ -212,8 +213,9 @@ const ClientsTab: React.FC<ClientsTabProps> = () => {
             } else {
                 throw new Error('Erro ao negociar');
             }
-        } catch (e: any) {
-            alert('Falha ao criar negociação.');
+        } catch (e: unknown) {
+            const errorMsg = e instanceof Error ? e.message : 'Falha ao criar negociação.';
+            alert(errorMsg);
         } finally {
             setIsNegotiating(false);
         }
