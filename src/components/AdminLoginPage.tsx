@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
@@ -26,20 +27,18 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
             password,
         });
 
-        if (signInError) {
-            throw signInError;
-        }
+        if (signInError) throw signInError;
 
-        // IMPORTANTE: Este ID deve ser o mesmo usado nas políticas RLS do Supabase.
-        // Substitua pelo ID do seu usuário administrador no Supabase Auth.
+        // O ID do administrador central no seu banco
         const ADMIN_USER_ID = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
         
         if (user?.id !== ADMIN_USER_ID) {
-            await supabase.auth.signOut(); // Desloga o usuário não-admin
-            throw new Error("Acesso negado. Esta conta não tem permissões de administrador.");
+            await supabase.auth.signOut();
+            throw new Error("Acesso negado. Apenas a conta administrativa principal pode acessar esta área.");
         }
         
-        // Se o login for bem-sucedido E for o admin, chama o callback
+        // Sinaliza login administrativo na sessão
+        sessionStorage.setItem('isAdminLoggedIn', 'true');
         onLoginSuccess();
 
     } catch (err: any) {
@@ -50,19 +49,19 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-slate-100 dark:bg-slate-900">
+    <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-slate-100 dark:bg-slate-900 font-sans">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center text-center mb-8">
             <div className="mb-4">
-                <Logo className="h-16 w-16" />
+                <Logo className="h-20 w-20" />
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Área do Administrador
+            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                Admin Relp
             </h1>
-            <p className="text-slate-500 dark:text-slate-400">Acesso restrito.</p>
+            <p className="text-slate-500 dark:text-slate-400 font-medium">Gestão de Crédito e Faturas</p>
         </div>
         
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8">
+        <div className="bg-white dark:bg-slate-800 rounded-[2rem] shadow-2xl p-8 border border-white dark:border-slate-700">
           <form onSubmit={handleLogin} className="space-y-6">
             {error && (
               <div className="animate-fade-in">
@@ -71,52 +70,41 @@ const AdminLoginPage: React.FC<AdminLoginPageProps> = ({ onLoginSuccess, onBackT
             )}
             
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                E-mail do Administrador
-              </label>
-              <div className="mt-1">
-                <input
-                  id="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white"
-                />
-              </div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">E-mail Admin</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                placeholder="admin@relpcell.com"
+              />
             </div>
 
             <div>
-              <label htmlFor="password"className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Senha
-              </label>
-              <div className="mt-1">
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white"
-                />
-              </div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1 tracking-wider">Senha</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                placeholder="••••••••"
+              />
             </div>
 
-            <div>
-              <button
+            <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed dark:focus:ring-offset-slate-800 transition-colors duration-200"
-              >
-                {loading ? <LoadingSpinner /> : 'Acessar'}
-              </button>
-            </div>
+                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all active:scale-[0.98] flex justify-center"
+            >
+                {loading ? <LoadingSpinner /> : 'Entrar no Painel'}
+            </button>
           </form>
-           <p className="mt-6 text-center text-sm">
-                <button onClick={onBackToCustomer} className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">
-                &larr; Voltar para a área do cliente
+          
+           <p className="mt-8 text-center">
+                <button onClick={onBackToCustomer} className="text-sm font-bold text-slate-400 hover:text-indigo-600 transition-colors">
+                    &larr; Voltar para a loja
                 </button>
             </p>
         </div>

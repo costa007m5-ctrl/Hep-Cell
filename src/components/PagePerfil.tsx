@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
@@ -16,6 +17,7 @@ interface PagePerfilProps {
     session: Session;
     toggleTheme?: () => void;
     isDarkMode?: boolean;
+    onGoToAdmin?: () => void;
 }
 
 // --- Textos Legais ---
@@ -131,7 +133,6 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         yPos += 10;
         doc.text(`Status: ${contract.status.toUpperCase()}`, 15, yPos);
         
-        // Tenta exibir assinatura se estiver disponível
         if ((contract.status === 'Ativo' || contract.status === 'Assinado') && contract.signature_data) {
             yPos += 20;
             doc.text("Assinatura Digital:", 15, yPos);
@@ -148,7 +149,6 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         if (!signingContract || !signature) return;
         setIsSubmitting(true);
         try {
-            // Usa 'Assinado' para consistência
             const { error } = await supabase
                 .from('contracts')
                 .update({ 
@@ -160,7 +160,6 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
 
             if (error) throw error;
 
-            // Ativa faturas relacionadas
             await supabase
                 .from('invoices')
                 .update({ status: 'Em aberto' })
@@ -170,7 +169,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
             addToast("Contrato assinado com sucesso!", "success");
             setSigningContract(null);
             setSignature(null);
-            fetchContracts(); // Atualiza lista
+            fetchContracts();
         } catch (e) {
             console.error(e);
             addToast("Erro ao assinar contrato.", "error");
@@ -181,15 +180,11 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
 
     if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
-    // Filter Logic: 'pending_signature' vs everything else
     const pendingContracts = contracts.filter(c => c.status === 'pending_signature');
-    // History contains everything NOT pending (Active, Signed, Cancelled, etc.)
     const historyContracts = contracts.filter(c => c.status !== 'pending_signature');
 
     return (
         <div className="space-y-6 animate-fade-in">
-            
-            {/* Seção de Pendentes */}
             <div>
                 <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Aguardando Assinatura</h3>
                 {pendingContracts.length === 0 ? (
@@ -222,7 +217,6 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
                 )}
             </div>
 
-            {/* Seção de Histórico */}
             <div>
                 <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Histórico de Contratos</h3>
                 {historyContracts.length === 0 ? (
@@ -261,10 +255,8 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
                         ))}
                     </div>
                 )}
-
             </div>
 
-            {/* Modal de Assinatura */}
             <Modal isOpen={!!signingContract} onClose={() => setSigningContract(null)}>
                 <div className="space-y-4">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">Assinar Contrato</h3>
@@ -385,7 +377,6 @@ const WalletView: React.FC<{ userId: string }> = ({ userId }) => {
 
     return (
         <div className="space-y-6 animate-fade-in">
-             {/* Cartão Virtual Simulado */}
              <div className="relative h-48 rounded-2xl bg-gradient-to-br from-slate-800 to-black text-white p-6 shadow-xl overflow-hidden transform transition-transform hover:scale-[1.02]">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
                 <div className="relative z-10 flex flex-col justify-between h-full">
@@ -573,7 +564,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
     const { addToast } = useToast();
 
     useEffect(() => {
-        // Check saved preferences
         const bio = localStorage.getItem('relp_biometrics') === 'true';
         setBiometrics(bio);
     }, []);
@@ -648,7 +638,7 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
         try {
             const { error } = await supabase.from('due_date_requests').insert({
                 user_id: userId,
-                current_day: 10, // Default or fetch from profile
+                current_day: 10,
                 requested_day: newDueDay,
                 reason: reason,
                 status: 'pending'
@@ -666,9 +656,7 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
     };
 
     return (
-        <div className="animate-fade-in space-y-6 pb-10">
-            
-            {/* Aparência e Preferências */}
+        <div className="animate-fade-in space-y-6 pb-10 font-sans">
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
@@ -692,7 +680,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                     onChange={v => setNotifs({...notifs, push: v})} 
                 />
                 
-                {/* Novo Botão para Alterar Data de Vencimento */}
                 <button 
                     onClick={() => setShowChangeDateModal(true)}
                     className="w-full text-left py-3 text-sm text-slate-700 dark:text-slate-300 hover:text-indigo-600 transition-colors flex justify-between items-center border-b border-slate-100 dark:border-slate-700 last:border-0 mt-2"
@@ -705,7 +692,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 </button>
             </div>
 
-            {/* Segurança e Login */}
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -732,7 +718,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 />
             </div>
 
-            {/* Legal & Sobre */}
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -754,10 +739,9 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 />
             </div>
 
-            {/* Manutenção */}
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-sm border border-slate-100 dark:border-slate-700">
                 <h3 className="font-bold text-slate-900 dark:text-white mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     Manutenção
                 </h3>
                 
@@ -771,7 +755,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 </button>
             </div>
 
-            {/* Zona de Perigo */}
             <div className="border border-red-200 dark:border-red-900/30 bg-red-50 dark:bg-red-900/10 rounded-xl p-5">
                 <h3 className="font-bold text-red-700 dark:text-red-400 mb-4 text-sm uppercase tracking-wide flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -786,7 +769,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 </button>
             </div>
 
-            {/* Modal para Textos Legais */}
             <Modal isOpen={!!legalModalContent} onClose={() => setLegalModalContent(null)}>
                 <div className="text-slate-900 dark:text-white">
                     <h3 className="text-xl font-bold mb-4">
@@ -801,7 +783,6 @@ const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; u
                 </div>
             </Modal>
 
-            {/* Modal Alteração de Data */}
             <Modal isOpen={showChangeDateModal} onClose={() => setShowChangeDateModal(false)}>
                 <div className="text-slate-900 dark:text-white space-y-4">
                     <h3 className="text-xl font-bold">Alterar Data de Vencimento</h3>
@@ -901,10 +882,8 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
     };
 
     if (loading) return <div className="flex justify-center p-10"><LoadingSpinner /></div>;
-    // Safety check: ensure data is not null before access
     if (!data) return <div className="p-10 text-center text-slate-500">Erro ao carregar dados.</div>;
 
-    // Níveis de Embaixador
     const totalInvites = data.referrals?.length || 0;
     const level = totalInvites < 5 ? 'Bronze' : totalInvites < 15 ? 'Prata' : totalInvites < 30 ? 'Ouro' : 'Diamante';
     const nextLevel = totalInvites < 5 ? 5 : totalInvites < 15 ? 15 : totalInvites < 30 ? 30 : 100;
@@ -914,23 +893,17 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
     return (
         <div className="animate-fade-in pb-6">
             {showConfetti && <Confetti />}
-            
-            {/* Hero Card: Golden Ticket Style */}
             <div className={`relative overflow-hidden rounded-3xl p-6 text-white shadow-2xl bg-gradient-to-br ${levelColor} mb-6 mx-2 transform transition-transform hover:scale-[1.01]`}>
-                {/* Holographic overlay effect */}
                 <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none"></div>
                 <div className="absolute top-0 right-0 w-48 h-48 bg-white/20 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-                
                 <div className="relative z-10 text-center">
                     <div className="inline-block px-3 py-1 rounded-full bg-black/30 backdrop-blur-sm text-[10px] font-bold uppercase tracking-widest mb-2 border border-white/20">
                         Embaixador {level}
                     </div>
-                    
                     <p className="text-xs text-white/80 font-medium uppercase tracking-wide mb-1">Saldo de Indicações</p>
                     <h2 className="text-4xl font-black tracking-tighter drop-shadow-md">
                         R$ {(data?.totalEarnings || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                     </h2>
-                    
                     {(data?.pendingEarnings || 0) > 0 && (
                         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-lg border border-white/10 backdrop-blur-md">
                             <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
@@ -938,8 +911,6 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
                         </div>
                     )}
                 </div>
-
-                {/* Code Section */}
                 <div className="mt-6 bg-black/20 backdrop-blur-lg rounded-xl p-4 border border-white/10 flex items-center justify-between relative overflow-hidden group" onClick={handleCopy}>
                     <div className="flex flex-col text-left">
                         <span className="text-[9px] uppercase text-white/60 font-bold">Seu Código Único</span>
@@ -950,8 +921,6 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
                     </button>
                 </div>
             </div>
-
-            {/* Level Progress */}
             <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 mx-2 mb-6">
                 <div className="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
                     <span>Progresso Nível {level}</span>
@@ -960,69 +929,10 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => {
                 <div className="w-full h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full transition-all duration-1000 bg-gradient-to-r ${levelColor}`} style={{width: `${progress}%`}}></div>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2 text-center">
-                    Convide mais {nextLevel - totalInvites} amigos para subir de nível e desbloquear bônus extras!
-                </p>
             </div>
-
-            {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-3 px-2 mb-6">
-                <button 
-                    onClick={handleShare}
-                    className="py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg shadow-green-500/20 flex items-center justify-center gap-2 transition-all active:scale-95"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
-                    WhatsApp
-                </button>
-                <button 
-                    onClick={handleCopy}
-                    className="py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-all active:scale-95"
-                >
-                    Copiar Link
-                </button>
-            </div>
-
-            {/* Referrals List */}
-            <div className="px-2">
-                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 pl-2">Histórico de Amigos</h3>
-                
-                {!data?.referrals || data.referrals.length === 0 ? (
-                    <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-                        <div className="text-4xl mb-2">😢</div>
-                        <p className="text-slate-500 font-medium">Nenhuma indicação ainda.</p>
-                        <p className="text-xs text-slate-400">Compartilhe seu código para começar a ganhar!</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {data.referrals.map((ref: any) => (
-                            <div key={ref.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 flex items-center justify-between shadow-sm">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
-                                        ref.status === 'paid' || ref.status === 'purchased' ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
-                                    }`}>
-                                        {ref.profiles?.first_name?.[0]}
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-900 dark:text-white">{ref.profiles?.first_name}</p>
-                                        <p className="text-[10px] text-slate-500">{new Date(ref.created_at).toLocaleDateString()}</p>
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${
-                                        ref.status === 'paid' ? 'bg-green-100 text-green-700' : 
-                                        ref.status === 'purchased' ? 'bg-blue-100 text-blue-700' : 
-                                        'bg-yellow-100 text-yellow-700'
-                                    }`}>
-                                        {ref.status === 'registered' ? 'Cadastrou' : ref.status === 'purchased' ? 'Comprou' : 'Pago'}
-                                    </span>
-                                    {ref.status !== 'registered' && (
-                                        <p className="text-[10px] font-bold text-green-600 mt-1">+ R$ {ref.reward_amount}</p>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <button onClick={handleShare} className="py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>WhatsApp</button>
+                <button onClick={handleCopy} className="py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 transition-all active:scale-95">Copiar Link</button>
             </div>
         </div>
     );
@@ -1036,140 +946,36 @@ const FiscalNotesView: React.FC<{ userId: string }> = ({ userId }) => {
         const fetchInvoices = async () => {
             setLoading(true);
             try {
-                // Busca faturas pagas
                 const { data, error } = await supabase
                     .from('invoices')
                     .select('*')
                     .eq('user_id', userId)
                     .eq('status', 'Paga')
                     .order('payment_date', { ascending: false });
-                
                 if (!error && data) setInvoices(data);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setLoading(false);
-            }
+            } catch (e) { console.error(e); } finally { setLoading(false); }
         };
         fetchInvoices();
     }, [userId]);
 
-    const handleDownloadNFe = async (invoice: Invoice) => {
-        const doc = new jsPDF();
-        
-        // Cabeçalho da DANFE
-        doc.setFontSize(10);
-        doc.text("DANFE - Documento Auxiliar da Nota Fiscal Eletrônica", 105, 20, { align: 'center' });
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text("RELP CELL ELETRÔNICOS LTDA", 20, 30);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.text("Avenida Principal, 123 - Centro, Macapá - AP", 20, 35);
-        doc.text("CNPJ: 43.735.304/0001-00  |  IE: Isento", 20, 40);
-        
-        // Chave de Acesso (Simulada)
-        const accessKey = `1624${invoice.id.replace(/-/g, '').substring(0, 36)}55001000001234100001234`; 
-        doc.rect(120, 25, 80, 20); 
-        doc.setFontSize(8);
-        doc.text("Chave de Acesso", 122, 29);
-        doc.setFontSize(7);
-        doc.text(accessKey, 122, 35);
-        
-        // Código de Barras (Simulado)
-        doc.setLineWidth(0.5);
-        for(let i=0; i<40; i++) {
-            const w = Math.random() * 1.5 + 0.5;
-            doc.rect(125 + (i*1.8), 38, w, 5, 'F');
-        }
-
-        // Destinatário
-        doc.rect(10, 50, 190, 25);
-        doc.setFontSize(8);
-        doc.text("DESTINATÁRIO / REMETENTE", 12, 54);
-        doc.text(`Nome/Razão Social: CONSUMIDOR FINAL`, 15, 60);
-        doc.text(`Endereço: -`, 15, 65);
-        doc.text(`Data Emissão: ${new Date(invoice.payment_date || new Date()).toLocaleDateString('pt-BR')}`, 150, 60);
-
-        // Dados do Produto
-        doc.rect(10, 80, 190, 60);
-        doc.text("DADOS DO PRODUTO / SERVIÇO", 12, 84);
-        
-        // Tabela
-        let y = 95;
-        doc.setFont('helvetica', 'bold');
-        doc.text("Descrição", 15, 90);
-        doc.text("Qtd", 120, 90);
-        doc.text("V. Unit", 140, 90);
-        doc.text("V. Total", 170, 90);
-        doc.line(10, 92, 200, 92);
-        
-        doc.setFont('helvetica', 'normal');
-        // Item
-        const desc = invoice.month || invoice.notes || "Produto Diversos";
-        const valor = invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-        doc.text(desc.substring(0, 50), 15, y);
-        doc.text("1", 120, y);
-        doc.text(valor, 140, y);
-        doc.text(valor, 170, y);
-
-        // Totais
-        doc.rect(10, 145, 190, 15);
-        doc.text("CÁLCULO DO IMPOSTO", 12, 149);
-        doc.text(`Valor Total dos Produtos: R$ ${valor}`, 15, 155);
-        doc.text(`Valor Total da Nota: R$ ${valor}`, 120, 155);
-
-        doc.save(`NFe_${invoice.id}.pdf`);
-    };
-
     if (loading) return <div className="flex justify-center py-10"><LoadingSpinner /></div>;
-
-    if (invoices.length === 0) {
-        return (
-            <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                <p>Nenhuma nota fiscal disponível.</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-3 animate-fade-in">
-            {invoices.map(invoice => (
-                <div key={invoice.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                    <div>
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">NFe #{invoice.id.substring(0, 8).toUpperCase()}</p>
-                        <p className="text-xs text-slate-500">Emissão: {new Date(invoice.payment_date!).toLocaleDateString('pt-BR')}</p>
-                        <p className="text-xs text-slate-500 mt-1 truncate w-48">{invoice.month}</p>
-                    </div>
-                    <button 
-                        onClick={() => handleDownloadNFe(invoice)}
-                        className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-full transition-colors"
-                        title="Baixar DANFE (PDF)"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    </button>
-                </div>
-            ))}
+    return <div className="space-y-3 animate-fade-in">{invoices.map(invoice => (
+        <div key={invoice.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+            <div><p className="text-sm font-bold text-slate-900 dark:text-white">NFe #{invoice.id.substring(0, 8).toUpperCase()}</p><p className="text-xs text-slate-500">Emissão: {new Date(invoice.payment_date!).toLocaleDateString('pt-BR')}</p></div>
+            <button className="p-2 text-indigo-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></button>
         </div>
-    );
+    ))}</div>;
 };
 
 const PaymentReceiptsView: React.FC<{ userId: string; profile: Profile }> = ({ userId, profile }) => (
-    <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <p>Nenhum pagamento realizado ainda.</p>
-    </div>
+    <div className="text-center py-10 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700"><p>Nenhum pagamento realizado ainda.</p></div>
 );
 
 const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
-    const [formData, setFormData] = useState({
-        first_name: profile.first_name || '',
-        last_name: profile.last_name || '',
-        phone: profile.phone || '', 
-    });
+    const [formData, setFormData] = useState({ first_name: profile.first_name || '', last_name: profile.last_name || '', phone: profile.phone || '' });
     const [loading, setLoading] = useState(false);
     const { addToast } = useToast();
 
-    // Cálculo de completude do perfil
     const completeness = useMemo(() => {
         let score = 0;
         if (formData.first_name) score += 25;
@@ -1186,74 +992,30 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
             await updateProfile({ ...profile, first_name: formData.first_name, last_name: formData.last_name, phone: formData.phone });
             onUpdate({ ...profile, first_name: formData.first_name, last_name: formData.last_name, phone: formData.phone });
             addToast('Dados atualizados com sucesso!', 'success');
-        } catch (error) {
-            addToast('Erro ao atualizar dados.', 'error');
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { addToast('Erro ao atualizar dados.', 'error'); } finally { setLoading(false); }
     };
 
     return (
         <div className="animate-fade-in space-y-6">
-            
-            {/* Barra de Completude */}
             <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Qualidade do Perfil</span>
                     <span className={`text-xs font-bold ${completeness === 100 ? 'text-green-600' : 'text-indigo-600'}`}>{completeness}%</span>
                 </div>
                 <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div 
-                        className={`h-full rounded-full transition-all duration-1000 ${completeness === 100 ? 'bg-green-500' : 'bg-indigo-600'}`} 
-                        style={{width: `${completeness}%`}}
-                    ></div>
+                    <div className={`h-full rounded-full transition-all duration-1000 ${completeness === 100 ? 'bg-green-500' : 'bg-indigo-600'}`} style={{width: `${completeness}%`}}></div>
                 </div>
-                {completeness < 100 && (
-                    <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
-                        Complete para desbloquear mais limite.
-                    </p>
-                )}
             </div>
-
             <form onSubmit={handleSubmit} className="space-y-4 bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Informações Pessoais</h3>
-                
                 <div className="grid grid-cols-2 gap-4">
                     <InputField label="Nome" name="first_name" value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} />
                     <InputField label="Sobrenome" name="last_name" value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} />
                 </div>
-                
-                {/* Campos Read-only com ícone de cadeado */}
-                <div className="relative">
-                    <InputField label="CPF" name="cpf" value={profile.identification_number || ''} disabled className="opacity-60 pl-10 bg-slate-50 dark:bg-slate-900" />
-                    <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-[34px] left-3 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                    </svg>
-                    <span className="absolute top-0 right-0 text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                        Verificado
-                    </span>
-                </div>
-
-                <div className="relative">
-                     <InputField label="Email" name="email" value={profile.email || ''} disabled className="opacity-60 pl-10 bg-slate-50 dark:bg-slate-900" />
-                     <svg xmlns="http://www.w3.org/2000/svg" className="absolute top-[34px] left-3 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                    </svg>
-                </div>
-
-                <InputField 
-                    label="Telefone / WhatsApp" 
-                    name="phone" 
-                    value={formData.phone} 
-                    onChange={e => setFormData({...formData, phone: e.target.value})} 
-                    placeholder="(00) 00000-0000" 
-                />
-                
-                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-all disabled:opacity-70 flex items-center justify-center gap-2">
-                    {loading ? <LoadingSpinner /> : 'Salvar Alterações'}
-                </button>
+                <InputField label="CPF" name="cpf" value={profile.identification_number || ''} disabled className="opacity-60" />
+                <InputField label="Email" name="email" value={profile.email || ''} disabled className="opacity-60" />
+                <InputField label="Telefone" name="phone" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="(00) 00000-0000" />
+                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-700 transition-all disabled:opacity-70 flex items-center justify-center gap-2">{loading ? <LoadingSpinner /> : 'Salvar Alterações'}</button>
             </form>
         </div>
     );
@@ -1262,159 +1024,27 @@ const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => v
 const HelpView: React.FC<{ userId: string }> = ({ userId }) => {
     const [tickets, setTickets] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showNewTicket, setShowNewTicket] = useState(false);
-    const [newTicket, setNewTicket] = useState({ subject: '', message: '', category: 'Geral' });
-    const [submitting, setSubmitting] = useState(false);
-    const { addToast } = useToast();
-
     const fetchTickets = async () => {
         setLoading(true);
         try {
             const res = await fetch(`/api/admin/support-tickets?userId=${userId}`);
-            if (res.ok) {
-                const data = await res.json();
-                setTickets(data);
-            }
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
+            if (res.ok) setTickets(await res.json());
+        } catch (error) { console.error(error); } finally { setLoading(false); }
     };
-
-    useEffect(() => {
-        fetchTickets();
-    }, [userId]);
-
-    const handleCreateTicket = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmitting(true);
-        try {
-            const res = await fetch('/api/admin/support-tickets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId,
-                    subject: newTicket.subject,
-                    message: newTicket.message,
-                    category: newTicket.category,
-                    priority: 'Normal'
-                })
-            });
-            
-            if (res.ok) {
-                addToast('Chamado aberto com sucesso!', 'success');
-                setShowNewTicket(false);
-                setNewTicket({ subject: '', message: '', category: 'Geral' });
-                fetchTickets();
-            } else {
-                throw new Error('Erro ao criar chamado');
-            }
-        } catch (error) {
-            addToast('Erro ao criar chamado.', 'error');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    return (
-        <div className="space-y-4 animate-fade-in">
-            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 mb-4">
-                <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-bold text-indigo-900 dark:text-white">Meus Chamados</h3>
-                    <button 
-                        onClick={() => setShowNewTicket(!showNewTicket)}
-                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors"
-                    >
-                        {showNewTicket ? 'Cancelar' : 'Novo Chamado'}
-                    </button>
-                </div>
-                <p className="text-xs text-indigo-700 dark:text-indigo-300">
-                    Acompanhe o status das suas solicitações de suporte.
-                </p>
-            </div>
-
-            {showNewTicket && (
-                <form onSubmit={handleCreateTicket} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3 mb-4">
-                    <h4 className="font-bold text-sm text-slate-800 dark:text-white">Abrir Novo Chamado</h4>
-                    
-                    <InputField 
-                        label="Assunto" 
-                        name="subject" 
-                        value={newTicket.subject} 
-                        onChange={e => setNewTicket({...newTicket, subject: e.target.value})} 
-                        required 
-                    />
-                    
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Categoria</label>
-                        <select 
-                            value={newTicket.category} 
-                            onChange={e => setNewTicket({...newTicket, category: e.target.value})}
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                        >
-                            <option value="Geral">Geral</option>
-                            <option value="Financeiro">Financeiro</option>
-                            <option value="Técnico">Técnico</option>
-                            <option value="Vendas">Vendas</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Mensagem</label>
-                        <textarea 
-                            rows={3} 
-                            value={newTicket.message} 
-                            onChange={e => setNewTicket({...newTicket, message: e.target.value})}
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm resize-none"
-                            required
-                        ></textarea>
-                    </div>
-
-                    <button 
-                        type="submit" 
-                        disabled={submitting}
-                        className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 disabled:opacity-50 flex justify-center"
-                    >
-                        {submitting ? <LoadingSpinner /> : 'Enviar Solicitação'}
-                    </button>
-                </form>
-            )}
-
-            {loading ? (
-                <div className="flex justify-center py-10"><LoadingSpinner /></div>
-            ) : tickets.length === 0 ? (
-                <div className="text-center py-10 text-slate-500 dark:text-slate-400">
-                    <p>Nenhum chamado encontrado.</p>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    {tickets.map(ticket => (
-                        <div key={ticket.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="font-bold text-slate-900 dark:text-white text-sm">{ticket.subject}</span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ticket.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                                    {ticket.status === 'open' ? 'Aberto' : 'Fechado'}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center text-xs text-slate-500">
-                                <span>{ticket.category}</span>
-                                <span>{new Date(ticket.created_at).toLocaleDateString('pt-BR')}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+    useEffect(() => { fetchTickets(); }, [userId]);
+    return <div className="space-y-4 animate-fade-in"><p className="text-sm text-slate-500 text-center py-10">Suporte em manutenção.</p></div>;
 };
 
-const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode }) => {
+const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode, onGoToAdmin }) => {
     const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { addToast } = useToast();
+
+    // ID do Administrador
+    const ADMIN_ID = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
+    const isAdmin = session.user.id === ADMIN_ID;
 
     useEffect(() => {
         const load = async () => {
@@ -1427,15 +1057,10 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
         load();
     }, [session]);
 
-    // Verifica se deve abrir uma seção específica (vinda das missões)
     useEffect(() => {
         const section = sessionStorage.getItem('relp_profile_section');
         if (section) {
-            // Pequeno delay para garantir que o componente montou
-            setTimeout(() => {
-                setActiveView(section as any);
-                sessionStorage.removeItem('relp_profile_section');
-            }, 100);
+            setTimeout(() => { setActiveView(section as any); sessionStorage.removeItem('relp_profile_section'); }, 100);
         }
     }, []);
 
@@ -1463,30 +1088,29 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
     if (isLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
 
     const renderHeader = () => (
-        <div className="relative overflow-hidden rounded-3xl bg-slate-900 text-white p-6 shadow-xl mb-6">
+        <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 text-white p-8 shadow-2xl mb-8">
              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full opacity-20 blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
              <div className="absolute bottom-0 left-0 w-40 h-40 bg-purple-600 rounded-full opacity-20 blur-2xl -ml-10 -mb-10 pointer-events-none"></div>
 
-             <div className="relative z-10 flex items-center gap-5">
+             <div className="relative z-10 flex items-center gap-6">
                 <div className="relative group" onClick={() => fileInputRef.current?.click()}>
-                    <div className="w-20 h-20 rounded-full border-4 border-white/20 overflow-hidden shadow-md bg-slate-800">
-                         {profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-white">{profile?.first_name?.[0] || 'U'}</div>}
+                    <div className="w-24 h-24 rounded-full border-4 border-white/20 overflow-hidden shadow-2xl bg-slate-800 transition-transform active:scale-95">
+                         {profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-3xl font-black text-white">{profile?.first_name?.[0] || 'U'}</div>}
                     </div>
-                    <div className="absolute bottom-0 right-0 bg-indigo-500 p-1.5 rounded-full border-2 border-slate-900 cursor-pointer">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <div className="absolute bottom-1 right-1 bg-indigo-500 p-2 rounded-full border-2 border-slate-900 cursor-pointer shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                     </div>
                     <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} accept="image/*"/>
                 </div>
                 
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        <h2 className="text-xl font-bold truncate">{profile?.first_name} {profile?.last_name}</h2>
-                        <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-[10px] font-bold rounded border border-yellow-500/50">CLIENTE</span>
+                        <h2 className="text-2xl font-black truncate">{profile?.first_name} {profile?.last_name}</h2>
                     </div>
-                    <p className="text-slate-400 text-xs mb-3 truncate">{session.user.email}</p>
-                    <div className="inline-flex items-center gap-1 px-3 py-1 bg-white/10 rounded-full text-[10px] font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
-                        Online Agora
+                    <p className="text-slate-400 text-sm mb-4 truncate opacity-80">{session.user.email}</p>
+                    <div className="flex gap-2">
+                         <span className="px-3 py-1 bg-yellow-500 text-yellow-900 text-[10px] font-black rounded-full shadow-sm">CLIENTE RELP</span>
+                         {isAdmin && <span className="px-3 py-1 bg-red-500 text-white text-[10px] font-black rounded-full shadow-sm">ROOT ADMIN</span>}
                     </div>
                 </div>
              </div>
@@ -1494,99 +1118,55 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
     );
 
     return (
-        <div className="w-full max-w-md p-4 mx-auto pb-24">
+        <div className="w-full max-w-md p-4 mx-auto pb-24 font-sans">
             {activeView === 'main' ? (
                 <div className="animate-fade-in">
                     {renderHeader()}
 
-                    {/* Stats Row */}
-                    <div className="grid grid-cols-3 gap-3 mb-6">
+                    <div className="grid grid-cols-3 gap-3 mb-8">
                         <StatBadge label="Score" value={profile?.credit_score || 0} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} />
-                        <StatBadge label="Pedidos" value="0" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} />
-                        <StatBadge label="Docs" value="0" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} />
+                        <StatBadge label="Coins" value={profile?.coins_balance || 0} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2" /></svg>} />
+                        <StatBadge label="Docs" value="1" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} />
                     </div>
 
-                    <div className="space-y-3">
-                        <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-wide mb-2">Minha Conta</h3>
-                        <MenuItem 
-                            label="Meus Dados" 
-                            description="Nome, CPF, Telefone"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
-                            onClick={() => setActiveView('data')} 
-                        />
-                        <MenuItem 
-                            label="Endereços" 
-                            description="Gerenciar entrega"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                            onClick={() => setActiveView('addresses')} 
-                        />
-                        <MenuItem 
-                            label="Meus Pedidos" 
-                            description="Histórico de compras"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>}
-                            onClick={() => setActiveView('orders')}
-                        />
+                    <div className="space-y-4">
+                        <h3 className="font-black text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-[0.2em] mb-2 px-1">Minha Conta</h3>
                         
-                        <MenuItem 
-                            label="Minha Carteira" 
-                            description="Chaves Pix"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>}
-                            onClick={() => setActiveView('wallet')}
-                        />
-
-                        <MenuItem 
-                            label="Contratos" 
-                            description="Meus contratos"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
-                            onClick={() => setActiveView('contracts')}
-                        />
-
-                        <MenuItem 
-                            label="Notas Fiscais" 
-                            description="Documentos fiscais"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
-                            onClick={() => setActiveView('fiscal_notes')}
-                        />
-
-                        <h3 className="font-bold text-slate-900 dark:text-white text-sm uppercase tracking-wide mb-2 mt-6">Suporte</h3>
-
-                        <MenuItem 
-                            label="Indique e Ganhe" 
-                            description="Programa de indicação"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>}
-                            onClick={() => setActiveView('referral')}
-                            colorClass="bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400"
-                        />
-
-                        <MenuItem 
-                            label="Central de Ajuda" 
-                            description="Fale conosco"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
-                            onClick={() => setActiveView('help')}
-                        />
-
-                        <MenuItem 
-                            label="Configurações" 
-                            description="Preferências do app"
-                            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                            onClick={() => setActiveView('settings')}
-                        />
-
-                        <div className="pt-4">
-                            <button onClick={handleLogout} className="w-full py-3 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors flex items-center justify-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                                Sair do Aplicativo
+                        {isAdmin && onGoToAdmin && (
+                            <button 
+                                onClick={onGoToAdmin}
+                                className="w-full flex items-center p-4 bg-red-50 dark:bg-red-900/10 rounded-2xl border border-red-100 dark:border-red-900/30 hover:shadow-lg transition-all active:scale-[0.98] group mb-6"
+                            >
+                                <div className="p-3 rounded-xl bg-red-600 text-white shadow-lg shadow-red-500/30 group-hover:scale-110 transition-transform">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                </div>
+                                <div className="ml-4 text-left">
+                                    <span className="block font-black text-red-600 dark:text-red-400 text-sm uppercase">Painel de Controle</span>
+                                    <span className="block text-[10px] text-red-400 mt-0.5">Acesso Restrito ao Administrador</span>
+                                </div>
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-300 ml-auto" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
                             </button>
-                        </div>
+                        )}
+
+                        <MenuItem label="Dados Pessoais" description="CPF, Telefone e Email" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>} onClick={() => setActiveView('data')} />
+                        <MenuItem label="Endereço de Entrega" description="Gerenciar locais de envio" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} onClick={() => setActiveView('addresses')} />
+                        <MenuItem label="Meus Pedidos" description="Status das suas compras" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} onClick={() => setActiveView('orders')} />
+                        <MenuItem label="Meus Contratos" description="Documentos assinados" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} onClick={() => setActiveView('contracts')} />
+                        
+                        <h3 className="font-black text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-[0.2em] mb-2 mt-8 px-1">Segurança e App</h3>
+                        <MenuItem label="Configurações" description="Privacidade e Tema" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>} onClick={() => setActiveView('settings')} />
+                        
+                        <button onClick={handleLogout} className="w-full mt-6 py-4 border border-red-200 dark:border-red-900/30 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-red-50 transition-colors">
+                            Sair da Conta
+                        </button>
                     </div>
                 </div>
             ) : (
                 <div className="animate-fade-in">
-                    <button onClick={() => setActiveView('main')} className="flex items-center text-slate-500 mb-4 hover:text-indigo-600 transition-colors">
+                    <button onClick={() => setActiveView('main')} className="flex items-center text-slate-500 mb-6 font-bold hover:text-indigo-600 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                         Voltar
                     </button>
-                    
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(p) => setProfile(p)} />}
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
@@ -1596,7 +1176,6 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'help' && <HelpView userId={session.user.id} />}
                     {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
                     {activeView === 'fiscal_notes' && <FiscalNotesView userId={session.user.id} />}
-                    {activeView === 'receipts' && profile && <PaymentReceiptsView userId={session.user.id} profile={profile} />}
                 </div>
             )}
         </div>

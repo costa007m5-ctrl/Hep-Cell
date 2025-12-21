@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Header from './components/Header';
 import Navbar from './components/Navbar';
@@ -10,7 +11,7 @@ import AuthPage from './components/AuthPage';
 import AdminLoginPage from './components/AdminLoginPage';
 import AdminDashboard from './components/AdminDashboard';
 import ResetPasswordPage from './components/ResetPasswordPage'; 
-import SplashScreen from './components/SplashScreen'; // Import da Splash
+import SplashScreen from './components/SplashScreen';
 import { Tab } from './types';
 import { supabase } from './services/clients';
 import { Session } from '@supabase/supabase-js';
@@ -28,10 +29,12 @@ const AppContent: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>('customer');
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [showSplash, setShowSplash] = useState(true); // Estado para controlar a Splash Screen
+  const [showSplash, setShowSplash] = useState(true);
   const { addToast } = useToast();
 
-  // Verifica tema inicial
+  // O ID que define quem é o administrador supremo
+  const ADMIN_ID = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
+
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -57,7 +60,6 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // Check payment status from redirect
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('payment_status');
@@ -73,8 +75,8 @@ const AppContent: React.FC = () => {
     }
   }, [addToast]);
 
-  // Auth Check
   useEffect(() => {
+    // Se o sinalizador de Admin estiver ativo, pula para a dashboard
     if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
       setView('adminDashboard');
       setAuthLoading(false);
@@ -88,7 +90,6 @@ const AppContent: React.FC = () => {
         setSession(data.session);
       } catch (error) {
         console.warn("Erro ao recuperar sessão:", error);
-        await supabase.auth.signOut();
         setSession(null);
       } finally {
         setAuthLoading(false);
@@ -100,8 +101,10 @@ const AppContent: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
        if (event === 'SIGNED_OUT') {
          setSession(null);
-         setAuthLoading(false);
+         setView('customer');
+         sessionStorage.removeItem('isAdminLoggedIn');
        } else {
+         // Mantém a view atual se o admin logar
          if (sessionStorage.getItem('isAdminLoggedIn') !== 'true') {
             setSession(session);
          }
@@ -115,31 +118,22 @@ const AppContent: React.FC = () => {
     sessionStorage.removeItem('isAdminLoggedIn');
     await supabase.auth.signOut();
     setView('customer');
-    window.location.reload();
+    window.location.href = '/'; // Reinicia o app
   };
 
-  // Roteamento Simples para Reset Password
-  const path = window.location.pathname;
-  if (path === '/reset-password') {
-      return <ResetPasswordPage />;
+  if (window.location.pathname === '/reset-password') return <ResetPasswordPage />;
+  if (showSplash) return <SplashScreen onFinish={() => setShowSplash(false)} />;
+
+  // LOGICA DE ROTEAMENTO DE AMBIENTES
+  if (view === 'adminLogin') {
+      return <AdminLoginPage onLoginSuccess={() => setView('adminDashboard')} onBackToCustomer={() => setView('customer')} />;
   }
 
-  // Mostra a Splash Screen até que ela termine E a autenticação esteja pronta
-  if (showSplash) {
-      return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  if (view === 'adminDashboard') {
+      return <AdminDashboard onLogout={handleAdminLogout} />;
   }
 
-  if (view === 'adminLogin') return <AdminLoginPage onLoginSuccess={() => setView('adminDashboard')} onBackToCustomer={() => setView('customer')} />;
-  if (view === 'adminDashboard') return <AdminDashboard onLogout={handleAdminLogout} />;
-
-  if (authLoading) {
-    // Fallback loading se a splash já passou mas o auth ainda não (raro devido aos tempos)
-    return (
-      <div className="flex flex-col min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  if (authLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900"><LoadingSpinner /></div>;
 
   if (!session) return <AuthPage onAdminLoginClick={() => setView('adminLogin')} />;
 
@@ -148,7 +142,7 @@ const AppContent: React.FC = () => {
       case Tab.INICIO: return <PageInicio setActiveTab={setActiveTab} />;
       case Tab.FATURAS: return <PageFaturas mpPublicKey={MERCADO_PAGO_PUBLIC_KEY} />;
       case Tab.LOJA: return <PageLoja />;
-      case Tab.PERFIL: return <PagePerfil session={session} toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
+      case Tab.PERFIL: return <PagePerfil session={session} toggleTheme={toggleTheme} isDarkMode={isDarkMode} onGoToAdmin={() => setView('adminLogin')} />;
       case Tab.NOTIFICATIONS: return <PageNotifications onBack={() => setActiveTab(Tab.INICIO)} />;
       default: return <PageInicio setActiveTab={setActiveTab} />;
     }
