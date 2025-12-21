@@ -45,7 +45,7 @@ const ProductsTab: React.FC = () => {
             if (res.ok) {
                 setEditingProduct(prev => ({ ...prev, ...data }));
                 setAiInput('');
-                addToast("IA preencheu os campos detectados!", "success");
+                addToast("IA preencheu e converteu as unidades (mm -> cm)!", "success");
             }
         } catch (e) { addToast("Falha na IA.", "error"); }
         finally { setIsAILoading(false); }
@@ -55,7 +55,7 @@ const ProductsTab: React.FC = () => {
         const file = e.target.files?.[0];
         if (file) {
             const reader = new FileReader();
-            reader.onloadend = () => {
+            reader.onload = () => {
                 const base64 = reader.result as string;
                 setEditingProduct(prev => ({ ...prev, image_url: base64 }));
             };
@@ -94,21 +94,30 @@ const ProductsTab: React.FC = () => {
         }
     };
 
+    // Cálculos Financeiros
+    const price = Number(editingProduct?.price) || 0;
+    const cost = Number(editingProduct?.cost_price) || 0;
+    const profit = price - cost;
+    const margin = cost > 0 ? (profit / price) * 100 : 0;
+
     if (isLoading) return <div className="p-20 flex justify-center"><LoadingSpinner /></div>;
 
     return (
         <div className="space-y-6 animate-fade-in">
-            <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Gerenciar Loja</h2>
-                <button onClick={() => { setEditingProduct({ status: 'active', condition: 'novo', is_new: true, allow_reviews: true, max_installments: 12 }); setActiveFormTab('geral'); setSaveError(null); }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30">+ Novo Produto</button>
+            <div className="flex justify-between items-center px-2">
+                <div>
+                    <h2 className="text-2xl font-black text-slate-900 dark:text-white">Gerenciar Loja</h2>
+                    <p className="text-xs text-slate-500">Controle de estoque, preços e logística Amapá.</p>
+                </div>
+                <button onClick={() => { setEditingProduct({ status: 'active', condition: 'novo', is_new: true, allow_reviews: true, max_installments: 12, min_stock_alert: 2 }); setActiveFormTab('geral'); setSaveError(null); }} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 active:scale-95 transition-all">+ Novo Produto</button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 px-2">
                 {products.map(p => (
                     <div key={p.id} className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-md transition-all group">
                         <div className="aspect-square bg-white flex items-center justify-center p-4 relative">
                             <img src={p.image_url!} className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform" />
-                            {p.stock <= p.min_stock_alert && <span className="absolute top-2 right-2 bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded font-bold uppercase">Baixo Estoque</span>}
+                            {p.stock <= p.min_stock_alert && <span className="absolute top-2 right-2 bg-red-500 text-white text-[8px] px-2 py-1 rounded-full font-bold uppercase animate-pulse shadow-lg">Baixo Estoque</span>}
                         </div>
                         <div className="p-3 border-t border-slate-50 dark:border-slate-700">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase mb-1">{p.brand}</h3>
@@ -121,49 +130,53 @@ const ProductsTab: React.FC = () => {
             </div>
 
             {editingProduct && (
-                <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-2xl h-[90vh] flex flex-col shadow-2xl animate-pop-in overflow-hidden">
+                <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] w-full max-w-2xl h-[92vh] flex flex-col shadow-2xl animate-pop-in overflow-hidden border border-white/20">
                         {/* Header Modal */}
                         <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                             <div>
-                                <h3 className="text-xl font-black">Ficha do Eletrônico</h3>
-                                <p className="text-xs text-slate-500">Cadastre ou edite as informações completas</p>
+                                <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Ficha do Eletrônico</h3>
+                                <div className="flex gap-2 mt-1">
+                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">ID: {editingProduct.id?.slice(0,8) || 'NOVO'}</span>
+                                    {profit > 0 && <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Lucro Estimado: R$ {profit.toLocaleString('pt-BR')}</span>}
+                                </div>
                             </div>
-                            <button onClick={() => setEditingProduct(null)} className="p-2 text-slate-400 hover:text-red-500">✕</button>
+                            <button onClick={() => setEditingProduct(null)} className="p-2.5 bg-slate-200 dark:bg-slate-700 rounded-full text-slate-500 hover:text-red-500 transition-colors">✕</button>
                         </div>
 
                         {/* AI Assistant Bar */}
                         <div className="p-4 bg-indigo-600 text-white flex gap-3 items-center">
-                            <div className="bg-white/20 p-2 rounded-lg"><span className="text-xl">🤖</span></div>
+                            <div className="bg-white/20 p-2 rounded-xl"><span className="text-xl">🤖</span></div>
                             <div className="flex-1">
                                 <input 
                                     type="text" value={aiInput} onChange={e => setAiInput(e.target.value)}
-                                    placeholder="Cole aqui o texto do fabricante para preencher tudo..."
-                                    className="w-full bg-white/10 border-none rounded-lg placeholder-white/60 text-sm focus:ring-0"
+                                    placeholder="Cole aqui as especificações (mm, kg, etc) para converter..."
+                                    className="w-full bg-white/10 border-none rounded-lg placeholder-white/60 text-sm focus:ring-0 text-white"
                                 />
                             </div>
-                            <button onClick={handleAutoFill} disabled={isAILoading || !aiInput} className="px-4 py-2 bg-white text-indigo-600 rounded-lg font-bold text-xs uppercase disabled:opacity-50">
-                                {isAILoading ? 'Extraindo...' : 'Auto-Preencher'}
+                            <button onClick={handleAutoFill} disabled={isAILoading || !aiInput} className="px-4 py-2 bg-white text-indigo-600 rounded-xl font-black text-xs uppercase disabled:opacity-50 active:scale-95 transition-all">
+                                {isAILoading ? 'Convertendo...' : 'Auto-Cadastro IA'}
                             </button>
                         </div>
 
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1">
+                        {/* Tabs Internas */}
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 gap-1">
                             {[
                                 { id: 'geral', label: '1. Geral', icon: '📝' },
-                                { id: 'specs', label: '2. Especificações', icon: '⚙️' },
-                                { id: 'financeiro', label: '3. Preço/Estoque', icon: '💰' },
-                                { id: 'logistica', label: '4. Logística/Legal', icon: '🚚' }
+                                { id: 'specs', label: '2. Specs', icon: '⚙️' },
+                                { id: 'financeiro', label: '3. Lucro', icon: '💰' },
+                                { id: 'logistica', label: '4. Logística', icon: '🚚' }
                             ].map(tab => (
                                 <button 
                                     key={tab.id} onClick={() => setActiveFormTab(tab.id as any)}
-                                    className={`flex-1 py-3 text-[10px] font-black uppercase flex items-center justify-center gap-2 rounded-xl transition-all ${activeFormTab === tab.id ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+                                    className={`flex-1 py-3 text-[10px] font-black uppercase flex items-center justify-center gap-2 rounded-xl transition-all ${activeFormTab === tab.id ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm border border-indigo-100 dark:border-indigo-800' : 'text-slate-400'}`}
                                 >
                                     <span>{tab.icon}</span> {tab.label}
                                 </button>
                             ))}
                         </div>
 
-                        <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
+                        <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar bg-white dark:bg-slate-900">
                             
                             {saveError && <Alert message={saveError} type="error" />}
 
@@ -174,41 +187,37 @@ const ProductsTab: React.FC = () => {
                                             <label className="text-[10px] font-black uppercase text-slate-400 mb-2">Imagem Principal</label>
                                             <div 
                                                 onClick={() => fileInputRef.current?.click()}
-                                                className="w-full aspect-square rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-indigo-500 transition-all"
+                                                className="w-full aspect-square rounded-3xl bg-slate-50 dark:bg-slate-800 border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center cursor-pointer overflow-hidden group hover:border-indigo-500 transition-all shadow-inner"
                                             >
                                                 {editingProduct.image_url ? (
                                                     <img src={editingProduct.image_url} className="w-full h-full object-contain group-hover:opacity-75 transition-opacity" />
                                                 ) : (
                                                     <div className="text-center p-4">
                                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Escolher da Galeria</span>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Enviar Foto</span>
                                                     </div>
                                                 )}
                                             </div>
                                             <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" />
-                                            <div className="w-full mt-2">
-                                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Ou link da imagem</label>
-                                                <input type="text" value={editingProduct.image_url || ''} onChange={e => setEditingProduct({...editingProduct, image_url: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-[10px] border-none" />
-                                            </div>
                                         </div>
 
                                         <div className="flex-1 space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
-                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Categoria</label><input type="text" value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome Comercial</label><input type="text" value={editingProduct.name || ''} onChange={e => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold focus:ring-2 focus:ring-indigo-500" required /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Categoria</label><input type="text" value={editingProduct.category || ''} onChange={e => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none focus:ring-2 focus:ring-indigo-500" required /></div>
                                             </div>
                                             <div className="grid grid-cols-3 gap-4">
-                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Marca</label><input type="text" value={editingProduct.brand || ''} onChange={e => setEditingProduct({...editingProduct, brand: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                                <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Marca</label><input type="text" value={editingProduct.brand || ''} onChange={e => setEditingProduct({...editingProduct, brand: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
                                                 <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Modelo</label><input type="text" value={editingProduct.model || ''} onChange={e => setEditingProduct({...editingProduct, model: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
                                                 <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Condição</label>
-                                                    <select value={editingProduct.condition} onChange={e => setEditingProduct({...editingProduct, condition: e.target.value as any})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none">
+                                                    <select value={editingProduct.condition} onChange={e => setEditingProduct({...editingProduct, condition: e.target.value as any})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold">
                                                         <option value="novo">Novo</option>
                                                         <option value="lacrado">Lacrado</option>
-                                                        <option value="recondicionado">Vitrine/Usado</option>
+                                                        <option value="recondicionado">Vitrine</option>
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm"></textarea></div>
+                                            <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Descrição Curta</label><textarea rows={3} value={editingProduct.description || ''} onChange={e => setEditingProduct({...editingProduct, description: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none text-sm focus:ring-2 focus:ring-indigo-500"></textarea></div>
                                         </div>
                                     </div>
                                 </div>
@@ -217,48 +226,102 @@ const ProductsTab: React.FC = () => {
                             {activeFormTab === 'specs' && (
                                 <div className="space-y-4 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Processador</label><input type="text" value={editingProduct.processor || ''} onChange={e => setEditingProduct({...editingProduct, processor: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">RAM</label><input type="text" value={editingProduct.ram || ''} onChange={e => setEditingProduct({...editingProduct, ram: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Armazenamento</label><input type="text" value={editingProduct.storage || ''} onChange={e => setEditingProduct({...editingProduct, storage: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Bateria</label><input type="text" value={editingProduct.battery || ''} onChange={e => setEditingProduct({...editingProduct, battery: e.target.value})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Processador</label><input type="text" value={editingProduct.processor || ''} onChange={e => setEditingProduct({...editingProduct, processor: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">RAM</label><input type="text" value={editingProduct.ram || ''} onChange={e => setEditingProduct({...editingProduct, ram: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Armazenamento</label><input type="text" value={editingProduct.storage || ''} onChange={e => setEditingProduct({...editingProduct, storage: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Bateria</label><input type="text" value={editingProduct.battery || ''} onChange={e => setEditingProduct({...editingProduct, battery: e.target.value})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
                                     </div>
                                 </div>
                             )}
 
                             {activeFormTab === 'financeiro' && (
-                                <div className="space-y-4 animate-fade-in">
+                                <div className="space-y-6 animate-fade-in">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl">
-                                            <label className="text-[10px] font-black uppercase text-indigo-500 ml-1">Preço (R$)</label>
-                                            <input type="number" value={editingProduct.price || 0} onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-indigo-700 dark:text-indigo-300" required />
+                                        <div className="p-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-800">
+                                            <label className="text-[10px] font-black uppercase text-indigo-500 ml-1">Preço de Venda (R$)</label>
+                                            <input type="number" step="0.01" value={editingProduct.price || 0} onChange={e => setEditingProduct({...editingProduct, price: Number(e.target.value)})} className="w-full bg-transparent border-none text-3xl font-black text-indigo-700 dark:text-indigo-300 focus:ring-0" required />
                                         </div>
-                                        <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-2xl">
-                                            <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Custo (R$)</label>
-                                            <input type="number" value={editingProduct.cost_price || 0} onChange={e => setEditingProduct({...editingProduct, cost_price: Number(e.target.value)})} className="w-full bg-transparent border-none text-2xl font-black text-slate-700 dark:text-slate-300" />
+                                        <div className="p-5 bg-slate-100 dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700">
+                                            <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Preço de Custo (R$)</label>
+                                            <input type="number" step="0.01" value={editingProduct.cost_price || 0} onChange={e => setEditingProduct({...editingProduct, cost_price: Number(e.target.value)})} className="w-full bg-transparent border-none text-3xl font-black text-slate-700 dark:text-slate-300 focus:ring-0" />
                                         </div>
                                     </div>
+
+                                    {/* Painel de Lucro em Tempo Real */}
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estoque</label><input type="number" value={editingProduct.stock || 0} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" required /></div>
-                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Max Parcelas</label><input type="number" value={editingProduct.max_installments || 12} onChange={e => setEditingProduct({...editingProduct, max_installments: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none" /></div>
+                                        <div className="p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 flex justify-between items-center">
+                                            <span className="text-[10px] font-black text-emerald-600 uppercase">Lucro Bruto</span>
+                                            <span className="text-lg font-black text-emerald-700 dark:text-emerald-400">R$ {profit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                                        </div>
+                                        <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30 flex justify-between items-center">
+                                            <span className="text-[10px] font-black text-blue-600 uppercase">Margem</span>
+                                            <span className="text-lg font-black text-blue-700 dark:text-blue-400">{margin.toFixed(1)}%</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estoque Atual</label><input type="number" value={editingProduct.stock || 0} onChange={e => setEditingProduct({...editingProduct, stock: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" required /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-red-400 ml-1">Alerta de Baixo</label><input type="number" value={editingProduct.min_stock_alert || 2} onChange={e => setEditingProduct({...editingProduct, min_stock_alert: Number(e.target.value)})} className="w-full p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border-none font-bold text-red-600" /></div>
+                                        <div><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Max Parcelas</label><input type="number" value={editingProduct.max_installments || 12} onChange={e => setEditingProduct({...editingProduct, max_installments: Number(e.target.value)})} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border-none font-bold" /></div>
                                     </div>
                                 </div>
                             )}
 
                             {activeFormTab === 'logistica' && (
-                                <div className="space-y-4 animate-fade-in">
-                                    <div className="grid grid-cols-4 gap-2">
-                                        <div><label className="text-[10px] font-bold text-slate-400">Peso (g)</label><input type="number" value={editingProduct.weight || 0} onChange={e => setEditingProduct({...editingProduct, weight: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">H (cm)</label><input type="number" value={editingProduct.height || 0} onChange={e => setEditingProduct({...editingProduct, height: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">L (cm)</label><input type="number" value={editingProduct.width || 0} onChange={e => setEditingProduct({...editingProduct, width: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
-                                        <div><label className="text-[10px] font-bold text-slate-400">C (cm)</label><input type="number" value={editingProduct.length || 0} onChange={e => setEditingProduct({...editingProduct, length: Number(e.target.value)})} className="w-full p-2 bg-slate-50 dark:bg-slate-800 rounded-lg border-none" /></div>
+                                <div className="space-y-6 animate-fade-in">
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                                        <h4 className="text-xs font-black uppercase text-slate-400 mb-4 tracking-widest">Informações de Envio (Amapá)</h4>
+                                        <div className="grid grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <label className="text-[10px] font-black uppercase text-slate-500 ml-1">Peso Bruto (Gramas)</label>
+                                                <div className="relative">
+                                                    <input type="number" value={editingProduct.weight || 0} onChange={e => setEditingProduct({...editingProduct, weight: Number(e.target.value)})} className="w-full p-3 pr-10 bg-white dark:bg-slate-900 rounded-xl border-none font-bold shadow-sm" />
+                                                    <span className="absolute right-3 top-3 text-[10px] font-bold text-slate-400">g</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-end">
+                                                <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-[10px] text-indigo-600 font-bold leading-tight">
+                                                    Dica: O Moto G06 pesa 194g. <br/>Use o valor com embalagem (~450g).
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Altura (cm)</label>
+                                                <input type="number" step="0.01" value={editingProduct.height || 0} onChange={e => setEditingProduct({...editingProduct, height: Number(e.target.value)})} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl border-none font-bold" />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Largura (cm)</label>
+                                                <input type="number" step="0.01" value={editingProduct.width || 0} onChange={e => setEditingProduct({...editingProduct, width: Number(e.target.value)})} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl border-none font-bold" />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Compr. (cm)</label>
+                                                <input type="number" step="0.01" value={editingProduct.length || 0} onChange={e => setEditingProduct({...editingProduct, length: Number(e.target.value)})} className="w-full p-3 bg-white dark:bg-slate-900 rounded-xl border-none font-bold" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg">⭐</div>
+                                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Permitir Avaliações Públicas?</span>
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setEditingProduct({...editingProduct, allow_reviews: !editingProduct.allow_reviews})}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editingProduct.allow_reviews ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${editingProduct.allow_reviews ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
                                     </div>
                                 </div>
                             )}
 
-                            <div className="pt-8 flex gap-4">
-                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-bold rounded-2xl">FECHAR</button>
-                                <button type="submit" disabled={isSaving} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl disabled:opacity-50">
-                                    {isSaving ? <LoadingSpinner /> : 'SALVAR NO CATÁLOGO'}
+                            <div className="pt-8 flex gap-4 pb-10">
+                                <button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold rounded-2xl active:scale-95 transition-all">CANCELAR</button>
+                                <button type="submit" disabled={isSaving} className="flex-[2] py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/30 disabled:opacity-50 active:scale-95 transition-all">
+                                    {isSaving ? <LoadingSpinner /> : 'ATUALIZAR CATÁLOGO'}
                                 </button>
                             </div>
                         </form>
