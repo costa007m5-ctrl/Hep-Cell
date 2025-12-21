@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Profile, Product, Invoice } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -99,7 +100,6 @@ const NewSaleTab: React.FC = () => {
     const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     
-    // Checkout State
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
     const [isSignatureOpen, setIsSignatureOpen] = useState(false);
     
@@ -169,7 +169,14 @@ const NewSaleTab: React.FC = () => {
     const availableLimit = useMemo(() => {
         if (!selectedProfile) return 0;
         const totalMonthly = selectedProfile.credit_limit || 0;
-        const userOpenInvoices = allInvoices.filter(inv => inv.user_id === selectedProfile.id && (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'));
+        
+        // CORREÇÃO: Ignorar faturas marcadas como venda direta/à vista no cálculo do limite comprometido
+        const userOpenInvoices = allInvoices.filter(inv => 
+            inv.user_id === selectedProfile.id && 
+            (inv.status === 'Em aberto' || inv.status === 'Boleto Gerado') &&
+            !inv.notes?.includes('VENDA_AVISTA')
+        );
+
         const monthlyCommitments: Record<string, number> = {};
         userOpenInvoices.forEach(inv => {
             const dueMonth = inv.due_date.substring(0, 7); 
@@ -179,22 +186,13 @@ const NewSaleTab: React.FC = () => {
         return Math.max(0, totalMonthly - maxMonthlyCommitment);
     }, [selectedProfile, allInvoices]);
 
-    // Lógica de Sugestão de Entrada baseada no Limite
     const limitAnalysis = useMemo(() => {
         if (saleType !== 'crediario') return { isValid: true, message: '', requiredEntry: 0 };
-        
         const requiredMinEntry = cartTotal * minEntryPercentage;
-        
-        // Se a parcela excede o limite, calculamos quanto de entrada extra é necessário
-        // Parcela = (Total - Entrada) / N <= Limite
-        // Total - Entrada <= Limite * N
-        // Entrada >= Total - (Limite * N)
         const maxFinanceable = availableLimit * installments;
         const minEntryForLimit = Math.max(0, cartTotal - maxFinanceable);
-        
         const finalRequiredEntry = Math.max(requiredMinEntry, minEntryForLimit);
         const isSufficient = entry >= finalRequiredEntry;
-        
         return {
             isValid: isSufficient,
             requiredEntry: finalRequiredEntry,
@@ -259,7 +257,6 @@ const NewSaleTab: React.FC = () => {
 
     return (
         <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-slate-100 dark:bg-slate-900 -m-4 lg:-m-8 font-sans">
-            {/* Catalogo */}
             <div className="flex-1 flex flex-col border-r border-slate-200 dark:border-slate-700 overflow-hidden relative">
                 <div className="p-4 bg-white dark:bg-slate-800 border-b flex gap-3 items-center shrink-0 shadow-sm z-10">
                     <input type="text" placeholder="Buscar produto..." className="flex-1 pl-4 pr-4 py-2.5 rounded-lg border bg-slate-50 dark:bg-slate-700 focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
@@ -273,7 +270,6 @@ const NewSaleTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Carrinho / Checkout */}
             <div className="w-full lg:w-[420px] bg-white dark:bg-slate-800 flex flex-col shadow-2xl z-20 border-l border-slate-200 dark:border-slate-700">
                 <div className="p-4 border-b bg-slate-50 dark:bg-slate-900">
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Cliente</label>
@@ -309,7 +305,6 @@ const NewSaleTab: React.FC = () => {
                 </div>
             </div>
 
-            {/* Modal de Checkout Unificado */}
             {isCheckoutOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
                     <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 overflow-y-auto max-h-[90vh] flex flex-col">
@@ -340,7 +335,7 @@ const NewSaleTab: React.FC = () => {
                                                 type="number" 
                                                 value={entryValue} 
                                                 onChange={e => setEntryValue(e.target.value)} 
-                                                className={`w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:text-white font-bold ${!limitAnalysis.isValid ? 'border-amber-400 ring-1 ring-amber-400' : 'border-slate-200'}`}
+                                                className={`w-full p-2.5 border rounded-lg dark:bg-slate-800 dark:text-white font-bold text-lg focus:ring-2 outline-none transition-all ${!limitAnalysis.isValid ? 'border-amber-400 ring-1 ring-amber-400' : 'border-slate-200 focus:ring-indigo-500'}`}
                                                 placeholder="0.00" 
                                             />
                                             {!limitAnalysis.isValid && (
@@ -437,7 +432,7 @@ const NewSaleTab: React.FC = () => {
                 </Modal>
             )}
 
-            {paymentResult && <PaymentResultModal data={paymentResult} onClose={() => setPaymentResult(null)} />}
+            {paymentResult && <PaymentResultModal data={paymentResult} onClose={() => { setPaymentResult(null); }} />}
         </div>
     );
 };

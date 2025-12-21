@@ -24,9 +24,7 @@ function getGeminiClient() {
     return new GoogleGenAI({ apiKey });
 }
 
-// Modificado para suportar teste com token do banco ou env
 async function getMercadoPagoClient(supabase: SupabaseClient) {
-    // Tenta pegar do banco primeiro
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
     const accessToken = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
     
@@ -48,13 +46,11 @@ async function logAction(supabase: SupabaseClient, action_type: string, status: 
 
 async function handleGetMpAuthUrl(req: VercelRequest, res: VercelResponse) {
     const { code_challenge } = req.body;
-    const clientId = process.env.ML_CLIENT_ID; // Usando ML_CLIENT_ID como App ID do MP
+    const clientId = process.env.ML_CLIENT_ID;
     
     if (!clientId) return res.status(500).json({ error: 'ML_CLIENT_ID (App ID) não configurado na Vercel.' });
 
-    const redirectUri = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/admin`; // Redireciona para admin para capturar o code
-    
-    // URL oficial de Auth do Mercado Pago
+    const redirectUri = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/admin`;
     const authUrl = `https://auth.mercadopago.com.br/authorization?client_id=${clientId}&response_type=code&platform_id=mp&state=${code_challenge}&redirect_uri=${encodeURIComponent(req.body.redirectUri || redirectUri)}`;
     
     return res.json({ authUrl });
@@ -80,7 +76,7 @@ async function handleGenerateMpToken(req: VercelRequest, res: VercelResponse) {
                 code: code,
                 grant_type: 'authorization_code',
                 redirect_uri: redirectUri,
-                code_verifier: codeVerifier // Para PKCE
+                code_verifier: codeVerifier
             })
         });
 
@@ -91,7 +87,6 @@ async function handleGenerateMpToken(req: VercelRequest, res: VercelResponse) {
             throw new Error(data.message || 'Falha na autenticação com Mercado Pago');
         }
 
-        // Salva Automaticamente no Supabase
         const supabase = getSupabaseAdminClient();
         
         await supabase.from('system_settings').upsert([
@@ -128,7 +123,6 @@ async function handleDisconnectMercadoPago(req: VercelRequest, res: VercelRespon
     }
 }
 
-// --- Status Test Handlers ---
 async function handleTestSupabase(_req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
@@ -159,7 +153,6 @@ async function handleTestMercadoPago(_req: VercelRequest, res: VercelResponse) {
         const supabase = getSupabaseAdminClient();
         const client = await getMercadoPagoClient(supabase);
         const payment = new Payment(client);
-        // Tenta buscar pagamentos recentes para validar o token
         await payment.search({ options: { limit: 1 } });
         return res.status(200).json({ message: "Mercado Pago OK!" });
     } catch (e: any) {
@@ -175,8 +168,6 @@ async function handleTestMercadoLivre(_req: VercelRequest, res: VercelResponse) 
         return res.status(500).json({ error: e.message });
     }
 }
-
-// --- Core Logic ---
 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
@@ -202,7 +193,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             finalTotalAmount = Math.max(0, finalTotalAmount - discountApplied);
         }
 
-        // Coins
         if (coinsUsed > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
             if (profile && profile.coins_balance >= coinsUsed) {
@@ -210,7 +200,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             }
         }
 
-        // Contrato
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: `Compra: ${productName}`,
@@ -224,7 +213,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         if (contractError) throw contractError;
 
-        // Fatura
         const isCrediario = saleType === 'crediario';
         const invoiceAmount = isCrediario ? Number(downPayment) : finalTotalAmount;
         const today = new Date();
@@ -232,9 +220,9 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         let paymentData: any = null;
         let invoiceId = null;
 
-        // Gera Fatura de Entrada / Venda à Vista
         if (invoiceAmount > 0) {
-            let notes = `Compra Direta Contrato ${contract.id}`;
+            // CORREÇÃO: Mudança drástica na nomenclatura da nota para evitar Regex de Contrato indevido
+            let notes = `VENDA_AVISTA|Ref:${contract.id}`;
             if (isCrediario) {
                 const remaining = finalTotalAmount - invoiceAmount;
                 notes = `ENTRADA|${contract.id}|${remaining}|${installments}|${dueDay || 10}`;
@@ -254,9 +242,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             if (invError) throw invError;
             invoiceId = invoice.id;
 
-            // Integração MP
             if (['pix', 'boleto', 'redirect'].includes(paymentMethod)) {
-                // Obtém cliente MP (Dinamico)
                 const mpClient = await getMercadoPagoClient(supabase);
                 
                 const { data: user } = await supabase.auth.admin.getUserById(userId);
@@ -277,7 +263,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                         const result = await payment.create({
                             body: {
                                 transaction_amount: Number(invoiceAmount.toFixed(2)),
-                                description: notes,
+                                description: isCrediario ? `Entrada ${productName}` : `Pagamento ${productName}`,
                                 payment_method_id: 'pix',
                                 payer,
                                 external_reference: invoiceId
@@ -296,7 +282,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                          const result = await payment.create({
                             body: {
                                 transaction_amount: Number(invoiceAmount.toFixed(2)),
-                                description: notes,
+                                description: isCrediario ? `Entrada ${productName}` : `Pagamento ${productName}`,
                                 payment_method_id: 'bolbradesco',
                                 payer: {
                                     ...payer,
@@ -364,7 +350,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 paymentData = { type: 'cash' };
             }
         } 
-        // Crediário sem entrada (raro, mas possível se entrada for 0)
         else if (isCrediario) {
              const installmentVal = finalTotalAmount / installments;
              const invs = [];
@@ -398,28 +383,24 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     try {
         const { userId, invoiceIds, totalAmount, installments, firstDueDate, notes } = req.body;
 
-        // 1. Busca taxa de juros de negociação
         const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'negotiation_interest').single();
-        const interestRate = parseFloat(setting?.value || '0'); // %
+        const interestRate = parseFloat(setting?.value || '0');
 
-        // 2. Aplica Juros
         const totalWithInterest = totalAmount * (1 + (interestRate / 100));
         const installmentValue = totalWithInterest / installments;
 
-        // 3. Cria Contrato de Renegociação
         const { data: contract, error: contractError } = await supabase.from('contracts').insert({
             user_id: userId,
             title: 'Renegociação de Dívida',
             items: `Acordo de renegociação referente às faturas: ${invoiceIds.join(', ')}. Juros aplicados: ${interestRate}%. Observações: ${notes}`,
             total_value: totalWithInterest,
             installments: installments,
-            status: 'pending_signature', // Cliente precisa assinar
+            status: 'pending_signature',
             created_at: new Date().toISOString()
         }).select().single();
 
         if (contractError) throw contractError;
 
-        // 4. Cria Novas Faturas
         const newInvoices = [];
         const firstDate = new Date(firstDueDate);
 
@@ -432,13 +413,12 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
                 month: `Renegociação ${i + 1}/${installments}`,
                 due_date: dueDate.toISOString().split('T')[0],
                 amount: installmentValue,
-                status: 'Aguardando Assinatura', // Só ativa após assinar
+                status: 'Aguardando Assinatura',
                 notes: `Contrato ${contract.id}`
             });
         }
         await supabase.from('invoices').insert(newInvoices);
 
-        // 5. Cancela Faturas Antigas
         await supabase.from('invoices').update({ status: 'Cancelado', notes: `Renegociado no Contrato ${contract.id}` }).in('id', invoiceIds);
 
         await logAction(supabase, 'DEBT_NEGOTIATION', 'SUCCESS', `Renegociação criada para user ${userId}. Total: ${totalWithInterest}`, { contractId: contract.id });
@@ -449,11 +429,10 @@ async function handleNegotiateDebt(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// --- NOVA FUNÇÃO: Gerenciamento Manual de Fatura ---
 async function handleManageInvoice(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
-        const { invoiceId, action } = req.body; // action: 'pay' | 'cancel' | 'delete'
+        const { invoiceId, action } = req.body;
 
         if (action === 'delete') {
             await supabase.from('invoices').delete().eq('id', invoiceId);
@@ -511,13 +490,11 @@ async function handleSettings(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(_req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
-    // Garante que a coluna existe para negociações
     const SQL = `ALTER TABLE "public"."invoices" ADD COLUMN IF NOT EXISTS "discountValue" numeric(10, 2) DEFAULT 0;`;
     await supabase.rpc('execute_admin_sql', { sql_query: SQL });
     return res.json({ message: "Database checked." });
 }
 
-// ... Other Handlers
 async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     const { userId, amount, type } = req.body;
@@ -585,13 +562,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (path === '/api/admin/settings') return await handleSettings(req, res);
             if (path === '/api/admin/upload-pwa-icon') return await handleUploadPwaIcon(req, res);
             
-            // Test Routes
             if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
             if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
             if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
             if (path === '/api/admin/test-mercadolivre') return await handleTestMercadoLivre(req, res);
             
-            // MP Auth Routes (NOVOS)
             if (path === '/api/admin/get-mp-auth-url') return await handleGetMpAuthUrl(req, res);
             if (path === '/api/admin/generate-mercadopago-token') return await handleGenerateMpToken(req, res);
             if (path === '/api/admin/disconnect-mercadopago') return await handleDisconnectMercadoPago(req, res);

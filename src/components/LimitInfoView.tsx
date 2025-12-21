@@ -49,17 +49,8 @@ const LiquidGauge: React.FC<{ value: number; max: number }> = ({ value, max }) =
 const SimulatorTab: React.FC<{ availableLimit: number; totalLimit: number }> = ({ availableLimit, totalLimit }) => {
     const [productValue, setProductValue] = useState<number>(1500);
     const [installments, setInstallments] = useState(10);
-    
-    // Cálculo Simulado da Parcela (Sem juros para visualização básica)
     const installmentValue = installments > 0 ? productValue / installments : 0;
-    
-    // Lógica de Limite de Parcela
     const canBuyFull = installmentValue <= availableLimit;
-    
-    // Se não pode comprar cheio, qual entrada reduziria a parcela para o limite?
-    // ParcelaDesejada = (Valor - Entrada) / Parcelas <= availableLimit
-    // Valor - Entrada <= availableLimit * Parcelas
-    // Entrada >= Valor - (availableLimit * Parcelas)
     const entryNeeded = canBuyFull ? 0 : productValue - (availableLimit * installments);
 
     return (
@@ -131,17 +122,17 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                 // 1. Faturas para calcular Comprometimento MENSAL
                 const { data: invoices, error } = await supabase
                     .from('invoices')
-                    .select('amount, due_date')
+                    .select('amount, due_date, notes')
                     .eq('user_id', profile.id)
                     .or('status.eq.Em aberto,status.eq.Boleto Gerado');
 
                 if (error) throw error;
                 
-                // Lógica: Encontrar o mês com o maior valor acumulado de parcelas
-                // Ex: Jan: 300, Fev: 300, Mar: 300 -> Comprometimento é 300.
-                // Ex: Jan: 300+100, Fev: 300 -> Comprometimento é 400 (pico).
                 const monthlyCommitments: Record<string, number> = {};
                 invoices?.forEach(inv => {
+                    // CORREÇÃO: Ignorar faturas que são VENDA_AVISTA ou Compra Direta
+                    if (inv.notes?.includes('VENDA_AVISTA') || inv.notes?.includes('Compra Direta')) return;
+
                     const dueMonth = inv.due_date.substring(0, 7); // YYYY-MM
                     monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
                 });
@@ -156,22 +147,13 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                     .eq('user_id', profile.id)
                     .order('created_at', { ascending: false });
                 
-                if (requests) {
-                    setRequestHistory(requests);
-                }
-
-            } catch (err) {
-                console.error("Erro ao buscar dados do perfil:", err);
-            } finally {
-                setIsLoadingData(false);
-            }
+                if (requests) setRequestHistory(requests);
+            } catch (err) { console.error(err); } finally { setIsLoadingData(false); }
         };
         fetchData();
     }, [profile.id]);
     
-    // Limite de Parcela (Credit Limit no DB)
     const creditLimit = profile.credit_limit || 0;
-    // Margem Disponível = Limite de Parcela - Maior Comprometimento Mensal
     const availableLimit = Math.max(0, creditLimit - usedMonthlyLimit);
 
     if (showRequestForm) {
@@ -193,7 +175,7 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                 <div className="flex items-center justify-between mb-3 pt-2">
                     <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                         <button onClick={onClose} className="mr-1 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                         Meus Limites
                     </h2>
@@ -202,9 +184,9 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                     </div>
                 </div>
                 <div className="flex p-1 bg-slate-100 dark:bg-slate-900 rounded-xl relative mb-2 border border-slate-200 dark:border-slate-700">
-                    <button onClick={() => setActiveTab('visão_geral')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'visão_geral' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Resumo</button>
-                    <button onClick={() => setActiveTab('simulador')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'simulador' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Simulador</button>
-                    <button onClick={() => setActiveTab('historico')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'historico' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Histórico</button>
+                    <button onClick={() => setActiveTab('visão_geral')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'visão_geral' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Resumo</button>
+                    <button onClick={() => setActiveTab('simulador')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'simulador' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Simulador</button>
+                    <button onClick={() => setActiveTab('historico')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === 'historico' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}>Histórico</button>
                 </div>
             </div>
 
@@ -226,14 +208,11 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                                         <p className="text-lg font-bold text-indigo-600">{profile.credit_score || 0}</p>
                                     </div>
                                 </div>
-
                                 <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
                                     <div className="relative z-10">
                                         <h4 className="font-bold text-lg mb-1">Aumentar Margem?</h4>
                                         <p className="text-xs text-indigo-100 mb-4 opacity-90">Seu limite define o valor máximo da sua parcela mensal.</p>
-                                        <button onClick={() => setShowRequestForm(true)} className="w-full py-3 bg-white text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
-                                            Solicitar Aumento
-                                        </button>
+                                        <button onClick={() => setShowRequestForm(true)} className="w-full py-3 bg-white text-indigo-600 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-colors">Solicitar Aumento</button>
                                     </div>
                                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                 </div>
@@ -241,30 +220,24 @@ const LimitInfoView: React.FC<LimitInfoViewProps> = ({ profile, onClose }) => {
                         )}
                         {activeTab === 'simulador' && <SimulatorTab availableLimit={availableLimit} totalLimit={creditLimit} />}
                         {activeTab === 'historico' && (
-                            <div className="space-y-4 animate-fade-in pt-2">
+                            <div className="space-y-4 pt-2">
                                 {requestHistory.length > 0 ? requestHistory.map((req) => (
-                                    <div key={req.id} className={`bg-white dark:bg-slate-800 p-4 rounded-xl border shadow-sm ${req.status === 'approved' ? 'border-green-200 dark:border-green-900/50' : req.status === 'rejected' ? 'border-red-200 dark:border-red-900/50' : 'border-slate-200 dark:border-slate-700'}`}>
+                                    <div key={req.id} className={`bg-white dark:bg-slate-800 p-4 rounded-xl border shadow-sm ${req.status === 'approved' ? 'border-green-200' : req.status === 'rejected' ? 'border-red-200' : 'border-slate-200'}`}>
                                         <div className="flex justify-between items-center mb-2">
                                             <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${req.status === 'approved' ? 'bg-green-100 text-green-700' : req.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                 {req.status === 'approved' ? 'Aprovado' : req.status === 'rejected' ? 'Recusado' : 'Pendente'}
                                             </span>
                                             <span className="text-xs text-slate-400">{new Date(req.created_at).toLocaleDateString()}</span>
                                         </div>
-                                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-1">Solicitado: R$ {req.requested_amount?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-                                        
-                                        {/* Exibe o motivo de forma clara */}
-                                        {req.admin_response_reason ? (
-                                            <div className={`mt-3 p-3 rounded-lg text-xs ${req.status === 'approved' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200'}`}>
-                                                <p className="font-bold mb-1 uppercase opacity-70">Motivo da Análise:</p>
-                                                <p className="font-medium leading-relaxed">"{req.admin_response_reason}"</p>
+                                        <p className="text-sm font-bold">Solicitado: R$ {req.requested_amount?.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                        {req.admin_response_reason && (
+                                            <div className="mt-3 p-3 rounded-lg text-xs bg-slate-50 dark:bg-slate-900">
+                                                <p className="font-bold mb-1 uppercase opacity-70">Análise:</p>
+                                                <p>"{req.admin_response_reason}"</p>
                                             </div>
-                                        ) : (
-                                            <p className="text-xs text-slate-400 mt-2 italic">Aguardando análise da equipe.</p>
                                         )}
                                     </div>
-                                )) : (
-                                    <div className="text-center py-10 text-slate-400">Nenhum histórico encontrado.</div>
-                                )}
+                                )) : <div className="text-center py-10 text-slate-400">Nenhum histórico.</div>}
                             </div>
                         )}
                     </>
