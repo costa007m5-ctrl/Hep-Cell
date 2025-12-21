@@ -17,54 +17,48 @@ function getGeminiClient() {
     return new GoogleGenAI({ apiKey });
 }
 
-// Handler de Teste Supabase
 async function handleTestSupabase(req: VercelRequest, res: VercelResponse) {
     try {
         const supabase = getSupabaseAdminClient();
         const { error } = await supabase.from('profiles').select('id').limit(1);
         if (error) throw error;
-        return res.json({ message: "Conexão OK!" });
+        return res.json({ message: "Supabase Conectado e Tabelas Acessíveis." });
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
 }
 
-// Handler de Teste Gemini
 async function handleTestGemini(req: VercelRequest, res: VercelResponse) {
     try {
         const ai = getGeminiClient();
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: 'Oi, responda apenas a palavra: ATIVO',
+            contents: 'Responda apenas "OK"',
         });
-        return res.json({ message: response.text });
+        return res.json({ message: `Gemini Ativo: ${response.text}` });
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
 }
 
-// Handler de Teste Mercado Pago
-async function handleTestMercadoPago(req: VercelRequest, res: VercelResponse) {
-    const accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
-    if (!accessToken) return res.status(500).json({ error: "Access Token não configurado." });
-    return res.json({ message: "Configuração presente." });
-}
-
-// Handler Principal de SETUP
 async function handleSetupDatabase(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     
-    // Lista de SQLs para automatizar o banco
     const SQL_COMMANDS = `
--- 1. Tabelas de Sistema
-CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value TEXT);
-INSERT INTO system_settings (key, value) VALUES ('interest_rate', '0'), ('cashback_percentage', '1.5') ON CONFLICT DO NOTHING;
+-- 1. Função crítica para execução de SQL administrativo (DEVE SER RODADA MANUALMENTE NO DASHBOARD SE FALHAR)
+-- CREATE OR REPLACE FUNCTION execute_admin_sql(sql_query text) RETURNS void AS $$ BEGIN EXECUTE sql_query; END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 2. Colunas de Endereço Detalhado
+-- 2. Colunas de Endereço e Perfis
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS street_name TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS street_number TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS neighborhood TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS city TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS federal_unit TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS zip_code TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credit_limit NUMERIC DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credit_score INTEGER DEFAULT 0;
 
--- 3. Tabela de Notificações
+-- 3. Tabelas de Sistema
+CREATE TABLE IF NOT EXISTS system_settings (key TEXT PRIMARY KEY, value TEXT);
+INSERT INTO system_settings (key, value) VALUES ('interest_rate', '0'), ('cashback_percentage', '1.5') ON CONFLICT DO NOTHING;
+
+-- 4. Notificações
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id),
@@ -75,29 +69,27 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 4. RLS Básico
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can read own notifications" ON notifications;
-CREATE POLICY "Users can read own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id);
+-- 5. Habilitar RLS e Políticas de Leitura Pública para Produtos
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public view for products" ON products;
+CREATE POLICY "Public view for products" ON products FOR SELECT USING (true);
+
+-- 6. Políticas para Perfis
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
     `;
 
     try {
-        // Como o Supabase-js não permite executar SQL bruto via cliente padrão,
-        // você precisa ter uma função RPC no banco chamada 'execute_admin_sql'
-        // Se ela não existir, retornaremos um guia para o usuário.
         const { error } = await supabase.rpc('execute_admin_sql', { sql_query: SQL_COMMANDS });
         
         if (error) {
-            // Se falhar, tentamos explicar o porquê usando IA
-            const ai = getGeminiClient();
-            const diag = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: `Explique por que este erro ocorreu no banco de dados e o que o administrador deve fazer: ${error.message}. Use português simples.`,
+            return res.status(500).json({ 
+                error: `Erro SQL: ${error.message}. Aviso: Certifique-se de que a função 'execute_admin_sql' foi criada no SQL Editor do Supabase.` 
             });
-            return res.status(500).json({ error: diag.text });
         }
 
-        return res.json({ success: true, message: "Banco sincronizado com sucesso!" });
+        return res.json({ success: true, message: "Banco de dados sincronizado e políticas RLS configuradas!" });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -108,14 +100,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = url.pathname;
 
     if (req.method === 'POST') {
-        if (path === '/api/admin/test-supabase') return await handleTestSupabase(req, res);
-        if (path === '/api/admin/test-gemini') return await handleTestGemini(req, res);
-        if (path === '/api/admin/test-mercadopago') return await handleTestMercadoPago(req, res);
-        if (path === '/api/admin/setup-database') return await handleSetupDatabase(req, res);
+        if (path.endsWith('/test-supabase')) return await handleTestSupabase(req, res);
+        if (path.endsWith('/test-gemini')) return await handleTestGemini(req, res);
+        if (path.endsWith('/setup-database')) return await handleSetupDatabase(req, res);
     }
 
     if (req.method === 'GET') {
-        if (path === '/api/admin/settings') {
+        if (path.endsWith('/profiles')) {
+             const supabase = getSupabaseAdminClient();
+             const { data } = await supabase.from('profiles').select('*');
+             return res.json(data || []);
+        }
+        if (path.endsWith('/invoices')) {
+             const supabase = getSupabaseAdminClient();
+             const { data } = await supabase.from('invoices').select('*');
+             return res.json(data || []);
+        }
+        if (path.endsWith('/settings')) {
             const supabase = getSupabaseAdminClient();
             const { data } = await supabase.from('system_settings').select('*');
             const settings = data?.reduce((acc: any, curr: any) => { acc[curr.key] = curr.value; return acc; }, {}) || {};
