@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Product, ProductReview, Profile } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
 import { supabase } from '../../services/clients';
-import { getProfile } from '../../services/profileService';
 import { useToast } from '../Toast';
 import PurchaseModal from './PurchaseModal';
 import ShippingCalculator from './ShippingCalculator';
@@ -18,25 +17,26 @@ const StarIcon: React.FC<{ filled: boolean; onClick?: () => void }> = ({ filled,
     </svg>
 );
 
-const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProductClick: (p: Product) => void; allProducts: Product[] }> = ({ product, onBack }) => {
+interface ProductDetailsProps {
+    product: Product;
+    userProfile: Profile | null;
+    onBack: () => void;
+    onProductClick: (p: Product) => void;
+    allProducts: Product[];
+}
+
+const ProductDetails: React.FC<ProductDetailsProps> = ({ product, userProfile, onBack }) => {
     const [reviews, setReviews] = useState<ProductReview[]>([]);
-    const [userProfile, setUserProfile] = useState<Profile | null>(null);
     const [isLoadingReviews, setIsLoadingReviews] = useState(true);
     const [rating, setRating] = useState(5);
     const [comment, setComment] = useState('');
     const [isSubmittingReview, setIsSubmittingReview] = useState(false);
     const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-    const [shippingData, setShippingData] = useState<{cost: number, days: number} | null>(null);
+    const [shippingInfo, setShippingInfo] = useState<{cost: number, days: number} | null>(null);
     const { addToast } = useToast();
 
     useEffect(() => {
-        const fetchInitial = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const p = await getProfile(user.id);
-                if (p) setUserProfile({ ...p, id: user.id });
-            }
-
+        const fetchReviews = async () => {
             const { data } = await supabase
                 .from('product_reviews')
                 .select('*')
@@ -46,7 +46,7 @@ const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProduct
             setReviews(data || []);
             setIsLoadingReviews(false);
         };
-        fetchInitial();
+        fetchReviews();
     }, [product.id]);
 
     const handleSendReview = async (e: React.FormEvent) => {
@@ -66,7 +66,7 @@ const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProduct
             });
 
             if (error) throw error;
-            addToast("Obrigado! Sua avaliação será analisada.", "success");
+            addToast("Obrigado! Avaliação enviada.", "success");
             setComment('');
         } catch (e: any) { addToast(e.message, "error"); } finally { setIsSubmittingReview(false); }
     };
@@ -82,21 +82,35 @@ const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProduct
                     <img src={product.image_url!} className="max-h-full max-w-full object-contain" />
                 </div>
 
-                <div>
-                    <p className="text-xs font-black text-indigo-600 uppercase tracking-widest mb-1">{product.brand}</p>
+                <div className="space-y-2">
+                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{product.brand}</p>
                     <h1 className="text-2xl font-black text-slate-900 dark:text-white leading-tight">{product.name}</h1>
-                    <div className="flex items-center gap-4 mt-3">
+                    <div className="flex items-center gap-3">
                          <p className="text-3xl font-black text-slate-900 dark:text-white">R$ {product.price.toLocaleString('pt-BR')}</p>
-                         {product.free_shipping && <span className="bg-green-100 text-green-700 text-[10px] font-black px-2 py-1 rounded-full italic shadow-sm">FRETE GRÁTIS</span>}
+                         {product.is_full && <span className="bg-yellow-400 text-slate-900 text-[10px] font-black px-2 py-0.5 rounded shadow-sm italic">FULL</span>}
                     </div>
                 </div>
 
-                {/* Calculador de Frete */}
+                {/* Bloco de Frete Automático */}
                 <ShippingCalculator 
                     product={product} 
                     userProfile={userProfile} 
-                    onCalculate={(cost, days) => setShippingData({cost, days})} 
+                    onCalculate={(cost, days) => setShippingInfo({ cost, days })}
                 />
+
+                <div className="bg-slate-50 dark:bg-slate-800/30 p-5 rounded-2xl space-y-4">
+                    <h3 className="font-bold text-slate-900 dark:text-white">Destaques</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">💳</span>
+                            <div className="text-[10px] leading-tight"><p className="font-bold">12x Sem Juros</p><p className="text-slate-400">Cartão Relp</p></div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">🔄</span>
+                            <div className="text-[10px] leading-tight"><p className="font-bold">Troca Grátis</p><p className="text-slate-400">Até 7 dias</p></div>
+                        </div>
+                    </div>
+                </div>
 
                 <div className="space-y-3">
                     <h3 className="font-bold text-slate-900 dark:text-white">Descrição</h3>
@@ -105,39 +119,30 @@ const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProduct
 
                 {/* Seção Avaliações */}
                 <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
-                    <h3 className="font-bold text-lg mb-6">O que os clientes dizem</h3>
+                    <h3 className="font-bold text-lg mb-6">Avaliações</h3>
                     
                     <form onSubmit={handleSendReview} className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl mb-8 space-y-4">
-                        <p className="text-sm font-bold">Avaliar produto</p>
                         <div className="flex gap-2">
                             {[1,2,3,4,5].map(s => <StarIcon key={s} filled={s <= rating} onClick={() => setRating(s)} />)}
                         </div>
                         <textarea 
                             value={comment} onChange={e => setComment(e.target.value)}
                             className="w-full p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
-                            placeholder="Conte sua experiência..." rows={3} required
+                            placeholder="Sua opinião é importante..." rows={2} required
                         />
                         <button disabled={isSubmittingReview} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg disabled:opacity-50">
-                            {isSubmittingReview ? <LoadingSpinner /> : 'Publicar Avaliação'}
+                            {isSubmittingReview ? <LoadingSpinner /> : 'Enviar'}
                         </button>
                     </form>
 
-                    <div className="space-y-6">
-                        {reviews.length === 0 ? <p className="text-slate-400 text-center py-4 italic">Nenhuma avaliação aprovada ainda.</p> : reviews.map(rev => (
-                            <div key={rev.id} className="space-y-2 pb-6 border-b border-slate-50 dark:border-slate-800 last:border-0">
-                                <div className="flex justify-between items-center">
-                                    <span className="font-bold text-sm">{rev.user_name}</span>
-                                    <div className="flex gap-0.5">
-                                        {[1,2,3,4,5].map(s => <StarIcon key={s} filled={s <= rev.rating} />)}
-                                    </div>
+                    <div className="space-y-6 pb-20">
+                        {reviews.length === 0 ? <p className="text-slate-400 text-center py-4 italic">Sem avaliações.</p> : reviews.map(rev => (
+                            <div key={rev.id} className="space-y-1">
+                                <div className="flex justify-between">
+                                    <span className="font-bold text-xs">{rev.user_name}</span>
+                                    <div className="flex gap-0.5">{[1,2,3,4,5].map(s => <StarIcon key={s} filled={s <= rev.rating} />)}</div>
                                 </div>
-                                <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{rev.comment}</p>
-                                {rev.reply && (
-                                    <div className="ml-4 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border-l-4 border-indigo-500">
-                                        <p className="text-[10px] font-black text-indigo-600 uppercase mb-1">Relp Cell</p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">{rev.reply}</p>
-                                    </div>
-                                )}
+                                <p className="text-sm text-slate-500 dark:text-slate-400">{rev.comment}</p>
                             </div>
                         ))}
                     </div>
@@ -145,7 +150,7 @@ const ProductDetails: React.FC<{ product: Product; onBack: () => void; onProduct
             </div>
 
             <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe z-[140]">
-                <button onClick={() => setShowPurchaseModal(true)} className="w-full max-w-lg mx-auto py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg shadow-2xl shadow-indigo-500/20 transition-all active:scale-95">Comprar Agora</button>
+                <button onClick={() => setShowPurchaseModal(true)} className="w-full max-w-lg mx-auto py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-2xl shadow-indigo-500/20 active:scale-95 transition-transform">Comprar Agora</button>
             </div>
 
             {showPurchaseModal && userProfile && (
