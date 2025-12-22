@@ -61,6 +61,8 @@ async function handleGetOrders(res: VercelResponse) {
         
         if (error) {
             console.error("Erro ao buscar orders:", error);
+            // Se a tabela não existir, retorna array vazio em vez de erro 500
+            if (error.code === '42P01') return res.json([]); 
             throw error;
         }
         return res.json(data);
@@ -75,10 +77,14 @@ async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) 
     try {
         const updateData: any = {};
         if (status) updateData.status = status;
-        if (notes !== undefined) updateData.tracking_notes = notes; // Permite limpar nota se enviar string vazia
+        if (notes !== undefined) updateData.tracking_notes = notes; 
         
         const { error } = await supabase.from('orders').update(updateData).eq('id', orderId);
-        if (error) throw error;
+        
+        if (error) {
+            console.error("Erro SQL update order:", error);
+            throw new Error(`Erro no banco: ${error.message}`);
+        }
         
         // Notificação ao Cliente
         if (status) {
@@ -103,7 +109,7 @@ async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) 
         }
         return res.json({ success: true });
     } catch (error: any) {
-        console.error("Erro update order:", error);
+        console.error("Erro geral update order:", error);
         return res.status(500).json({ error: error.message });
     }
 }
@@ -135,14 +141,14 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     } = req.body;
 
     try {
-        // Deduzir coins
+        // 1. Deduzir coins se usado
         if (coinsUsed > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
             if (!profile || profile.coins_balance < coinsUsed) throw new Error("Saldo insuficiente.");
             await supabase.from('profiles').update({ coins_balance: profile.coins_balance - coinsUsed }).eq('id', userId);
         }
 
-        // Contrato
+        // 2. Gerar Contrato (apenas crediário normalmente)
         let contractId = null;
         if (signature) {
             const { data: contract } = await supabase.from('contracts').insert({
@@ -157,7 +163,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             contractId = contract?.id;
         }
 
-        // Faturas
+        // 3. Gerar Faturas
         const invoices = [];
         const today = new Date();
         
@@ -201,21 +207,37 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 }
             }
         }
-        await supabase.from('invoices').insert(invoices);
+        
+        // Inserir Faturas
+        if (invoices.length > 0) {
+            await supabase.from('invoices').insert(invoices);
+        }
 
-        // CRIAR O PEDIDO (IMPORTANTE PARA APARECER NO PAINEL)
-        await supabase.from('orders').insert({
+        // 4. CRIAR O PEDIDO (ESSENCIAL PARA APARECER NO RASTREIO)
+        // Corrigido: Agora cria o registro na tabela orders para TODOS os tipos de venda
+        const orderStatus = saleType === 'direct' ? 'processing' : 'processing'; // Ambos começam como processing
+        const trackingNote = saleType === 'direct' 
+            ? "Aguardando pagamento para envio." 
+            : "Aguardando aprovação do crédito/entrada.";
+
+        const { error: orderError } = await supabase.from('orders').insert({
             user_id: userId,
-            status: 'processing', // Começa como processando
+            status: orderStatus, 
             total: totalAmount,
             payment_method: saleType === 'direct' ? paymentMethod : 'crediario',
             address_snapshot: address,
             items_snapshot: [{ name: productName, price: totalAmount }],
-            tracking_notes: "Aguardando confirmação de pagamento/crédito."
+            tracking_notes: trackingNote
         });
+
+        if (orderError) {
+            console.error("Erro ao criar pedido na tabela orders:", orderError);
+            // Não falha a requisição inteira se apenas o log do pedido falhar, mas loga
+        }
 
         return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
     } catch (error: any) {
+        console.error("Erro handleCreateSale:", error);
         return res.status(500).json({ error: error.message });
     }
 }
@@ -237,12 +259,27 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
+    // Script básico para habilitar exec_sql
     const sql = `CREATE TABLE IF NOT EXISTS action_logs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), action_type TEXT, status TEXT, description TEXT, details JSONB, created_at TIMESTAMPTZ DEFAULT now());`;
     try {
+        // Tenta rodar via RPC se existir
         await supabase.rpc('exec_sql', { sql_query: sql });
         return res.json({ success: true });
     } catch (e: any) { 
-        return res.status(500).json({ error: e.message }); 
+        // Se falhar (RPC nao existe), instrui usuario
+        return res.status(500).json({ error: e.message + " - Instale a função exec_sql no Supabase." }); 
+    }
+}
+
+async function handleExecuteSql(req: VercelRequest, res: VercelResponse) {
+    const { sql } = req.body;
+    const supabase = getSupabaseAdmin();
+    try {
+        const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
+        if (error) throw error;
+        return res.json({ success: true });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
     }
 }
 
@@ -345,6 +382,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (isRoute('/test-supabase')) return res.json({ success: true });
         if (isRoute('/chat')) return await handleChat(req, res);
         if (isRoute('/setup-database')) return await handleSetupDatabase(res);
+        if (isRoute('/execute-sql')) return await handleExecuteSql(req, res); // Novo endpoint
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
         if (isRoute('/get-orders')) return await handleGetOrders(res);

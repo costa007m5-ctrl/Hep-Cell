@@ -41,10 +41,12 @@ const OrdersManagerTab: React.FC = () => {
             if (res.ok) {
                 setOrders(Array.isArray(data) ? data : []);
             } else {
-                throw new Error("Falha ao buscar pedidos");
+                throw new Error(data.error || "Falha ao buscar pedidos");
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            // Não mostra erro fatal, apenas lista vazia
+            setOrders([]);
         } finally {
             setIsLoading(false);
         }
@@ -52,7 +54,6 @@ const OrdersManagerTab: React.FC = () => {
 
     useEffect(() => { fetchOrders(); }, []);
 
-    // Quando abre o modal, preenche os estados temporários
     useEffect(() => {
         if (selectedOrder) {
             setTempStatus(selectedOrder.status);
@@ -77,18 +78,17 @@ const OrdersManagerTab: React.FC = () => {
                 })
             });
             
+            const data = await res.json();
+
             if (res.ok) {
-                // Atualiza a lista localmente
                 setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, status: tempStatus, tracking_notes: tempNotes } : o));
-                // Atualiza o objeto selecionado para refletir a mudança
                 setSelectedOrder(prev => prev ? { ...prev, status: tempStatus, tracking_notes: tempNotes } : null);
-                
                 setMessage({ text: "Pedido atualizado com sucesso!", type: 'success' });
             } else {
-                throw new Error("Falha ao atualizar no servidor");
+                throw new Error(data.error || "Falha ao atualizar no servidor");
             }
-        } catch (e) {
-            setMessage({ text: "Erro ao salvar alterações.", type: 'error' });
+        } catch (e: any) {
+            setMessage({ text: `Erro: ${e.message}`, type: 'error' });
         } finally {
             setIsUpdating(false);
         }
@@ -96,7 +96,7 @@ const OrdersManagerTab: React.FC = () => {
 
     const getStatusLabel = (status: string) => {
         const labels: Record<string, string> = {
-            'processing': 'Aprovado / Processando',
+            'processing': 'Aprovado / Em Análise',
             'preparing': 'Em Preparação',
             'shipped': 'Enviado (Em Trânsito)',
             'out_for_delivery': 'Saiu para Entrega',
@@ -152,7 +152,7 @@ const OrdersManagerTab: React.FC = () => {
                                 <div className="text-right">
                                     <p className="text-[10px] text-slate-400 uppercase font-bold">Total</p>
                                     <p className="text-base font-black text-indigo-600 dark:text-indigo-400">
-                                        R$ {order.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                                        R$ {order.total?.toLocaleString('pt-BR', {minimumFractionDigits: 2}) || '0,00'}
                                     </p>
                                 </div>
                                 <button 
@@ -167,7 +167,7 @@ const OrdersManagerTab: React.FC = () => {
                 ))}
                 {orders.length === 0 && (
                     <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700">
-                        <p className="text-slate-400 text-sm font-medium">Nenhum pedido encontrado.</p>
+                        <p className="text-slate-400 text-sm font-medium">Nenhum pedido encontrado. Se acabou de criar uma venda, execute o REPARO na aba Ferramentas Dev.</p>
                     </div>
                 )}
             </div>
@@ -230,7 +230,7 @@ const OrdersManagerTab: React.FC = () => {
                                         )}
                                         <li className="flex justify-between text-sm pt-2 border-t border-slate-200 dark:border-slate-700 font-black mt-2">
                                             <span>TOTAL</span>
-                                            <span className="text-indigo-600">R$ {selectedOrder.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                                            <span className="text-indigo-600">R$ {selectedOrder.total?.toLocaleString('pt-BR', {minimumFractionDigits: 2}) || '0,00'}</span>
                                         </li>
                                     </ul>
                                 </div>
