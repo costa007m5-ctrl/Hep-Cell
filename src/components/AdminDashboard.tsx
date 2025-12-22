@@ -7,7 +7,8 @@ import ClientsTab from './ClientsTab';
 import NewSaleTab from './NewSaleTab';
 import StatusTab from './StatusTab';
 import CreditAnalysisTab from './CreditAnalysisTab';
-import OrdersManagerTab from './OrdersManagerTab'; // Nova Aba
+import OrdersManagerTab from './OrdersManagerTab';
+import CoinsManagerTab from './CoinsManagerTab'; // Novo Componente
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -22,7 +23,8 @@ const Icons = {
     Financials: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
     Status: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Tools: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
-    Orders: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+    Orders: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+    Coins: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 };
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
@@ -31,7 +33,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   
   const menuItems = [
     { id: 'dashboard', label: 'Resumo', icon: Icons.Dashboard },
-    { id: 'orders', label: 'Gestão de Pedidos', icon: Icons.Orders }, // Novo Item
+    { id: 'orders', label: 'Gestão de Pedidos', icon: Icons.Orders },
+    { id: 'coins', label: 'Gestão de Coins', icon: Icons.Coins },
     { id: 'status', label: 'Integrações (API)', icon: Icons.Status },
     { id: 'credit', label: 'Análise de Crédito', icon: Icons.Credit },
     { id: 'clients', label: 'Clientes CRM', icon: Icons.Clients },
@@ -45,14 +48,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       switch(currentView) {
           case 'dashboard': return (
               <div className="space-y-6 animate-fade-in">
-                  {/* ... (Dashboard Content - Same as before) ... */}
                   <div className="bg-indigo-50 dark:bg-indigo-900/20 p-8 rounded-3xl border border-indigo-100 dark:border-indigo-800 text-center">
                        <h3 className="text-xl font-bold text-indigo-900 dark:text-indigo-200">Painel Relp Cell Administrativo</h3>
-                       <p className="text-indigo-600 dark:text-indigo-400 text-sm mt-1">Gerencie seu crediário e catálogo com IA integrada.</p>
+                       <p className="text-indigo-600 dark:text-indigo-400 text-sm mt-1">Gerencie seu crediário, coins e catálogo com IA integrada.</p>
                   </div>
               </div>
           );
-          case 'orders': return <OrdersManagerTab />; // Nova Aba
+          case 'orders': return <OrdersManagerTab />;
+          case 'coins': return <CoinsManagerTab />;
           case 'status': return <StatusTab />;
           case 'credit': return <CreditAnalysisTab />; 
           case 'clients': return <ClientsTab />; 

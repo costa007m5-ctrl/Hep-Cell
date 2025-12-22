@@ -32,39 +32,56 @@ const DeliveryTrackingWidget: React.FC<{ order: any, onClick: () => void }> = ({
 
     return (
         <div onClick={onClick} className="mx-2 mt-4 bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-lg border border-indigo-100 dark:border-slate-700 relative overflow-hidden cursor-pointer group">
-            <div className="absolute top-0 right-0 p-3 opacity-10">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            {/* Background Animation */}
+            <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl"></div>
+                {order.status === 'out_for_delivery' && (
+                    <div className="absolute -bottom-10 -left-10 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/diagmonds-light.png')] opacity-10 animate-slide-reveal"></div>
+                )}
             </div>
             
             <div className="flex justify-between items-center mb-4 relative z-10">
                 <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v3.28a1 1 0 00.684.948l6 2.5a1 1 0 00.816-.948V6.3" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.364 8.636L13.5 11.5M16.364 8.636l2.828-2.828M16.364 8.636L13.5 5.8" /></svg>
+                    <div className={`p-2.5 rounded-xl text-white shadow-md ${order.status === 'delivered' ? 'bg-green-500' : 'bg-indigo-600'}`}>
+                        {order.status === 'out_for_delivery' ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 animate-bounce-slow" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v3.28a1 1 0 00.684.948l6 2.5a1 1 0 00.816-.948V6.3" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.364 8.636L13.5 11.5M16.364 8.636l2.828-2.828M16.364 8.636L13.5 5.8" /></svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                        )}
                     </div>
                     <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">Acompanhar Entrega</h3>
-                        <p className="text-xs text-slate-500">Pedido #{order.id.slice(0,6).toUpperCase()}</p>
+                        <h3 className="font-bold text-slate-900 dark:text-white text-sm">
+                            {order.status === 'delivered' ? 'Pedido Entregue!' : 'Acompanhar Entrega'}
+                        </h3>
+                        <p className="text-xs text-slate-500">#{order.id.slice(0,6).toUpperCase()}</p>
                     </div>
                 </div>
-                <div className="text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-lg">
+                <div className={`text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider ${order.status === 'delivered' ? 'bg-green-100 text-green-700' : 'bg-indigo-50 text-indigo-600'}`}>
                     {steps[currentStepIndex]?.label || 'Processando'}
                 </div>
             </div>
 
             {/* Barra de Progresso Animada */}
-            <div className="relative h-2 bg-slate-100 dark:bg-slate-700 rounded-full mb-4 overflow-hidden">
+            <div className="relative h-2 bg-slate-100 dark:bg-slate-700 rounded-full mb-3 overflow-visible">
                 <div 
-                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-1000 ease-out"
+                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]"
                     style={{ width: `${progress}%` }}
                 >
-                    <div className="absolute inset-0 bg-white/30 w-full h-full animate-shimmer" style={{ backgroundSize: '200% 100%' }}></div>
+                    {/* Caminhão Animado */}
+                    {order.status !== 'delivered' && (
+                        <div className="absolute -right-2 -top-2.5 text-lg transform rotate-y-180 drop-shadow-md">
+                            🚚
+                        </div>
+                    )}
                 </div>
             </div>
 
-            <div className="flex justify-between text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                <span>{steps[0].label}</span>
-                <span className={currentStepIndex >= 2 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : ''}>{steps[2].label}</span>
-                <span className={currentStepIndex === 4 ? 'text-green-600 font-bold' : ''}>{steps[4].label}</span>
+            {/* Observações Dinâmicas */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700 flex items-start gap-2">
+                <span className="text-sm">ℹ️</span>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-tight">
+                    {order.tracking_notes || "Aguardando atualização da equipe de logística..."}
+                </p>
             </div>
         </div>
     );
@@ -130,7 +147,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
           supabase.from('invoices').select('*').eq('user_id', user.id),
           supabase.from('contracts').select('*').eq('user_id', user.id).eq('status', 'pending_signature').limit(1),
           supabase.from('limit_requests').select('id, status, updated_at').eq('user_id', user.id).order('created_at', {ascending: false}).limit(1),
-          supabase.from('orders').select('*').eq('user_id', user.id).neq('status', 'delivered').neq('status', 'cancelled').order('created_at', {ascending: false}).limit(1)
+          supabase.from('orders').select('*').eq('user_id', user.id).neq('status', 'cancelled').order('created_at', {ascending: false}).limit(1)
         ]);
 
         setProfileData({ id: user.id, email: user.email, ...profile });

@@ -45,21 +45,67 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) {
-    const { orderId, status } = req.body;
+    const { orderId, status, notes } = req.body; // Adicionado notes
     const supabase = getSupabaseAdmin();
 
     try {
+        const updateData: any = { status };
+        if (notes) {
+            updateData.tracking_notes = notes; // Salva a observação
+        }
+
         const { error } = await supabase
             .from('orders')
-            .update({ status })
+            .update(updateData)
             .eq('id', orderId);
 
         if (error) throw error;
 
-        // Notificar usuário (opcional, mas recomendado)
-        // Logica de notificação aqui...
+        // Opcional: Criar notificação para o usuário
+        if (notes) {
+             const { data: order } = await supabase.from('orders').select('user_id').eq('id', orderId).single();
+             if (order) {
+                 await supabase.from('notifications').insert({
+                     user_id: order.user_id,
+                     title: 'Atualização do Pedido',
+                     message: `Status: ${status}. ${notes}`,
+                     type: 'info'
+                 });
+             }
+        }
 
         return res.json({ success: true });
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+}
+
+async function handleManageCoins(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    const { userId, amount, action } = req.body; // action: 'add' | 'remove' | 'set'
+
+    try {
+        const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
+        if (!profile) throw new Error("Perfil não encontrado.");
+
+        let newBalance = profile.coins_balance || 0;
+        const val = Math.abs(parseInt(amount));
+
+        if (action === 'add') newBalance += val;
+        else if (action === 'remove') newBalance = Math.max(0, newBalance - val);
+        else if (action === 'set') newBalance = val;
+
+        const { error } = await supabase.from('profiles').update({ coins_balance: newBalance }).eq('id', userId);
+        if (error) throw error;
+
+        // Log da ação
+        await supabase.from('action_logs').insert({
+            action_type: 'ADMIN_COIN_ADJUST',
+            status: 'SUCCESS',
+            description: `Admin ajustou coins do user ${userId}. Ação: ${action} ${val}. Novo Saldo: ${newBalance}.`
+        });
+
+        return res.json({ success: true, newBalance });
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
     }
@@ -70,17 +116,17 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     const { 
         userId, productName, totalAmount, installments, signature, 
         saleType, paymentMethod, downPayment, dueDay, address, 
-        coinsUsed, discountValue 
+        coinsUsed
     } = req.body;
 
     try {
-        // 1. Processar Uso de Coins (Desconto)
+        // 1. Processar Uso de Coins (Desconto) - ISSO MANTÉM, POIS É GASTO
         if (coinsUsed > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
             if (!profile || profile.coins_balance < coinsUsed) {
                 throw new Error("Saldo de Relp Coins insuficiente.");
             }
-            // Deduzir coins
+            // Deduzir coins usados na compra
             await supabase.from('profiles').update({ 
                 coins_balance: profile.coins_balance - coinsUsed 
             }).eq('id', userId);
@@ -89,7 +135,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         // 2. Criar Contrato (Se houver assinatura - Crediário)
         let contractId = null;
         if (signature) {
-            // Gerar texto do contrato robusto para armazenamento
             const contractText = `CONTRATO DE COMPRA E VENDA - RELP CELL\n\n` +
                 `CLIENTE: ${userId}\nPRODUTO: ${productName}\n` +
                 `VALOR TOTAL: R$ ${totalAmount}\n` +
@@ -162,31 +207,21 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         const { error: invoicesError } = await supabase.from('invoices').insert(invoices);
         if (invoicesError) throw invoicesError;
 
-        // 4. Registrar Pedido (Status inicial: Em Preparação)
+        // 4. Registrar Pedido
         await supabase.from('orders').insert({
             user_id: userId,
-            status: 'processing', // 'processing' -> 'preparing' -> 'shipped' -> 'delivered'
+            status: 'processing',
             total: totalAmount,
             payment_method: saleType === 'direct' ? paymentMethod : 'crediario',
             address_snapshot: address,
-            items_snapshot: [{ name: productName, price: totalAmount }] // Simplificado
+            items_snapshot: [{ name: productName, price: totalAmount }],
+            tracking_notes: "Aguardando confirmação de pagamento para iniciar processo." // Nota inicial
         });
 
-        // 5. Acumular Relp Coins (1% do valor da compra)
-        // Regra: Ganha 1% sobre o valor total da compra imediatamente (ou pode ser após pagamento)
-        // Aqui aplicamos imediatamente para incentivar
-        const coinsEarned = Math.floor(totalAmount * 0.01 * 100); // 1% em centavos/pontos (100 pts = R$ 1)
-        if (coinsEarned > 0) {
-            const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
-            const currentBalance = profile?.coins_balance || 0;
-            
-            // Re-lê o saldo pois pode ter mudado no passo 1 (race condition mitigation simples)
-            await supabase.from('profiles').update({ 
-                coins_balance: currentBalance + coinsEarned 
-            }).eq('id', userId);
-        }
+        // REMOVIDO: A geração de coins agora acontece SOMENTE no Webhook do Mercado Pago (pagamento confirmado)
+        // ou manualmente pelo admin. Não geramos coins na criação do pedido "Em Aberto".
 
-        return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length, coinsEarned } });
+        return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
 
     } catch (error: any) {
         console.error("Erro ao criar venda:", error);
@@ -195,7 +230,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
-    // ... (Mantido igual) ...
     const { rawText } = req.body;
     if (!rawText) return res.status(400).json({ error: "Texto base é obrigatório." });
 
@@ -241,19 +275,15 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (handleSetupDatabase mantido igual) ...
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     const sql = `
         CREATE TABLE IF NOT EXISTS products (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, price NUMERIC, created_at TIMESTAMPTZ DEFAULT now());
-        CREATE TABLE IF NOT EXISTS orders (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, status TEXT, total NUMERIC, payment_method TEXT, address_snapshot JSONB, items_snapshot JSONB, created_at TIMESTAMPTZ DEFAULT now());
+        CREATE TABLE IF NOT EXISTS orders (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, status TEXT, total NUMERIC, payment_method TEXT, address_snapshot JSONB, items_snapshot JSONB, tracking_notes TEXT, created_at TIMESTAMPTZ DEFAULT now());
         CREATE TABLE IF NOT EXISTS invoices (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, month TEXT, due_date DATE, amount NUMERIC, status TEXT, notes TEXT, payment_date TIMESTAMPTZ, payment_id TEXT, boleto_url TEXT, boleto_barcode TEXT, created_at TIMESTAMPTZ DEFAULT now());
         CREATE TABLE IF NOT EXISTS contracts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, title TEXT, items TEXT, total_value NUMERIC, status TEXT, signature_data TEXT, terms_accepted BOOLEAN, created_at TIMESTAMPTZ DEFAULT now());
         -- Garantir colunas
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
-        -- Adicionar colunas faltantes em orders se necessário
-        ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_snapshot JSONB;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_notes TEXT;
     `;
     try {
         const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
@@ -276,11 +306,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { error } = await supabase.from('profiles').select('id').limit(1);
             return res.json({ success: !error, message: error ? error.message : "Conectado" });
         }
-        if (isRoute('/chat')) return await handleChat(req, res); // Novo Endpoint Chat
+        if (isRoute('/chat')) return await handleChat(req, res);
         if (isRoute('/setup-database')) return await handleSetupDatabase(res);
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
-        if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res); // Novo Endpoint Admin Order
+        if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res);
+        if (isRoute('/manage-coins')) return await handleManageCoins(req, res); // Novo endpoint
 
         // ... (GET/POST products mantidos) ...
         if (req.method === 'GET' && isRoute('/products')) {
@@ -297,7 +328,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.json({ success: true });
         }
 
-        // Fallback para admin fetchs genéricos (usado em alguns componentes)
         if (isRoute('/profiles')) {
              const { data } = await supabase.from('profiles').select('*');
              return res.json(data);

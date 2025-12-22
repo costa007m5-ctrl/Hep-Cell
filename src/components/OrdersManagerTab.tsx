@@ -10,6 +10,7 @@ interface Order {
     status: string;
     total: number;
     created_at: string;
+    tracking_notes?: string;
     items_snapshot: any[];
     address_snapshot: any;
 }
@@ -18,6 +19,7 @@ const OrdersManagerTab: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
+    const [notes, setNotes] = useState('');
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
     const fetchOrders = async () => {
@@ -46,12 +48,13 @@ const OrdersManagerTab: React.FC = () => {
             const res = await fetch('/api/admin?action=update-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderId, status: newStatus })
+                body: JSON.stringify({ orderId, status: newStatus, notes: notes || undefined })
             });
             
             if (res.ok) {
-                setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+                setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus, tracking_notes: notes || o.tracking_notes } : o));
                 setMessage({ text: "Status atualizado!", type: 'success' });
+                setNotes('');
             } else {
                 throw new Error("Falha ao atualizar");
             }
@@ -98,6 +101,7 @@ const OrdersManagerTab: React.FC = () => {
                                 <td className="px-6 py-4">
                                     <p className="font-bold text-slate-900 dark:text-white">#{order.id.slice(0,6).toUpperCase()}</p>
                                     <p className="text-[10px] text-slate-500">{new Date(order.created_at).toLocaleDateString()}</p>
+                                    {order.tracking_notes && <p className="text-[10px] text-indigo-500 italic mt-1 max-w-[200px] truncate">{order.tracking_notes}</p>}
                                 </td>
                                 <td className="px-6 py-4">
                                     <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{order.user_id.slice(0,8)}...</p>
@@ -111,15 +115,26 @@ const OrdersManagerTab: React.FC = () => {
                                         {getStatusLabel(order.status)}
                                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                    {updatingId === order.id ? <LoadingSpinner /> : (
-                                        <>
-                                            {order.status === 'processing' && <button onClick={() => updateStatus(order.id, 'preparing')} className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 text-xs font-bold">Preparar</button>}
-                                            {order.status === 'preparing' && <button onClick={() => updateStatus(order.id, 'shipped')} className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-xs font-bold">Enviar</button>}
-                                            {order.status === 'shipped' && <button onClick={() => updateStatus(order.id, 'out_for_delivery')} className="px-3 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs font-bold">Rota</button>}
-                                            {order.status === 'out_for_delivery' && <button onClick={() => updateStatus(order.id, 'delivered')} className="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-xs font-bold">Entregar</button>}
-                                        </>
-                                    )}
+                                <td className="px-6 py-4 text-right">
+                                    <div className="flex flex-col gap-2 items-end">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Obs (Ex: Saiu para entrega)" 
+                                            className="text-xs p-1 border rounded w-full max-w-[150px] dark:bg-slate-900 dark:border-slate-600"
+                                            value={updatingId === order.id ? notes : ''}
+                                            onChange={e => { if(updatingId !== order.id) setUpdatingId(order.id); setNotes(e.target.value); }}
+                                        />
+                                        <div className="flex gap-1">
+                                            {updatingId === order.id && isLoading ? <LoadingSpinner /> : (
+                                                <>
+                                                    {order.status === 'processing' && <button onClick={() => updateStatus(order.id, 'preparing')} className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold">Preparar</button>}
+                                                    {order.status === 'preparing' && <button onClick={() => updateStatus(order.id, 'shipped')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-[10px] font-bold">Enviar</button>}
+                                                    {order.status === 'shipped' && <button onClick={() => updateStatus(order.id, 'out_for_delivery')} className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-[10px] font-bold">Rota</button>}
+                                                    {order.status === 'out_for_delivery' && <button onClick={() => updateStatus(order.id, 'delivered')} className="px-2 py-1 bg-green-100 text-green-700 rounded text-[10px] font-bold">Entregar</button>}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         ))}

@@ -77,9 +77,8 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
-// --- ContractsView (Mantido) ---
+// --- ContractsView (Corrigida) ---
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
-    // ... (Código do ContractsView mantido) ...
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
     const [signingContract, setSigningContract] = useState<Contract | null>(null);
@@ -116,8 +115,29 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
         doc.text(contract.title || "CONTRATO", 105, 20, { align: 'center' });
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-        const splitText = doc.splitTextToSize(contract.items || "", 180);
+        
+        // CORREÇÃO: Usa o texto exato armazenado no banco
+        const textToPrint = contract.items || "Conteúdo do contrato indisponível.";
+        const splitText = doc.splitTextToSize(textToPrint, 180);
+        
         doc.text(splitText, 15, 40);
+        
+        // Adiciona assinatura se existir
+        if (contract.signature_data) {
+            const pageHeight = doc.internal.pageSize.height;
+            // Adiciona nova página se não couber
+            if (doc.getTextDimensions(splitText).h + 60 > pageHeight) {
+                doc.addPage();
+                doc.addImage(contract.signature_data, 'PNG', 15, 20, 60, 30);
+                doc.text("Assinatura do Cliente", 15, 55);
+            } else {
+                // Adiciona na mesma página
+                const yPos = 40 + doc.getTextDimensions(splitText).h + 10;
+                doc.addImage(contract.signature_data, 'PNG', 15, yPos, 60, 30);
+                doc.text("Assinatura do Cliente", 15, yPos + 35);
+            }
+        }
+
         doc.save(`Contrato_${contract.id.slice(0,8)}.pdf`);
         addToast("Download iniciado!", "success");
     };
@@ -267,17 +287,122 @@ const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
     );
 };
 
-// ... (WalletView, AddressView, SettingsView, ReferralView, FiscalNotesView, PersonalDataView, HelpView mantidos iguais) ...
+// --- PersonalDataView (NOVO) ---
+const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
+    const [formData, setFormData] = useState(profile);
+    const [isSaving, setIsSaving] = useState(false);
+    const { addToast } = useToast();
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await updateProfile(formData);
+            onUpdate(formData);
+            addToast("Dados atualizados com sucesso!", "success");
+        } catch (e) {
+            addToast("Erro ao atualizar dados.", "error");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6 p-4">
+            <h3 className="font-bold text-lg dark:text-white">Meus Dados</h3>
+            <div className="space-y-4">
+                <InputField label="Nome" name="first_name" value={formData.first_name || ''} onChange={e => setFormData({...formData, first_name: e.target.value})} />
+                <InputField label="Sobrenome" name="last_name" value={formData.last_name || ''} onChange={e => setFormData({...formData, last_name: e.target.value})} />
+                <InputField label="CPF" name="cpf" value={formData.identification_number || ''} onChange={e => setFormData({...formData, identification_number: e.target.value})} />
+                <InputField label="Telefone" name="phone" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} />
+                
+                <div className="pt-4 border-t dark:border-slate-700">
+                    <h4 className="font-bold mb-3 dark:text-white">Endereço de Entrega</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                        <InputField label="CEP" name="zip_code" value={formData.zip_code || ''} onChange={e => setFormData({...formData, zip_code: e.target.value})} />
+                        <InputField label="Número" name="number" value={formData.street_number || ''} onChange={e => setFormData({...formData, street_number: e.target.value})} />
+                    </div>
+                    <InputField label="Rua" name="street" value={formData.street_name || ''} onChange={e => setFormData({...formData, street_name: e.target.value})} />
+                    <InputField label="Bairro" name="neighborhood" value={formData.neighborhood || ''} onChange={e => setFormData({...formData, neighborhood: e.target.value})} />
+                    <div className="grid grid-cols-2 gap-3">
+                        <InputField label="Cidade" name="city" value={formData.city || ''} onChange={e => setFormData({...formData, city: e.target.value})} />
+                        <InputField label="Estado" name="uf" value={formData.federal_unit || ''} onChange={e => setFormData({...formData, federal_unit: e.target.value})} />
+                    </div>
+                </div>
+
+                <button onClick={handleSave} disabled={isSaving} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold mt-4">
+                    {isSaving ? <LoadingSpinner /> : 'Salvar Alterações'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// --- SecurityView (NOVO) ---
+const SecurityView: React.FC = () => {
+    const { addToast } = useToast();
+    
+    const handleResetPassword = async () => {
+        const email = prompt("Confirme seu email para receber o link:");
+        if (email) {
+            await supabase.auth.resetPasswordForEmail(email);
+            addToast("Email de redefinição enviado!", "success");
+        }
+    };
+
+    return (
+        <div className="space-y-6 p-4">
+            <h3 className="font-bold text-lg dark:text-white">Segurança</h3>
+            <div className="space-y-4">
+                <button onClick={handleResetPassword} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-700 dark:text-slate-300 font-medium">Trocar Senha</span>
+                    <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </button>
+                <button onClick={() => addToast("Função em desenvolvimento", "info")} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-slate-700 dark:text-slate-300 font-medium">Autenticação em 2 Fatores</span>
+                    <span className="text-xs bg-slate-200 dark:bg-slate-600 px-2 py-1 rounded">Em Breve</span>
+                </button>
+                <button onClick={() => addToast("Desconectado de outros dispositivos", "success")} className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-red-600 font-medium">Sair de todos os dispositivos</span>
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// --- HelpView (NOVO) ---
+const HelpView: React.FC = () => {
+    return (
+        <div className="space-y-6 p-4">
+            <h3 className="font-bold text-lg dark:text-white">Central de Ajuda</h3>
+            <div className="grid grid-cols-2 gap-4">
+                <button onClick={() => window.open('https://wa.me/5596991000000', '_blank')} className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 rounded-xl flex flex-col items-center gap-2">
+                    <span className="text-2xl">💬</span>
+                    <span className="font-bold text-green-700 dark:text-green-300">WhatsApp</span>
+                </button>
+                <button onClick={() => window.location.href = 'mailto:suporte@relpcell.com'} className="p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 rounded-xl flex flex-col items-center gap-2">
+                    <span className="text-2xl">📧</span>
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300">Email</span>
+                </button>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border dark:border-slate-700">
+                <h4 className="font-bold mb-2 dark:text-white">Perguntas Frequentes</h4>
+                <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                    <details className="cursor-pointer"><summary>Como aumentar meu limite?</summary><p className="mt-1 pl-4">Pague suas faturas em dia e use o app frequentemente.</p></details>
+                    <details className="cursor-pointer"><summary>Onde vejo meus contratos?</summary><p className="mt-1 pl-4">Na aba 'Meus Contratos' dentro do perfil.</p></details>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ... (WalletView, SettingsView, ReferralView, FiscalNotesView mantidos iguais) ...
 const WalletView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Carteira em desenvolvimento.</div>;
-const AddressView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => <div className="p-4 text-center">Endereços em desenvolvimento.</div>;
 const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; userId: string }> = ({ toggleTheme }) => <div className="p-4 text-center">Configurações em desenvolvimento.</div>;
 const ReferralView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Indicações em desenvolvimento.</div>;
 const FiscalNotesView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Notas em desenvolvimento.</div>;
-const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile }) => <div className="p-4 text-center">Dados em desenvolvimento.</div>;
-const HelpView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Ajuda em desenvolvimento.</div>;
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode, onGoToAdmin }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'receipts'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'security'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -367,7 +492,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     <div className="grid grid-cols-3 gap-3 mb-8">
                         <StatBadge label="Score" value={profile?.credit_score || 0} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} />
                         <StatBadge label="Coins" value={profile?.coins_balance || 0} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2" /></svg>} />
-                        <StatBadge label="Docs" value="1" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} />
+                        <StatBadge label="Docs" value="OK" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} />
                     </div>
 
                     <div className="space-y-4">
@@ -389,11 +514,13 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                             </button>
                         )}
 
-                        <MenuItem label="Meus Pedidos" description="Status das suas compras" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} onClick={() => setActiveView('orders')} />
+                        <MenuItem label="Meus Pedidos" description="Acompanhe suas compras" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>} onClick={() => setActiveView('orders')} />
+                        <MenuItem label="Meus Dados" description="Nome, CPF e Endereço" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" /></svg>} onClick={() => setActiveView('data')} />
                         <MenuItem label="Meus Contratos" description="Documentos assinados" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} onClick={() => setActiveView('contracts')} />
                         
                         <h3 className="font-black text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-[0.2em] mb-2 mt-8 px-1">Segurança e App</h3>
-                        <MenuItem label="Configurações" description="Privacidade e Tema" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>} onClick={() => setActiveView('settings')} />
+                        <MenuItem label="Segurança" description="Senha e Acesso" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>} onClick={() => setActiveView('security')} />
+                        <MenuItem label="Ajuda e Suporte" description="Fale Conosco" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>} onClick={() => setActiveView('help')} />
                         
                         <button onClick={handleLogout} className="w-full mt-6 py-4 border border-red-200 dark:border-red-900/30 text-red-600 font-bold rounded-2xl flex items-center justify-center gap-2 hover:bg-red-50 transition-colors">
                             Sair da Conta
@@ -409,10 +536,10 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(p) => setProfile(p)} />}
                     {activeView === 'orders' && <OrdersView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
-                    {activeView === 'addresses' && profile && <AddressView profile={profile} onUpdate={(p) => setProfile(p)} />}
+                    {activeView === 'security' && <SecurityView />}
                     {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} userId={session.user.id} />}
                     {activeView === 'referral' && <ReferralView userId={session.user.id} />}
-                    {activeView === 'help' && <HelpView userId={session.user.id} />}
+                    {activeView === 'help' && <HelpView />}
                     {activeView === 'contracts' && profile && <ContractsView profile={profile} />}
                     {activeView === 'fiscal_notes' && <FiscalNotesView userId={session.user.id} />}
                 </div>

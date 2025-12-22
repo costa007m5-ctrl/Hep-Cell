@@ -138,7 +138,7 @@ const SupportChat: React.FC = () => {
                     {messages.map((msg, idx) => (
                         <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
                             <div 
-                                className={`max-w-[85%] p-3.5 text-sm leading-relaxed shadow-sm relative ${
+                                className={`max-w-[85%] p-3.5 text-sm leading-relaxed shadow-sm relative whitespace-pre-wrap break-words ${
                                     msg.role === 'user' 
                                     ? 'bg-indigo-600 text-white rounded-2xl rounded-br-sm' 
                                     : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl rounded-bl-sm border border-slate-100 dark:border-slate-700'

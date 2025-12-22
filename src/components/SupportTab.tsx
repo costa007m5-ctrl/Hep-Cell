@@ -279,7 +279,7 @@ const SupportTab: React.FC = () => {
                                             Nota Interna (Invisível para o cliente)
                                         </div>
                                     )}
-                                    <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
+                                    <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-wrap break-words ${
                                         msg.is_internal 
                                         ? 'bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-br-none' 
                                         : msg.sender_type === 'admin' 
