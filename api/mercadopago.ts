@@ -12,10 +12,7 @@ function getSupabaseAdminClient() {
 
 // Inicializa Mercado Pago (Dinâmico: Banco ou Env)
 async function getMercadoPagoClient(supabase: any) {
-    // 1. Tenta buscar do banco de dados (Configuração automática)
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
-    
-    // 2. Se tiver no banco, usa. Senão, usa a variável de ambiente (Fallback)
     const accessToken = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
 
     if (!accessToken) throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado.");
@@ -65,7 +62,6 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = await getMercadoPagoClient(supabase);
-        // Recebe os dados do Brick V2
         const { 
             token, 
             issuer_id, 
@@ -91,7 +87,7 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
                 identification: payer.identification
             },
             external_reference,
-            statement_descriptor: 'RELP CELL', // Nome na fatura do cartão
+            statement_descriptor: 'RELP CELL',
             notification_url: getNotificationUrl(req)
         };
 
@@ -99,20 +95,16 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
         
         // ATUALIZAÇÃO IMEDIATA DO BANCO SE APROVADO
         if (result.status === 'approved') {
-             const updateResult = await supabase.from('invoices')
+             await supabase.from('invoices')
                 .update({ 
                     status: 'Paga', 
                     payment_date: new Date().toISOString(),
                     payment_id: String(result.id),
                     payment_method: 'credit_card'
                 })
-                .eq('id', external_reference); // ID da Fatura
+                .eq('id', external_reference);
              
-             if (updateResult.error) {
-                 console.error("Falha ao atualizar fatura no banco:", updateResult.error);
-             } else {
-                 await logAction(supabase, 'CARD_PAYMENT_SUCCESS', 'SUCCESS', `Fatura ${external_reference} paga via cartão.`, { paymentId: result.id });
-             }
+             await logAction(supabase, 'CARD_PAYMENT_SUCCESS', 'SUCCESS', `Fatura ${external_reference} paga via cartão.`, { paymentId: result.id });
         }
 
         res.status(200).json({ status: result.status, id: result.id, message: result.status_detail });
@@ -129,12 +121,18 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
         const client = await getMercadoPagoClient(supabase);
         const { invoiceId, amount, description, payerEmail, firstName, lastName, identificationNumber } = req.body;
         
+        // Define expiração para 24 horas a partir de agora
+        const expirationDate = new Date();
+        expirationDate.setHours(expirationDate.getHours() + 24);
+        const expirationIso = expirationDate.toISOString();
+
         const payment = new Payment(client);
         const result = await payment.create({
             body: {
                 transaction_amount: Number(amount),
                 description,
                 payment_method_id: 'pix',
+                date_of_expiration: expirationIso,
                 payer: {
                     email: payerEmail,
                     first_name: firstName,
@@ -146,10 +144,24 @@ async function handleCreatePixPayment(req: VercelRequest, res: VercelResponse) {
             }
         });
         
+        const qrCode = result.point_of_interaction?.transaction_data?.qr_code;
+        const qrCodeBase64 = result.point_of_interaction?.transaction_data?.qr_code_base64;
+
+        // PERSISTÊNCIA: Salva os dados do Pix na fatura para não perder se o user sair
+        if (qrCode) {
+            await supabase.from('invoices').update({
+                payment_code: qrCode, // Salva o Copia e Cola
+                payment_expiration: expirationIso,
+                payment_id: String(result.id),
+                status: 'Em aberto' // Continua em aberto até pagar
+            }).eq('id', invoiceId);
+        }
+        
         res.status(200).json({ 
             paymentId: result.id, 
-            qrCode: result.point_of_interaction?.transaction_data?.qr_code, 
-            qrCodeBase64: result.point_of_interaction?.transaction_data?.qr_code_base64 
+            qrCode: qrCode, 
+            qrCodeBase64: qrCodeBase64,
+            expires: expirationIso
         });
     } catch(e: any) { 
         console.error(e);
@@ -190,11 +202,23 @@ async function handleCreateBoletoPayment(req: VercelRequest, res: VercelResponse
         });
         
         const paymentData = result as any;
+        const boletoUrl = result.transaction_details?.external_resource_url;
+        const boletoBarcode = paymentData.barcode?.content;
+
+        // PERSISTÊNCIA: Salva os dados do Boleto na fatura
+        if (boletoUrl) {
+            await supabase.from('invoices').update({
+                boleto_url: boletoUrl,
+                boleto_barcode: boletoBarcode,
+                payment_id: String(result.id),
+                status: 'Boleto Gerado'
+            }).eq('id', invoiceId);
+        }
         
         res.status(200).json({ 
             paymentId: result.id, 
-            boletoUrl: result.transaction_details?.external_resource_url,
-            boletoBarcode: paymentData.barcode?.content 
+            boletoUrl: boletoUrl,
+            boletoBarcode: boletoBarcode 
         });
     } catch(e: any) { 
         console.error(e);
@@ -207,20 +231,36 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdminClient();
     try {
         const client = await getMercadoPagoClient(supabase);
-        const { body } = req;
+        const { body, query } = req;
+        
+        // Suporte para ambos os formatos de webhook (body ou query param)
+        const type = body?.type || query?.type;
+        const dataId = body?.data?.id || query?.['data.id'];
 
-        if (body?.type === 'payment' && body.data?.id) {
-            const paymentId = body.data.id;
+        if (type === 'payment' && dataId) {
             const payment = new Payment(client);
-            const paymentDetails = await payment.get({ id: paymentId });
+            const paymentDetails = await payment.get({ id: dataId });
             
             if (paymentDetails && paymentDetails.status === 'approved') {
+                const invoiceId = paymentDetails.external_reference;
+                
                 // Atualiza fatura para Paga
-                const { data: invoices } = await supabase.from('invoices')
-                    .update({ status: 'Paga', payment_date: new Date().toISOString(), payment_id: String(paymentId) })
-                    .eq('id', paymentDetails.external_reference) // Busca pelo ID da Fatura (External Reference)
+                const { data: invoices, error } = await supabase.from('invoices')
+                    .update({ 
+                        status: 'Paga', 
+                        payment_date: new Date().toISOString(), 
+                        payment_id: String(dataId),
+                        // Limpa os códigos temporários após pagamento para evitar confusão
+                        payment_code: null, 
+                        boleto_barcode: null 
+                    })
+                    .eq('id', invoiceId)
                     .select();
                 
+                if (error) {
+                    console.error("Erro ao atualizar fatura no webhook:", error);
+                }
+
                 if (invoices && invoices.length > 0) {
                     const invoice = invoices[0];
                     
@@ -233,11 +273,11 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                     if (coinsEarned > 0) {
                         const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
                         await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
-                        await logAction(supabase, 'CASHBACK_AWARDED', 'SUCCESS', `Cashback: ${coinsEarned}`, { userId: invoice.user_id });
                     }
 
-                    // 2. Gerar Parcelas Restantes
+                    // 2. Lógica para Entrada (Gerar Parcelas)
                     if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
+                        // ... Lógica existente de gerar parcelas ...
                         const parts = invoice.notes.split('|');
                         if (parts.length >= 5) {
                             const contractId = parts[1];
@@ -264,9 +304,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                                         notes: `Contrato ${contractId}`
                                     });
                                 }
-                                
                                 await supabase.from('invoices').insert(invoicesToCreate);
-                                await logAction(supabase, 'INSTALLMENTS_GENERATED', 'SUCCESS', `Geradas ${count} parcelas após entrada paga.`);
                             }
                         }
                     }

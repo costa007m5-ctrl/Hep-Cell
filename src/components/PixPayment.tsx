@@ -4,7 +4,7 @@ import { Invoice } from '../types';
 import { supabase } from '../services/clients';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
-import InputField from './InputField'; // Importa o componente de input
+import InputField from './InputField';
 
 type PixStep = 'loading' | 'needs_profile' | 'display_pix' | 'error';
 
@@ -40,6 +40,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
   const [pixData, setPixData] = useState<{ qrCodeBase64: string; qrCode: string; expires: string } | null>(null);
   const [timeLeft, setTimeLeft] = useState<string>('');
   const [copyButtonText, setCopyButtonText] = useState('Copiar Código');
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false); // Estado para verificação manual
   const [profileData, setProfileData] = useState({
     firstName: '',
     lastName: '',
@@ -47,7 +48,6 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
   });
   const timerIntervalRef = useRef<number | null>(null);
 
-  // Função para gerar QR Code a partir do copy/paste se necessário (fallback simples)
   const generateQrCodeImage = (code: string) => {
       return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(code)}`;
   };
@@ -77,18 +77,15 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
       if (!response.ok) {
         if (data.code === 'INCOMPLETE_PROFILE') {
           setStep('needs_profile');
-          setError(data.message); // Exibe a mensagem da API para guiar o usuário
+          setError(data.message);
         } else {
           throw new Error(data.message || data.error || 'Falha ao gerar o código PIX.');
         }
       } else {
-        // Validação mais flexível: Se tem o código "copia e cola" (qrCode), já podemos exibir.
-        // A imagem base64 (qrCodeBase64) é opcional, se faltar usamos o fallback.
         if (data && data.qrCode) {
           setPixData(data);
           setStep('display_pix');
         } else {
-          console.error("Resposta da API bem-sucedida, mas sem código PIX:", data);
           throw new Error("O servidor respondeu, mas não retornou o código do PIX. Tente novamente.");
         }
       }
@@ -98,15 +95,33 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
     }
   };
 
+  // Check manual do status
+  const checkPaymentStatus = async () => {
+      setIsCheckingStatus(true);
+      try {
+          const { data, error } = await supabase.from('invoices').select('status').eq('id', invoice.id).single();
+          if (error) throw error;
+          
+          if (data.status === 'Paga') {
+              onPaymentConfirmed(); // Sucesso, volta pra tela anterior que vai atualizar
+          } else {
+              alert("Pagamento ainda não confirmado. Se você já pagou, aguarde alguns instantes.");
+          }
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsCheckingStatus(false);
+      }
+  };
+
   useEffect(() => {
-    // Verifica se já existe um PIX válido salvo na fatura
+    // 1. Verifica se JÁ EXISTE um código válido salvo na fatura (Persistência)
     if (invoice.payment_code && invoice.payment_expiration) {
         const expires = new Date(invoice.payment_expiration);
         if (expires > new Date()) {
             setPixData({
                 qrCode: invoice.payment_code,
-                // Se não temos o base64 salvo, usamos uma API pública para gerar visualmente ou mostramos só o código
-                qrCodeBase64: '', 
+                qrCodeBase64: '', // Usaremos o fallback da API externa para gerar a imagem
                 expires: invoice.payment_expiration
             });
             setStep('display_pix');
@@ -114,6 +129,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
         }
     }
 
+    // 2. Se não existe ou expirou, gera um novo
     setStep('loading');
     generatePix();
 
@@ -122,7 +138,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [invoice.id]);
+  }, [invoice.id]); // Recria apenas se mudar de fatura
 
   useEffect(() => {
     if (pixData?.expires) {
@@ -134,7 +150,7 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
         if (distance < 0) {
           clearInterval(timerIntervalRef.current!);
           setTimeLeft("Expirado");
-          setError("Este código PIX expirou. Por favor, gere um novo.");
+          setError("Este código PIX expirou. Por favor, gere um novo voltando para a tela anterior.");
           return;
         }
 
@@ -163,12 +179,10 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!isValidCPF(profileData.identificationNumber)) {
         setError('CPF inválido. Por favor verifique o número.');
         return;
     }
-
     setStep('loading');
     await generatePix(profileData);
   };
@@ -236,8 +250,14 @@ const PixPayment: React.FC<PixPaymentProps> = ({ invoice, onBack, onPaymentConfi
             {copyButtonText}
           </button>
         </div>
-        <button onClick={onPaymentConfirmed} className="mt-4 text-sm font-bold text-green-600 dark:text-green-400 hover:underline">
-          Já paguei, concluir
+        
+        {/* BOTÃO DE VERIFICAÇÃO MANUAL */}
+        <button 
+            onClick={checkPaymentStatus} 
+            disabled={isCheckingStatus}
+            className="mt-4 w-full flex items-center justify-center py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50"
+        >
+            {isCheckingStatus ? <LoadingSpinner /> : 'Já paguei! Atualizar Status'}
         </button>
       </div>
     )

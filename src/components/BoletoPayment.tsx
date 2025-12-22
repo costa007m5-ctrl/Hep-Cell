@@ -54,7 +54,6 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
   const [saveData, setSaveData] = useState(true); // Checkbox para salvar dados
   const streetNumberRef = useRef<HTMLInputElement>(null);
 
-  // Efeito para buscar e preencher dados do perfil
   useEffect(() => {
     const fetchAndSetProfile = async () => {
         try {
@@ -97,7 +96,6 @@ const BoletoForm: React.FC<{ onSubmit: (data: any, saveData: boolean) => void; i
     setFormData(prev => ({ ...prev, [name]: value }));
   };
   
-  // Efeito para buscar o endereço quando o CEP for preenchido
   useEffect(() => {
     const cep = formData.zipCode.replace(/\D/g, '');
     if (cep.length !== 8) {
@@ -202,6 +200,14 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
   const [step, setStep] = useState<'form' | 'loading' | 'error'>('form');
   const [error, setError] = useState<string | null>(null);
   
+  // VERIFICA SE JÁ EXISTE BOLETO AO CARREGAR
+  useEffect(() => {
+      if (invoice.boleto_url && (invoice.status === 'Boleto Gerado' || invoice.status === 'Em aberto')) {
+          // Se já tem url, chama o callback para ir para a tela de detalhes direto
+          onBoletoGenerated(invoice);
+      }
+  }, [invoice]);
+
   const handleFormSubmit = async (formData: any, saveData: boolean) => {
     setStep('loading');
     setError(null);
@@ -211,7 +217,6 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             throw new Error('Sessão expirada. Por favor, recarregue a página.');
         }
 
-        // Garantir que o CEP vá limpo para a API (só números)
         const cleanZip = formData.zipCode.replace(/\D/g, '');
 
         const payload = {
@@ -236,7 +241,6 @@ const BoletoPayment: React.FC<BoletoPaymentProps> = ({ invoice, onBack, onBoleto
             throw new Error(data.error || data.message || 'Falha ao gerar o boleto.');
         }
 
-        // Salva os dados do usuário se o checkbox estiver marcado
         if (saveData) {
             await updateProfile({
                 id: user.id,
