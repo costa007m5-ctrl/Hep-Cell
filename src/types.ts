@@ -31,20 +31,21 @@ export interface Product {
   description_short?: string | null;
   highlights: string | null;
   
-  // Imagens
+  // Imagens e Mídia
   image_url: string | null;
   secondary_images?: string[];
+  video_url?: string;
 
   // Especificações Técnicas
   processor?: string;
   ram?: string;
   storage?: string;
-  display?: string; // Ex: 6.9" IPS LCD 120Hz
-  os?: string; // Ex: Android 15
-  camera?: string; // Ex: 50MP + 8MP
-  battery?: string; // Ex: 5200mAh
-  connectivity?: string; // Wi-Fi, NFC, 5G
-  ports?: string; // USB-C, P2
+  display?: string; 
+  os?: string; 
+  camera?: string; 
+  battery?: string; 
+  connectivity?: string; 
+  ports?: string; 
   voltage?: string;
   color?: string;
 
@@ -60,19 +61,23 @@ export interface Product {
   min_stock_alert: number;
   availability: 'pronta_entrega' | 'sob_encomenda';
 
-  // Frete (Interno)
+  // Frete e Logística (Interno)
   weight: number; // em gramas
   height: number; // em cm
   width: number; // em cm
   length: number; // em cm
+  product_class?: 'pequeno' | 'médio' | 'grande';
+  delivery_lead_time?: number;
   
   // Garantia e Legal
   warranty_manufacturer?: number; // meses
   warranty_store?: number; // meses
   has_invoice: boolean;
-  certifications?: string; // Anatel, etc
+  certifications?: string; 
   package_content?: string;
   legal_info?: string;
+  exchange_policy?: string;
+  internal_notes?: string;
 
   // Visibilidade
   is_highlight: boolean;
@@ -146,10 +151,6 @@ export interface LimitRequest {
   profiles?: Profile;
 }
 
-/**
- * Fix: Added missing Contract interface
- * Interface para os contratos assinados digitalmente.
- */
 export interface Contract {
   id: string;
   user_id: string;
@@ -162,10 +163,6 @@ export interface Contract {
   created_at: string;
 }
 
-/**
- * Fix: Added missing ScoreHistory interface
- * Histórico de alterações de score de crédito.
- */
 export interface ScoreHistory {
   id: string;
   user_id: string;
@@ -175,10 +172,6 @@ export interface ScoreHistory {
   created_at: string;
 }
 
-/**
- * Fix: Added missing ProductReview interface
- * Avaliações de produtos deixadas pelos clientes.
- */
 export interface ProductReview {
   id: string;
   product_id: string;
