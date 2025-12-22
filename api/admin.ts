@@ -68,14 +68,27 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
+    // SQL Completo para garantir que TODAS as colunas existam
     const sql = `
-        -- Adição de colunas para produtos Relp Cell v7.0
+        CREATE TABLE IF NOT EXISTS products (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, price NUMERIC, created_at TIMESTAMPTZ DEFAULT now());
+        
+        -- Colunas de Identificação
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS model TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
         ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
+        
+        -- Descrição e Mídia
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS description_short TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS highlights TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS secondary_images TEXT[];
         ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;
+        
+        -- Especificações Técnicas
         ALTER TABLE products ADD COLUMN IF NOT EXISTS processor TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS ram TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS storage TEXT;
@@ -87,36 +100,44 @@ async function handleSetupDatabase(res: VercelResponse) {
         ALTER TABLE products ADD COLUMN IF NOT EXISTS ports TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS voltage TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT;
+        
+        -- Financeiro e Estoque
         ALTER TABLE products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS max_installments INTEGER DEFAULT 12;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS pix_discount_percent NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_alert INTEGER DEFAULT 2;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'pronta_entrega';
+        
+        -- Logística
         ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS product_class TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_lead_time INTEGER;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER;
+        
+        -- Garantia e Legal
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER DEFAULT 0;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS has_invoice BOOLEAN DEFAULT TRUE;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS certifications TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS legal_info TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS exchange_policy TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS internal_notes TEXT;
+        
+        -- Visibilidade
         ALTER TABLE products ADD COLUMN IF NOT EXISTS is_highlight BOOLEAN DEFAULT FALSE;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS is_best_seller BOOLEAN DEFAULT FALSE;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT TRUE;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
     `;
     try {
         const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
         if (error) throw error;
-        return res.json({ success: true, message: "Banco de dados sincronizado!" });
+        return res.json({ success: true, message: "Banco de dados sincronizado com sucesso!" });
     } catch (e: any) { 
         return res.status(500).json({ error: e.message }); 
     }

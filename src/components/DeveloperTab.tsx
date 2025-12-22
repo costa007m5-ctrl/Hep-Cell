@@ -21,14 +21,55 @@ BEGIN
 END;
 $$;`;
 
-    const REPAIR_SQL = `-- PASSO 2: REPARO DE COLUNAS (EXECUTÁVEL PELO APP APÓS O PASSO 1)
-ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
+    const REPAIR_SQL = `-- PASSO 2: CÓDIGO COMPLETO PARA CRIAR AS COLUNAS
+ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description_short TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS highlights TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS secondary_images TEXT[];
+ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS processor TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS ram TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS storage TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS display TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS os TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS camera TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS battery TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS connectivity TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS ports TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS voltage TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS max_installments INTEGER DEFAULT 12;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS pix_discount_percent NUMERIC DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_alert INTEGER DEFAULT 2;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'pronta_entrega';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;`;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS product_class TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_lead_time INTEGER;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS has_invoice BOOLEAN DEFAULT TRUE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS certifications TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS legal_info TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS exchange_policy TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS internal_notes TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_highlight BOOLEAN DEFAULT FALSE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_best_seller BOOLEAN DEFAULT FALSE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT TRUE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;`;
 
     const handleAutoRepair = async () => {
         setIsLoading(true);
@@ -87,7 +128,7 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;`;
                         </div>
                         <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase">Reparo Automático</h3>
                         <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                            Cria as colunas <b>cost_price, allow_reviews</b> e <b>min_stock_alert</b> automaticamente.
+                            Cria as colunas <b>model, brand, processor</b> e todas as outras necessárias para o novo formulário.
                         </p>
                     </div>
                     <button 
