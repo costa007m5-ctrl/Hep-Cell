@@ -29,7 +29,8 @@ function extractJson(text: string) {
     }
 }
 
-// --- HANDLERS EXISTENTES ---
+// --- HANDLERS ---
+
 async function handleChat(req: VercelRequest, res: VercelResponse) {
     const { message, context } = req.body;
     try {
@@ -49,6 +50,7 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
 async function handleGetOrders(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     try {
+        // Traz todos os pedidos e faz o join com profiles para pegar nome do cliente
         const { data, error } = await supabase
             .from('orders')
             .select(`
@@ -57,7 +59,10 @@ async function handleGetOrders(res: VercelResponse) {
             `)
             .order('created_at', { ascending: false });
         
-        if (error) throw error;
+        if (error) {
+            console.error("Erro ao buscar orders:", error);
+            throw error;
+        }
         return res.json(data);
     } catch (error: any) {
         return res.status(500).json({ error: error.message });
@@ -68,28 +73,37 @@ async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) 
     const { orderId, status, notes } = req.body;
     const supabase = getSupabaseAdmin();
     try {
-        const updateData: any = { status };
-        if (notes) updateData.tracking_notes = notes;
+        const updateData: any = {};
+        if (status) updateData.status = status;
+        if (notes !== undefined) updateData.tracking_notes = notes; // Permite limpar nota se enviar string vazia
         
         const { error } = await supabase.from('orders').update(updateData).eq('id', orderId);
         if (error) throw error;
         
-        // Notificação
-        if (status || notes) {
+        // Notificação ao Cliente
+        if (status) {
              const { data: order } = await supabase.from('orders').select('user_id').eq('id', orderId).single();
              if (order) {
-                 const statusMsg = status ? `Novo status: ${status}.` : '';
-                 const notesMsg = notes ? `Obs: ${notes}` : '';
+                 const statusLabels: any = {
+                     'preparing': 'está sendo preparado',
+                     'shipped': 'foi enviado',
+                     'out_for_delivery': 'saiu para entrega',
+                     'delivered': 'foi entregue'
+                 };
+                 
+                 const msg = `Seu pedido ${statusLabels[status] || 'teve o status atualizado'}. ${notes ? `Obs: ${notes}` : ''}`;
+                 
                  await supabase.from('notifications').insert({
                      user_id: order.user_id,
                      title: 'Atualização do Pedido',
-                     message: `${statusMsg} ${notesMsg}`.trim(),
+                     message: msg.trim(),
                      type: 'info'
                  });
              }
         }
         return res.json({ success: true });
     } catch (error: any) {
+        console.error("Erro update order:", error);
         return res.status(500).json({ error: error.message });
     }
 }
@@ -146,6 +160,8 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         // Faturas
         const invoices = [];
         const today = new Date();
+        
+        // Entrada ou Venda à Vista
         if (downPayment > 0) {
             invoices.push({
                 user_id: userId,
@@ -156,6 +172,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 notes: `ENTRADA|${contractId || 'Direta'}|${totalAmount - downPayment}|${installments}|${dueDay}` 
             });
         }
+        
         if (saleType === 'direct' && downPayment <= 0) {
              invoices.push({
                 user_id: userId,
@@ -186,15 +203,15 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
         }
         await supabase.from('invoices').insert(invoices);
 
-        // Pedido
+        // CRIAR O PEDIDO (IMPORTANTE PARA APARECER NO PAINEL)
         await supabase.from('orders').insert({
             user_id: userId,
-            status: 'processing',
+            status: 'processing', // Começa como processando
             total: totalAmount,
             payment_method: saleType === 'direct' ? paymentMethod : 'crediario',
             address_snapshot: address,
             items_snapshot: [{ name: productName, price: totalAmount }],
-            tracking_notes: "Aguardando confirmação."
+            tracking_notes: "Aguardando confirmação de pagamento/crédito."
         });
 
         return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
@@ -220,7 +237,6 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
-    // SQL simplificado para exemplo (mesmo do original)
     const sql = `CREATE TABLE IF NOT EXISTS action_logs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), action_type TEXT, status TEXT, description TEXT, details JSONB, created_at TIMESTAMPTZ DEFAULT now());`;
     try {
         await supabase.rpc('exec_sql', { sql_query: sql });
@@ -254,8 +270,7 @@ async function handleApproveInvoiceManual(req: VercelRequest, res: VercelRespons
             notes: (invoice.notes || '') + ' | APROVADO MANUALMENTE'
         }).eq('id', invoiceId);
 
-        // Cashback manual
-        const coinsEarned = Math.floor(invoice.amount * 0.015 * 100); // 1.5% default
+        const coinsEarned = Math.floor(invoice.amount * 0.015 * 100); 
         if (coinsEarned > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
             await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
@@ -274,8 +289,7 @@ async function handleApproveInvoiceManual(req: VercelRequest, res: VercelRespons
     }
 }
 
-// --- NOVOS HANDLERS WEBHOOK ---
-
+// --- WEBHOOK LOGS ---
 async function handleGetWebhookLogs(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     try {
@@ -300,7 +314,6 @@ async function handleDebugMpPayment(req: VercelRequest, res: VercelResponse) {
         const payment = new Payment(client);
         const paymentDetails = await payment.get({ id: paymentId });
         
-        // Se aprovado, força update
         let updated = false;
         if (paymentDetails.status === 'approved' && paymentDetails.external_reference) {
              const { error } = await supabase.from('invoices').update({ 
@@ -334,17 +347,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (isRoute('/setup-database')) return await handleSetupDatabase(res);
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
-        if (isRoute('/get-orders')) return await handleGetOrders(res); // Nova rota
+        if (isRoute('/get-orders')) return await handleGetOrders(res);
         if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res);
         if (isRoute('/manage-coins')) return await handleManageCoins(req, res);
         if (isRoute('/audit-invoices')) return await handleGetAuditInvoices(res);
         if (isRoute('/approve-invoice')) return await handleApproveInvoiceManual(req, res);
-        
-        // Novas rotas
         if (isRoute('/webhook-logs')) return await handleGetWebhookLogs(res);
         if (isRoute('/debug-mp-payment')) return await handleDebugMpPayment(req, res);
 
-        // ... (Products GET/POST omitido para brevidade, manter lógica original) ...
         if (req.method === 'GET' && isRoute('/products')) {
              const { data } = await supabase.from('products').select('*');
              return res.json(data);

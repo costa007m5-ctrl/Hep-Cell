@@ -1,4 +1,5 @@
 
+// ... (imports mantidos iguais, apenas atualizando OrdersView)
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../services/clients';
@@ -20,7 +21,7 @@ interface PagePerfilProps {
     onGoToAdmin?: () => void;
 }
 
-// ... (TERMS_TEXT e PRIVACY_TEXT mantidos, sem alterações)
+// ... (TERMS_TEXT e PRIVACY_TEXT mantidos iguais ...)
 const TERMS_TEXT = (
     <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
         <p><strong>1. Aceitação dos Termos</strong><br/>Ao acessar e usar o aplicativo Relp Cell, você concorda em cumprir estes Termos de Uso e todas as leis aplicáveis. Se você não concordar, não use o aplicativo.</p>
@@ -111,12 +112,11 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
         { id: 'delivered', label: 'Entregue', icon: '🏠' }
     ];
 
-    const currentStepIndex = steps.findIndex(s => s.id === order.status);
+    const currentStepIndex = steps.findIndex(s => s.id === order.status) !== -1 ? steps.findIndex(s => s.id === order.status) : 0;
     const isCompleted = order.status === 'delivered';
     const address = order.address_snapshot || {};
     const items = order.items_snapshot || [];
 
-    // FIXED OVERLAY STRUCTURE TO FIX BORDERS
     return (
         <div className="fixed inset-0 z-[150] bg-slate-100 dark:bg-slate-950 flex justify-center animate-fade-in">
             <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full overflow-y-auto relative shadow-2xl flex flex-col">
@@ -137,7 +137,7 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
                     <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden ${isCompleted ? 'bg-green-600' : 'bg-indigo-600'}`}>
                         <div className="relative z-10">
                             <p className="text-xs font-bold uppercase opacity-80 mb-1">Status Atual</p>
-                            <h3 className="text-2xl font-black">{steps[currentStepIndex]?.label || 'Processando'}</h3>
+                            <h3 className="text-2xl font-black">{steps[currentStepIndex]?.label || 'Em Processamento'}</h3>
                             <p className="text-sm mt-2 font-medium opacity-90">{order.tracking_notes || "Aguardando atualização..."}</p>
                         </div>
                         {/* Background Decor */}
@@ -180,8 +180,8 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
                                 <h4 className="font-bold text-slate-900 dark:text-white text-sm">Endereço de Entrega</h4>
                             </div>
                             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                                {address.street}, {address.number}<br/>
-                                {address.neighborhood}, {address.city} - {address.uf}<br/>
+                                {address.street || address.street_name}, {address.number || address.street_number}<br/>
+                                {address.neighborhood}, {address.city} - {address.uf || address.federal_unit}<br/>
                                 <span className="text-xs text-slate-400">CEP: {address.zip_code}</span>
                             </p>
                         </div>
@@ -212,7 +212,7 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
     );
 };
 
-// ... (ContractsView e demais componentes mantidos sem alterações)
+// ... (ContractsView mantido sem alterações ...)
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     // ... (Mantido igual)
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -294,8 +294,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     );
 };
 
-// ... (OrdersView, PersonalDataView, etc. mantidos sem alterações - apenas o OrderTrackingView foi atualizado)
-// --- OrdersView ATUALIZADA COM ABAS E FILTROS ---
+// --- OrdersView ATUALIZADA ---
 const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => void }> = ({ userId, onViewTracking }) => {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -328,16 +327,18 @@ const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => voi
             case 'shipped': return <span className="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">🚚 Enviado</span>;
             case 'out_for_delivery': return <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">🛵 Saiu p/ Entrega</span>;
             case 'preparing': return <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">📦 Preparando</span>;
-            case 'processing': return <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">⏳ Pagamento Pendente</span>;
+            case 'processing': return <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">⏳ Processando</span>;
+            case 'pending': return <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">⏳ Pendente</span>;
             case 'cancelled': return <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-bold flex items-center gap-1">❌ Cancelado</span>;
-            default: return <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold">Pendente</span>;
+            default: return <span className="bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-bold">Status: {status}</span>;
         }
     };
 
     if (loading) return <div className="p-10 flex justify-center"><LoadingSpinner /></div>;
 
-    const activeOrders = orders.filter(o => ['processing', 'preparing', 'shipped', 'out_for_delivery'].includes(o.status));
-    const historyOrders = orders.filter(o => ['delivered', 'cancelled'].includes(o.status));
+    // Filtros atualizados para incluir mais estados 'ativos'
+    const activeOrders = orders.filter(o => ['processing', 'preparing', 'shipped', 'out_for_delivery', 'pending', 'approved'].includes(o.status));
+    const historyOrders = orders.filter(o => ['delivered', 'cancelled', 'rejected'].includes(o.status));
     
     const displayOrders = filter === 'active' ? activeOrders : historyOrders;
 
@@ -365,12 +366,12 @@ const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => voi
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                     </div>
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white">Nenhum pedido aqui</h3>
-                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{filter === 'active' ? 'Você não tem pedidos em aberto.' : 'Nenhum pedido finalizado.'}</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{filter === 'active' ? 'Você não tem pedidos em andamento.' : 'Nenhum pedido finalizado.'}</p>
                 </div>
             ) : (
                 displayOrders.map(order => {
                     const items = order.items_snapshot || [];
-                    const canTrack = ['preparing', 'shipped', 'out_for_delivery'].includes(order.status);
+                    const canTrack = ['preparing', 'shipped', 'out_for_delivery', 'processing', 'approved'].includes(order.status);
                     
                     return (
                         <div key={order.id} className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm relative overflow-hidden transition-all hover:shadow-md">
@@ -419,7 +420,7 @@ const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => voi
     );
 };
 
-// ... (Resto do arquivo PersonalDataView, SecurityView, etc... MANTIDO IGUAL)
+// ... (Resto do arquivo PersonalDataView, SecurityView, etc... mantido igual)
 const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
     const [formData, setFormData] = useState(profile);
     const [isSaving, setIsSaving] = useState(false);

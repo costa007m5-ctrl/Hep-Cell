@@ -35,7 +35,8 @@ const OrdersManagerTab: React.FC = () => {
             const res = await fetch('/api/admin?action=get-orders');
             const data = await res.json();
             if (res.ok) {
-                setOrders(data);
+                // Garante que é array
+                setOrders(Array.isArray(data) ? data : []);
             } else {
                 throw new Error("Falha ao buscar pedidos");
             }
@@ -65,15 +66,41 @@ const OrdersManagerTab: React.FC = () => {
             });
             
             if (res.ok) {
+                // Atualiza localmente
                 setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, status: newStatus, tracking_notes: notes || o.tracking_notes } : o));
+                // Atualiza o objeto selecionado também
                 setSelectedOrder(prev => prev ? { ...prev, status: newStatus, tracking_notes: notes || prev.tracking_notes } : null);
+                
                 setMessage({ text: `Status alterado para: ${getStatusLabel(newStatus)}`, type: 'success' });
-                setNotes('');
+                // Limpa nota após salvar com sucesso? Não, mantém para visualização.
             } else {
-                throw new Error("Falha ao atualizar");
+                throw new Error("Falha ao atualizar no servidor");
             }
         } catch (e) {
-            setMessage({ text: "Erro ao atualizar status", type: 'error' });
+            setMessage({ text: "Erro ao atualizar status. Tente novamente.", type: 'error' });
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const handleSaveNotesOnly = async () => {
+        if (!selectedOrder) return;
+        setIsUpdating(true);
+        try {
+            const res = await fetch('/api/admin?action=update-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    orderId: selectedOrder.id, 
+                    notes: notes 
+                })
+            });
+            if(res.ok) {
+                setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, tracking_notes: notes } : o));
+                setMessage({ text: "Nota salva com sucesso!", type: 'success' });
+            }
+        } catch(e) {
+            setMessage({ text: "Erro ao salvar nota.", type: 'error' });
         } finally {
             setIsUpdating(false);
         }
@@ -109,9 +136,9 @@ const OrdersManagerTab: React.FC = () => {
         <div className="space-y-6 animate-fade-in pb-24">
             <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-black text-slate-900 dark:text-white">Gestão de Pedidos</h2>
-                <span className="text-xs font-bold bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-full">
-                    {orders.length} Total
-                </span>
+                <button onClick={fetchOrders} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-slate-200 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" /></svg>
+                </button>
             </div>
             
             {/* VIEW MOBILE: CARDS (Visible < md) */}
@@ -139,7 +166,7 @@ const OrdersManagerTab: React.FC = () => {
                                 </p>
                             </div>
                             <button 
-                                onClick={() => { setSelectedOrder(order); setNotes(''); setMessage(null); }}
+                                onClick={() => { setSelectedOrder(order); setNotes(order.tracking_notes || ''); setMessage(null); }}
                                 className="px-5 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
                             >
                                 Gerenciar
@@ -187,7 +214,7 @@ const OrdersManagerTab: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <button 
-                                            onClick={() => { setSelectedOrder(order); setNotes(''); setMessage(null); }}
+                                            onClick={() => { setSelectedOrder(order); setNotes(order.tracking_notes || ''); setMessage(null); }}
                                             className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
                                         >
                                             Gerenciar
@@ -202,7 +229,7 @@ const OrdersManagerTab: React.FC = () => {
 
             {selectedOrder && (
                 <Modal isOpen={true} onClose={() => setSelectedOrder(null)} maxWidth="max-w-2xl">
-                    <div className="space-y-6">
+                    <div className="space-y-6 pb-safe">
                         <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4">
                             <div>
                                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">Detalhes do Pedido #{selectedOrder.id.slice(0,6).toUpperCase()}</h3>
@@ -231,11 +258,11 @@ const OrdersManagerTab: React.FC = () => {
                                     <h4 className="text-xs font-black uppercase text-slate-400 mb-2">Endereço de Entrega</h4>
                                     {selectedOrder.address_snapshot ? (
                                         <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                                            {selectedOrder.address_snapshot.street_name}, {selectedOrder.address_snapshot.street_number}
+                                            {selectedOrder.address_snapshot.street_name || selectedOrder.address_snapshot.street}, {selectedOrder.address_snapshot.street_number || selectedOrder.address_snapshot.number}
                                             <br />
                                             {selectedOrder.address_snapshot.neighborhood}
                                             <br />
-                                            {selectedOrder.address_snapshot.city} - {selectedOrder.address_snapshot.federal_unit}
+                                            {selectedOrder.address_snapshot.city} - {selectedOrder.address_snapshot.federal_unit || selectedOrder.address_snapshot.uf}
                                             <br />
                                             CEP: {selectedOrder.address_snapshot.zip_code}
                                         </p>
@@ -268,7 +295,7 @@ const OrdersManagerTab: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-3">
-                                    <h4 className="text-xs font-black uppercase text-slate-400">Atualizar Status</h4>
+                                    <h4 className="text-xs font-black uppercase text-slate-400">Atualizar Status & Notas</h4>
                                     
                                     <textarea
                                         value={notes}
@@ -279,33 +306,37 @@ const OrdersManagerTab: React.FC = () => {
                                     />
                                     
                                     <div className="grid grid-cols-2 gap-2">
+                                        <button onClick={handleSaveNotesOnly} disabled={isUpdating} className="col-span-2 py-2 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+                                            Salvar Apenas Nota
+                                        </button>
+
                                         {selectedOrder.status === 'processing' && (
-                                            <button onClick={() => handleUpdateStatus('preparing')} disabled={isUpdating} className="py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors disabled:opacity-50">
+                                            <button onClick={() => handleUpdateStatus('preparing')} disabled={isUpdating} className="py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors disabled:opacity-50 col-span-2">
                                                 {isUpdating ? '...' : 'Iniciar Preparação'}
                                             </button>
                                         )}
                                         {selectedOrder.status === 'preparing' && (
-                                            <button onClick={() => handleUpdateStatus('shipped')} disabled={isUpdating} className="py-2.5 bg-purple-600 text-white rounded-xl font-bold text-xs hover:bg-purple-700 transition-colors disabled:opacity-50">
+                                            <button onClick={() => handleUpdateStatus('shipped')} disabled={isUpdating} className="py-2.5 bg-purple-600 text-white rounded-xl font-bold text-xs hover:bg-purple-700 transition-colors disabled:opacity-50 col-span-2">
                                                 {isUpdating ? '...' : 'Marcar Enviado'}
                                             </button>
                                         )}
                                         {selectedOrder.status === 'shipped' && (
-                                            <button onClick={() => handleUpdateStatus('out_for_delivery')} disabled={isUpdating} className="py-2.5 bg-orange-500 text-white rounded-xl font-bold text-xs hover:bg-orange-600 transition-colors disabled:opacity-50">
+                                            <button onClick={() => handleUpdateStatus('out_for_delivery')} disabled={isUpdating} className="py-2.5 bg-orange-500 text-white rounded-xl font-bold text-xs hover:bg-orange-600 transition-colors disabled:opacity-50 col-span-2">
                                                 {isUpdating ? '...' : 'Saiu para Entrega'}
                                             </button>
                                         )}
                                         {selectedOrder.status === 'out_for_delivery' && (
-                                            <button onClick={() => handleUpdateStatus('delivered')} disabled={isUpdating} className="py-2.5 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition-colors disabled:opacity-50">
+                                            <button onClick={() => handleUpdateStatus('delivered')} disabled={isUpdating} className="py-2.5 bg-green-600 text-white rounded-xl font-bold text-xs hover:bg-green-700 transition-colors disabled:opacity-50 col-span-2">
                                                 {isUpdating ? '...' : 'Confirmar Entrega'}
                                             </button>
                                         )}
                                         {selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
-                                            <button onClick={() => { if(confirm('Cancelar pedido?')) handleUpdateStatus('cancelled'); }} disabled={isUpdating} className="py-2.5 bg-red-100 text-red-600 rounded-xl font-bold text-xs hover:bg-red-200 transition-colors disabled:opacity-50">
+                                            <button onClick={() => { if(confirm('Cancelar pedido?')) handleUpdateStatus('cancelled'); }} disabled={isUpdating} className="py-2.5 bg-red-100 text-red-600 rounded-xl font-bold text-xs hover:bg-red-200 transition-colors disabled:opacity-50 col-span-2">
                                                 Cancelar Pedido
                                             </button>
                                         )}
                                     </div>
-                                    <p className="text-[10px] text-slate-400 text-center">A atualização notificará o cliente automaticamente.</p>
+                                    <p className="text-[10px] text-slate-400 text-center">A atualização notificará o cliente.</p>
                                 </div>
                             </div>
                         </div>
