@@ -49,8 +49,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     
     const [interestRate, setInterestRate] = useState(0);
 
-    // Classes de Input Padronizadas para Alta Visibilidade
-    const inputClass = "w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all";
+    // Classes Visuais Ajustadas para ALTO CONTRASTE
+    const inputClass = "w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder-slate-400";
     const selectClass = "w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all";
 
     useEffect(() => {
@@ -83,7 +83,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 uf: data.uf
             }));
 
-            // Cálculo Frete
+            // Cálculo Frete Mockado
             const isLarge = (product.weight || 0) > 2000;
             const base = data.localidade === 'Santana' ? 7.90 : 12.90;
             setShippingCost(base + ((product.weight || 500)/1000) * 2.5);
@@ -103,7 +103,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         setIsProcessing(true);
         setError(null);
         try {
-            const response = await fetch('/api/admin/create-sale', {
+            // Usa query param 'action' para evitar problemas de roteamento (rewrite) no Vercel
+            const response = await fetch('/api/admin?action=create-sale', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -125,7 +126,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
         } catch (err: any) { 
             console.error(err);
             setError(err.message); 
-            // Se erro, volta para step anterior apropriado
             if (step === 'contract') setStep('contract'); 
             else setStep('config');
         } finally { 

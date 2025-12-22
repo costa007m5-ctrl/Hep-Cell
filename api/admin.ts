@@ -101,12 +101,10 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 amount: downPayment,
                 status: 'Em aberto',
                 notes: `ENTRADA|${contractId || 'Direta'}|${totalAmount - downPayment}|${installments}|${dueDay}` 
-                // A nota guarda info para gerar o resto automaticamente se for via webhook
             });
         }
 
-        // Parcelas do Crediário (Geradas imediatamente se não tiver entrada ou se já for contrato assinado)
-        // Se for venda direta (à vista), gera uma única fatura cheia se não tiver entrada
+        // Parcelas do Crediário
         if (saleType === 'direct' && downPayment <= 0) {
              invoices.push({
                 user_id: userId,
@@ -123,7 +121,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
                 for (let i = 1; i <= installments; i++) {
                     const dueDate = new Date();
                     dueDate.setMonth(today.getMonth() + i);
-                    // Ajusta para o dia de vencimento escolhido, ou dia atual se inválido
                     dueDate.setDate(dueDay || today.getDate()); 
                     
                     invoices.push({
@@ -160,76 +157,33 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
-    // SQL Completo para garantir que TODAS as colunas existam
+    // SQL Completo para garantir que TODAS as colunas e tabelas existam
     const sql = `
         CREATE TABLE IF NOT EXISTS products (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, price NUMERIC, created_at TIMESTAMPTZ DEFAULT now());
-        
-        -- Colunas de Identificação
+        CREATE TABLE IF NOT EXISTS orders (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, status TEXT, total NUMERIC, payment_method TEXT, address_snapshot JSONB, created_at TIMESTAMPTZ DEFAULT now());
+        CREATE TABLE IF NOT EXISTS invoices (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, month TEXT, due_date DATE, amount NUMERIC, status TEXT, notes TEXT, payment_date TIMESTAMPTZ, payment_id TEXT, boleto_url TEXT, boleto_barcode TEXT, created_at TIMESTAMPTZ DEFAULT now());
+        CREATE TABLE IF NOT EXISTS contracts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID, title TEXT, items TEXT, total_value NUMERIC, status TEXT, signature_data TEXT, terms_accepted BOOLEAN, created_at TIMESTAMPTZ DEFAULT now());
+
+        -- Colunas de Produtos (Garantia de integridade)
         ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS model TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
         ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
-        
-        -- Descrição e Mídia
         ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS description_short TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS highlights TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS secondary_images TEXT[];
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;
-        
-        -- Especificações Técnicas
         ALTER TABLE products ADD COLUMN IF NOT EXISTS processor TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS ram TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS storage TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS display TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS os TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS camera TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS battery TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS connectivity TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS ports TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS voltage TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS color TEXT;
-        
-        -- Financeiro e Estoque
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS max_installments INTEGER DEFAULT 12;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS pix_discount_percent NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_alert INTEGER DEFAULT 2;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'pronta_entrega';
-        
-        -- Logística
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS product_class TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_lead_time INTEGER;
-        
-        -- Garantia e Legal
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer INTEGER DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store INTEGER DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS has_invoice BOOLEAN DEFAULT TRUE;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS certifications TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS legal_info TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS exchange_policy TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS internal_notes TEXT;
-        
-        -- Visibilidade
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_highlight BOOLEAN DEFAULT FALSE;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_best_seller BOOLEAN DEFAULT FALSE;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT TRUE;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS promotional_price NUMERIC DEFAULT 0;
     `;
     try {
         const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
         if (error) throw error;
-        return res.json({ success: true, message: "Banco de dados sincronizado com sucesso!" });
+        return res.json({ success: true, message: "Banco de dados sincronizado (Tabelas Criadas)!" });
     } catch (e: any) { 
         return res.status(500).json({ error: e.message }); 
     }
@@ -238,57 +192,39 @@ async function handleSetupDatabase(res: VercelResponse) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
     const supabase = getSupabaseAdmin();
+    
+    // Normaliza a ação vindo da Query ou do Path
+    // Isso garante que /api/admin?action=create-sale funcione igual a /api/admin/create-sale
+    const action = req.query.action || '';
+    const isRoute = (route: string) => path.includes(route) || action === route.replace('/', '');
 
     try {
-        if (path.includes('/test-supabase')) {
+        if (isRoute('/test-supabase')) {
             const { error } = await supabase.from('profiles').select('id').limit(1);
             return res.json({ success: !error, message: error ? error.message : "Conectado" });
         }
-        if (path.includes('/test-gemini')) {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-            await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: 'ping' });
-            return res.json({ success: true, message: "IA Ativa" });
-        }
-        if (path.includes('/setup-database')) return await handleSetupDatabase(res);
-        if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
-        if (path.includes('/create-sale')) return await handleCreateSale(req, res);
+        if (isRoute('/setup-database')) return await handleSetupDatabase(res);
+        if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
+        
+        // Rota de criação de venda (checkout da loja)
+        if (isRoute('/create-sale')) return await handleCreateSale(req, res);
 
-        if (req.method === 'GET' && path.includes('/products')) {
+        if (req.method === 'GET' && isRoute('/products')) {
             const { data } = await supabase.from('products').select('*').order('name');
             return res.json(data || []);
         }
 
-        if (req.method === 'POST' && path.includes('/products')) {
-            const { id, created_at, ...payload } = req.body;
-            
-            // Força tipos corretos para o banco
-            const sanitized = {
-                ...payload,
-                price: Number(payload.price || 0),
-                promotional_price: Number(payload.promotional_price || 0),
-                cost_price: Number(payload.cost_price || 0),
-                stock: Number(payload.stock || 0),
-                min_stock_alert: Number(payload.min_stock_alert || 0),
-                weight: Number(payload.weight || 0),
-                height: Number(payload.height || 0),
-                width: Number(payload.width || 0),
-                length: Number(payload.length || 0),
-                warranty_manufacturer: Number(payload.warranty_manufacturer || 0),
-                warranty_store: Number(payload.warranty_store || 0),
-                max_installments: Number(payload.max_installments || 12),
-                pix_discount_percent: Number(payload.pix_discount_percent || 0)
-            };
-
+        if (req.method === 'POST' && isRoute('/products')) {
+            const { id, ...payload } = req.body;
             const query = (id && id !== "null") 
-                ? supabase.from('products').update(sanitized).eq('id', id)
-                : supabase.from('products').insert(sanitized);
-
+                ? supabase.from('products').update(payload).eq('id', id)
+                : supabase.from('products').insert(payload);
             const { error } = await query;
             if (error) throw error;
             return res.json({ success: true });
         }
 
-        return res.status(404).json({ error: 'Endpoint não encontrado' });
+        return res.status(404).json({ error: 'Endpoint não encontrado', path, action });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
