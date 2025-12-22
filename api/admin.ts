@@ -46,22 +46,44 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleGetOrders(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    try {
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`
+                *,
+                profiles:user_id (first_name, last_name, email, phone)
+            `)
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        return res.json(data);
+    } catch (error: any) {
+        return res.status(500).json({ error: error.message });
+    }
+}
+
 async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) {
     const { orderId, status, notes } = req.body;
     const supabase = getSupabaseAdmin();
     try {
         const updateData: any = { status };
         if (notes) updateData.tracking_notes = notes;
-        await supabase.from('orders').update(updateData).eq('id', orderId);
+        
+        const { error } = await supabase.from('orders').update(updateData).eq('id', orderId);
+        if (error) throw error;
         
         // Notificação
-        if (notes) {
+        if (status || notes) {
              const { data: order } = await supabase.from('orders').select('user_id').eq('id', orderId).single();
              if (order) {
+                 const statusMsg = status ? `Novo status: ${status}.` : '';
+                 const notesMsg = notes ? `Obs: ${notes}` : '';
                  await supabase.from('notifications').insert({
                      user_id: order.user_id,
                      title: 'Atualização do Pedido',
-                     message: `Status: ${status}. ${notes}`,
+                     message: `${statusMsg} ${notesMsg}`.trim(),
                      type: 'info'
                  });
              }
@@ -172,7 +194,7 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             payment_method: saleType === 'direct' ? paymentMethod : 'crediario',
             address_snapshot: address,
             items_snapshot: [{ name: productName, price: totalAmount }],
-            tracking_notes: "Aguardando pagamento."
+            tracking_notes: "Aguardando confirmação."
         });
 
         return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
@@ -312,6 +334,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (isRoute('/setup-database')) return await handleSetupDatabase(res);
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
+        if (isRoute('/get-orders')) return await handleGetOrders(res); // Nova rota
         if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res);
         if (isRoute('/manage-coins')) return await handleManageCoins(req, res);
         if (isRoute('/audit-invoices')) return await handleGetAuditInvoices(res);
