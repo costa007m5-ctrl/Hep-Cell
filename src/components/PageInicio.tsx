@@ -30,8 +30,14 @@ const DeliveryTrackingWidget: React.FC<{ order: any, onClick: () => void }> = ({
     const currentStepIndex = steps.findIndex(s => s.id === order.status);
     const progress = Math.max(5, (currentStepIndex / (steps.length - 1)) * 100);
 
+    const handleClick = () => {
+        // Salva o ID do pedido para abrir diretamente no rastreamento
+        sessionStorage.setItem('relp_open_tracking_id', order.id);
+        onClick();
+    };
+
     return (
-        <div onClick={onClick} className="mx-2 mt-4 bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-lg border border-indigo-100 dark:border-slate-700 relative overflow-hidden cursor-pointer group">
+        <div onClick={handleClick} className="mx-2 mt-4 bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-lg border border-indigo-100 dark:border-slate-700 relative overflow-hidden cursor-pointer group active:scale-[0.98] transition-transform">
             {/* Background Animation */}
             <div className="absolute inset-0 overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl"></div>
@@ -53,7 +59,7 @@ const DeliveryTrackingWidget: React.FC<{ order: any, onClick: () => void }> = ({
                         <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                             {order.status === 'delivered' ? 'Pedido Entregue!' : 'Acompanhar Entrega'}
                         </h3>
-                        <p className="text-xs text-slate-500">#{order.id.slice(0,6).toUpperCase()}</p>
+                        <p className="text-xs text-slate-500">Toque para ver detalhes</p>
                     </div>
                 </div>
                 <div className={`text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider ${order.status === 'delivered' ? 'bg-green-100 text-green-700' : 'bg-indigo-50 text-indigo-600'}`}>

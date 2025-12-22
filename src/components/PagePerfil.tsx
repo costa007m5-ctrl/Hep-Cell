@@ -77,6 +77,160 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
+// --- OrderTrackingView (NOVO) ---
+const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ orderId, onBack }) => {
+    const [order, setOrder] = useState<any>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const { addToast } = useToast();
+
+    useEffect(() => {
+        const fetchOrder = async () => {
+            setIsLoading(true);
+            try {
+                const { data, error } = await supabase.from('orders').select('*').eq('id', orderId).single();
+                if (error) throw error;
+                setOrder(data);
+            } catch (e) {
+                console.error(e);
+                addToast("Erro ao carregar pedido.", "error");
+                onBack();
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchOrder();
+    }, [orderId]);
+
+    if (isLoading) return <div className="p-20 flex justify-center"><LoadingSpinner /></div>;
+    if (!order) return null;
+
+    const steps = [
+        { id: 'processing', label: 'Pedido Confirmado', icon: '📝', date: order.created_at },
+        { id: 'preparing', label: 'Em Separação', icon: '📦' },
+        { id: 'shipped', label: 'Enviado', icon: '🚚' },
+        { id: 'out_for_delivery', label: 'Saiu para Entrega', icon: '🛵' },
+        { id: 'delivered', label: 'Entregue', icon: '🏠' }
+    ];
+
+    const currentStepIndex = steps.findIndex(s => s.id === order.status);
+    const isCompleted = order.status === 'delivered';
+    const address = order.address_snapshot || {};
+    const items = order.items_snapshot || [];
+
+    return (
+        <div className="animate-fade-in bg-white dark:bg-slate-900 min-h-screen pb-20">
+            {/* Header */}
+            <div className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
+                <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-none">Rastreamento</h2>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">#{order.id.slice(0,8).toUpperCase()}</p>
+                </div>
+            </div>
+
+            <div className="p-6 space-y-8">
+                {/* Status Hero */}
+                <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden ${isCompleted ? 'bg-green-600' : 'bg-indigo-600'}`}>
+                    <div className="relative z-10">
+                        <p className="text-xs font-bold uppercase opacity-80 mb-1">Status Atual</p>
+                        <h3 className="text-2xl font-black">{steps[currentStepIndex]?.label || 'Processando'}</h3>
+                        <p className="text-sm mt-2 font-medium opacity-90">{order.tracking_notes || "Aguardando atualização..."}</p>
+                    </div>
+                    {/* Background Decor */}
+                    <div className="absolute -right-4 -bottom-4 text-9xl opacity-20 transform rotate-12">
+                        {isCompleted ? '🏠' : '🚚'}
+                    </div>
+                </div>
+
+                {/* Timeline Vertical */}
+                <div className="pl-4 border-l-2 border-slate-200 dark:border-slate-800 space-y-8 relative">
+                    {steps.map((step, index) => {
+                        const isActive = index <= currentStepIndex;
+                        const isCurrent = index === currentStepIndex;
+                        
+                        return (
+                            <div key={step.id} className={`relative pl-6 ${isActive ? 'opacity-100' : 'opacity-40'}`}>
+                                <div className={`absolute -left-[21px] top-0 w-10 h-10 rounded-full border-4 border-white dark:border-slate-900 flex items-center justify-center text-lg shadow-sm transition-all duration-500 ${isActive ? (isCompleted && index === steps.length - 1 ? 'bg-green-500 text-white' : 'bg-indigo-100 text-indigo-600') : 'bg-slate-100 text-slate-400'}`}>
+                                    {step.icon}
+                                </div>
+                                <div className="pt-2">
+                                    <h4 className={`font-bold text-sm ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{step.label}</h4>
+                                    {index === 0 && <p className="text-xs text-slate-400">{new Date(order.created_at).toLocaleDateString('pt-BR')} às {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>}
+                                    {isCurrent && !isCompleted && (
+                                        <span className="inline-block mt-2 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-md animate-pulse">
+                                            Em andamento
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Info Cards */}
+                <div className="grid gap-4">
+                    {/* Endereço */}
+                    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="p-2 bg-orange-100 text-orange-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg></span>
+                            <h4 className="font-bold text-slate-900 dark:text-white text-sm">Endereço de Entrega</h4>
+                        </div>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {address.street}, {address.number}<br/>
+                            {address.neighborhood}, {address.city} - {address.uf}<br/>
+                            <span className="text-xs text-slate-400">CEP: {address.zip_code}</span>
+                        </p>
+                    </div>
+
+                    {/* Produtos */}
+                    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="p-2 bg-blue-100 text-blue-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg></span>
+                            <h4 className="font-bold text-slate-900 dark:text-white text-sm">Itens do Pedido</h4>
+                        </div>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {items.map((item: any, i: number) => (
+                                <div key={i} className="py-2 flex justify-between items-center text-sm">
+                                    <span className="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[70%]">{item.name}</span>
+                                    <span className="text-slate-900 dark:text-white font-bold">R$ {item.price.toLocaleString('pt-BR')}</span>
+                                </div>
+                            ))}
+                            <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between font-bold">
+                                <span className="text-slate-900 dark:text-white">Total</span>
+                                <span className="text-indigo-600 dark:text-indigo-400">R$ {order.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Segurança / PIN */}
+                    {!isCompleted && (
+                        <div className="bg-slate-100 dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
+                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Código de Segurança (PIN)</p>
+                            <div className="text-3xl font-mono font-black text-slate-800 dark:text-white tracking-[0.5em]">
+                                {order.id.slice(-4).toUpperCase()}
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-2">Informe este código ao entregador para confirmar o recebimento.</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Ações */}
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 flex gap-3 z-40 max-w-md mx-auto">
+                    <button 
+                        onClick={() => window.dispatchEvent(new Event('open-support-chat'))}
+                        className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                        Falar sobre Pedido
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- ContractsView (Corrigida) ---
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -192,7 +346,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
 };
 
 // --- OrdersView Atualizada ---
-const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
+const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => void }> = ({ userId, onViewTracking }) => {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -276,9 +430,12 @@ const OrdersView: React.FC<{ userId: string }> = ({ userId }) => {
                                     {order.total?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                 </p>
                             </div>
-                            {order.payment_method === 'crediario' && (
-                                <span className="text-[10px] bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 px-2 py-1 rounded border border-indigo-100 dark:border-indigo-800">Crediário</span>
-                            )}
+                            <button 
+                                onClick={() => onViewTracking(order.id)}
+                                className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                            >
+                                Rastrear
+                            </button>
                         </div>
                     </div>
                 )
@@ -402,9 +559,10 @@ const ReferralView: React.FC<{ userId: string }> = ({ userId }) => <div classNam
 const FiscalNotesView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Notas em desenvolvimento.</div>;
 
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode, onGoToAdmin }) => {
-    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'security'>('main');
+    const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'tracking' | 'wallet' | 'addresses' | 'settings' | 'referral' | 'help' | 'contracts' | 'fiscal_notes' | 'security'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const { addToast } = useToast();
 
@@ -417,18 +575,27 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
             try {
                 const p = await getProfile(session.user.id);
                 if(p) setProfile({...p, id: session.user.id, email: session.user.email});
+                
+                // Verifica se há pedido de rastreamento pendente da Home
+                const trackId = sessionStorage.getItem('relp_open_tracking_id');
+                if (trackId) {
+                    setTrackingOrderId(trackId);
+                    setActiveView('tracking');
+                    sessionStorage.removeItem('relp_open_tracking_id');
+                } else {
+                    // Verifica sections normais
+                    const section = sessionStorage.getItem('relp_profile_section');
+                    if (section) {
+                        setActiveView(section as any); 
+                        sessionStorage.removeItem('relp_profile_section'); 
+                    }
+                }
+
             } catch(e) { console.error(e); } 
             finally { setIsLoading(false); }
         };
         load();
     }, [session]);
-
-    useEffect(() => {
-        const section = sessionStorage.getItem('relp_profile_section');
-        if (section) {
-            setTimeout(() => { setActiveView(section as any); sessionStorage.removeItem('relp_profile_section'); }, 100);
-        }
-    }, []);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -452,6 +619,11 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
     }
 
     if (isLoading) return <div className="flex justify-center p-20"><LoadingSpinner /></div>;
+
+    // Se estiver no modo de rastreamento e tiver ID, renderiza direto (tela cheia)
+    if (activeView === 'tracking' && trackingOrderId) {
+        return <OrderTrackingView orderId={trackingOrderId} onBack={() => { setActiveView('orders'); setTrackingOrderId(null); }} />;
+    }
 
     const renderHeader = () => (
         <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 text-white p-8 shadow-2xl mb-8">
@@ -534,7 +706,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                         Voltar
                     </button>
                     {activeView === 'data' && profile && <PersonalDataView profile={profile} onUpdate={(p) => setProfile(p)} />}
-                    {activeView === 'orders' && <OrdersView userId={session.user.id} />}
+                    {activeView === 'orders' && <OrdersView userId={session.user.id} onViewTracking={(id) => { setTrackingOrderId(id); setActiveView('tracking'); }} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} />}
                     {activeView === 'security' && <SecurityView />}
                     {activeView === 'settings' && <SettingsView toggleTheme={toggleTheme} isDarkMode={isDarkMode} userId={session.user.id} />}
