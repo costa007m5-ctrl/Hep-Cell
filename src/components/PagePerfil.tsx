@@ -20,7 +20,7 @@ interface PagePerfilProps {
     onGoToAdmin?: () => void;
 }
 
-// ... (TERMS_TEXT, PRIVACY_TEXT, MenuItem, ToggleSwitch, StatBadge, etc. MANTIDOS IGUAIS AO ORIGINAL ATÉ OrdersView)
+// ... (TERMS_TEXT e PRIVACY_TEXT mantidos, sem alterações)
 const TERMS_TEXT = (
     <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed text-justify">
         <p><strong>1. Aceitação dos Termos</strong><br/>Ao acessar e usar o aplicativo Relp Cell, você concorda em cumprir estes Termos de Uso e todas as leis aplicáveis. Se você não concordar, não use o aplicativo.</p>
@@ -100,11 +100,11 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
         fetchOrder();
     }, [orderId]);
 
-    if (isLoading) return <div className="p-20 flex justify-center"><LoadingSpinner /></div>;
+    if (isLoading) return <div className="fixed inset-0 z-[200] flex items-center justify-center bg-white dark:bg-slate-900"><LoadingSpinner /></div>;
     if (!order) return null;
 
     const steps = [
-        { id: 'processing', label: 'Aguardando Pagamento', icon: '📝', date: order.created_at },
+        { id: 'processing', label: 'Aprovado', icon: '📝', date: order.created_at },
         { id: 'preparing', label: 'Em Preparação', icon: '📦' },
         { id: 'shipped', label: 'Enviado', icon: '🚚' },
         { id: 'out_for_delivery', label: 'Saiu para Entrega', icon: '🛵' },
@@ -116,89 +116,93 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
     const address = order.address_snapshot || {};
     const items = order.items_snapshot || [];
 
+    // FIXED OVERLAY STRUCTURE TO FIX BORDERS
     return (
-        <div className="animate-fade-in bg-white dark:bg-slate-900 min-h-screen pb-20">
-            {/* Header */}
-            <div className="sticky top-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
-                <button onClick={onBack} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                </button>
-                <div>
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-none">Rastreamento</h2>
-                    <p className="text-xs text-slate-500 font-mono mt-0.5">#{order.id.slice(0,8).toUpperCase()}</p>
-                </div>
-            </div>
-
-            <div className="p-6 space-y-8">
-                {/* Status Hero */}
-                <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden ${isCompleted ? 'bg-green-600' : 'bg-indigo-600'}`}>
-                    <div className="relative z-10">
-                        <p className="text-xs font-bold uppercase opacity-80 mb-1">Status Atual</p>
-                        <h3 className="text-2xl font-black">{steps[currentStepIndex]?.label || 'Processando'}</h3>
-                        <p className="text-sm mt-2 font-medium opacity-90">{order.tracking_notes || "Aguardando atualização..."}</p>
-                    </div>
-                    {/* Background Decor */}
-                    <div className="absolute -right-4 -bottom-4 text-9xl opacity-20 transform rotate-12">
-                        {isCompleted ? '🏠' : '🚚'}
+        <div className="fixed inset-0 z-[150] bg-slate-100 dark:bg-slate-950 flex justify-center animate-fade-in">
+            <div className="w-full max-w-md bg-white dark:bg-slate-900 h-full overflow-y-auto relative shadow-2xl flex flex-col">
+                
+                {/* Header Sticky */}
+                <div className="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
+                    <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-none">Rastreamento</h2>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5">#{order.id.slice(0,8).toUpperCase()}</p>
                     </div>
                 </div>
 
-                {/* Timeline Vertical */}
-                <div className="pl-4 border-l-2 border-slate-200 dark:border-slate-800 space-y-8 relative">
-                    {steps.map((step, index) => {
-                        const isActive = index <= currentStepIndex;
-                        const isCurrent = index === currentStepIndex;
-                        
-                        return (
-                            <div key={step.id} className={`relative pl-6 ${isActive ? 'opacity-100' : 'opacity-40'}`}>
-                                <div className={`absolute -left-[21px] top-0 w-10 h-10 rounded-full border-4 border-white dark:border-slate-900 flex items-center justify-center text-lg shadow-sm transition-all duration-500 ${isActive ? (isCompleted && index === steps.length - 1 ? 'bg-green-500 text-white' : 'bg-indigo-100 text-indigo-600') : 'bg-slate-100 text-slate-400'}`}>
-                                    {step.icon}
+                <div className="p-6 space-y-8 pb-24">
+                    {/* Status Hero */}
+                    <div className={`p-6 rounded-3xl text-white shadow-xl relative overflow-hidden ${isCompleted ? 'bg-green-600' : 'bg-indigo-600'}`}>
+                        <div className="relative z-10">
+                            <p className="text-xs font-bold uppercase opacity-80 mb-1">Status Atual</p>
+                            <h3 className="text-2xl font-black">{steps[currentStepIndex]?.label || 'Processando'}</h3>
+                            <p className="text-sm mt-2 font-medium opacity-90">{order.tracking_notes || "Aguardando atualização..."}</p>
+                        </div>
+                        {/* Background Decor */}
+                        <div className="absolute -right-4 -bottom-4 text-9xl opacity-20 transform rotate-12">
+                            {isCompleted ? '🏠' : '🚚'}
+                        </div>
+                    </div>
+
+                    {/* Timeline Vertical */}
+                    <div className="pl-4 border-l-2 border-slate-200 dark:border-slate-800 space-y-8 relative">
+                        {steps.map((step, index) => {
+                            const isActive = index <= currentStepIndex;
+                            const isCurrent = index === currentStepIndex;
+                            
+                            return (
+                                <div key={step.id} className={`relative pl-6 ${isActive ? 'opacity-100' : 'opacity-40'}`}>
+                                    <div className={`absolute -left-[21px] top-0 w-10 h-10 rounded-full border-4 border-white dark:border-slate-900 flex items-center justify-center text-lg shadow-sm transition-all duration-500 ${isActive ? (isCompleted && index === steps.length - 1 ? 'bg-green-500 text-white' : 'bg-indigo-100 text-indigo-600') : 'bg-slate-100 text-slate-400'}`}>
+                                        {step.icon}
+                                    </div>
+                                    <div className="pt-2">
+                                        <h4 className={`font-bold text-sm ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{step.label}</h4>
+                                        {index === 0 && <p className="text-xs text-slate-400">{new Date(order.created_at).toLocaleDateString('pt-BR')} às {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>}
+                                        {isCurrent && !isCompleted && (
+                                            <span className="inline-block mt-2 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-md animate-pulse">
+                                                Em andamento
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="pt-2">
-                                    <h4 className={`font-bold text-sm ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-500'}`}>{step.label}</h4>
-                                    {index === 0 && <p className="text-xs text-slate-400">{new Date(order.created_at).toLocaleDateString('pt-BR')} às {new Date(order.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>}
-                                    {isCurrent && !isCompleted && (
-                                        <span className="inline-block mt-2 px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-md animate-pulse">
-                                            Em andamento
-                                        </span>
-                                    )}
-                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Info Cards */}
+                    <div className="grid gap-4">
+                        {/* Endereço */}
+                        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="p-2 bg-orange-100 text-orange-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg></span>
+                                <h4 className="font-bold text-slate-900 dark:text-white text-sm">Endereço de Entrega</h4>
                             </div>
-                        );
-                    })}
-                </div>
-
-                {/* Info Cards */}
-                <div className="grid gap-4">
-                    {/* Endereço */}
-                    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="p-2 bg-orange-100 text-orange-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg></span>
-                            <h4 className="font-bold text-slate-900 dark:text-white text-sm">Endereço de Entrega</h4>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                                {address.street}, {address.number}<br/>
+                                {address.neighborhood}, {address.city} - {address.uf}<br/>
+                                <span className="text-xs text-slate-400">CEP: {address.zip_code}</span>
+                            </p>
                         </div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                            {address.street}, {address.number}<br/>
-                            {address.neighborhood}, {address.city} - {address.uf}<br/>
-                            <span className="text-xs text-slate-400">CEP: {address.zip_code}</span>
-                        </p>
-                    </div>
 
-                    {/* Produtos */}
-                    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="p-2 bg-blue-100 text-blue-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg></span>
-                            <h4 className="font-bold text-slate-900 dark:text-white text-sm">Itens do Pedido</h4>
-                        </div>
-                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                            {items.map((item: any, i: number) => (
-                                <div key={i} className="py-2 flex justify-between items-center text-sm">
-                                    <span className="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[70%]">{item.name}</span>
-                                    <span className="text-slate-900 dark:text-white font-bold">R$ {item.price.toLocaleString('pt-BR')}</span>
+                        {/* Produtos */}
+                        <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="p-2 bg-blue-100 text-blue-600 rounded-lg"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg></span>
+                                <h4 className="font-bold text-slate-900 dark:text-white text-sm">Itens do Pedido</h4>
+                            </div>
+                            <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                                {items.map((item: any, i: number) => (
+                                    <div key={i} className="py-2 flex justify-between items-center text-sm">
+                                        <span className="text-slate-700 dark:text-slate-300 font-medium truncate max-w-[70%]">{item.name}</span>
+                                        <span className="text-slate-900 dark:text-white font-bold">R$ {item.price.toLocaleString('pt-BR')}</span>
+                                    </div>
+                                ))}
+                                <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between font-bold">
+                                    <span className="text-slate-900 dark:text-white">Total</span>
+                                    <span className="text-indigo-600 dark:text-indigo-400">R$ {order.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
                                 </div>
-                            ))}
-                            <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between font-bold">
-                                <span className="text-slate-900 dark:text-white">Total</span>
-                                <span className="text-indigo-600 dark:text-indigo-400">R$ {order.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
                             </div>
                         </div>
                     </div>
@@ -208,6 +212,7 @@ const OrderTrackingView: React.FC<{ orderId: string; onBack: () => void }> = ({ 
     );
 };
 
+// ... (ContractsView e demais componentes mantidos sem alterações)
 const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     // ... (Mantido igual)
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -289,6 +294,7 @@ const ContractsView: React.FC<{ profile: Profile }> = ({ profile }) => {
     );
 };
 
+// ... (OrdersView, PersonalDataView, etc. mantidos sem alterações - apenas o OrderTrackingView foi atualizado)
 // --- OrdersView ATUALIZADA COM ABAS E FILTROS ---
 const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => void }> = ({ userId, onViewTracking }) => {
     const [orders, setOrders] = useState<any[]>([]);
@@ -413,7 +419,7 @@ const OrdersView: React.FC<{ userId: string; onViewTracking: (id: string) => voi
     );
 };
 
-// ... (PersonalDataView, SecurityView, HelpView, etc. MANTIDOS IGUAIS AO ORIGINAL)
+// ... (Resto do arquivo PersonalDataView, SecurityView, etc... MANTIDO IGUAL)
 const PersonalDataView: React.FC<{ profile: Profile; onUpdate: (p: Profile) => void }> = ({ profile, onUpdate }) => {
     const [formData, setFormData] = useState(profile);
     const [isSaving, setIsSaving] = useState(false);
@@ -519,7 +525,6 @@ const HelpView: React.FC = () => {
     );
 };
 
-// ... (WalletView, SettingsView, ReferralView, FiscalNotesView mantidos iguais)
 const WalletView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Carteira em desenvolvimento.</div>;
 const SettingsView: React.FC<{ toggleTheme?: () => void; isDarkMode?: boolean; userId: string }> = ({ toggleTheme }) => <div className="p-4 text-center">Configurações em desenvolvimento.</div>;
 const ReferralView: React.FC<{ userId: string }> = ({ userId }) => <div className="p-4 text-center">Indicações em desenvolvimento.</div>;
