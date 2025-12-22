@@ -66,6 +66,98 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    const { userId, productName, totalAmount, installments, signature, saleType, paymentMethod, downPayment, dueDay, address } = req.body;
+
+    try {
+        // 1. Criar Contrato (Se houver assinatura)
+        let contractId = null;
+        if (signature) {
+            const { data: contract, error: contractError } = await supabase.from('contracts').insert({
+                user_id: userId,
+                title: `Contrato de Compra - ${productName}`,
+                items: `Aquisição de ${productName}.\nValor Total: R$ ${totalAmount}\nModalidade: ${saleType}\nEndereço de Entrega: ${address.street}, ${address.number} - ${address.neighborhood}`,
+                total_value: totalAmount,
+                status: 'Assinado',
+                signature_data: signature,
+                terms_accepted: true
+            }).select('id').single();
+
+            if (contractError) throw contractError;
+            contractId = contract.id;
+        }
+
+        // 2. Gerar Faturas
+        const invoices = [];
+        const today = new Date();
+
+        // Fatura de Entrada (se houver)
+        if (downPayment > 0) {
+            invoices.push({
+                user_id: userId,
+                month: `Entrada - ${productName}`,
+                due_date: today.toISOString().split('T')[0], // Vence hoje
+                amount: downPayment,
+                status: 'Em aberto',
+                notes: `ENTRADA|${contractId || 'Direta'}|${totalAmount - downPayment}|${installments}|${dueDay}` 
+                // A nota guarda info para gerar o resto automaticamente se for via webhook
+            });
+        }
+
+        // Parcelas do Crediário (Geradas imediatamente se não tiver entrada ou se já for contrato assinado)
+        // Se for venda direta (à vista), gera uma única fatura cheia se não tiver entrada
+        if (saleType === 'direct' && downPayment <= 0) {
+             invoices.push({
+                user_id: userId,
+                month: `Compra Avulsa - ${productName}`,
+                due_date: today.toISOString().split('T')[0],
+                amount: totalAmount,
+                status: 'Em aberto',
+                notes: 'VENDA_AVISTA'
+            });
+        } else if (saleType === 'crediario') {
+            const financedAmount = totalAmount - downPayment;
+            if (financedAmount > 0) {
+                const installmentValue = financedAmount / installments;
+                for (let i = 1; i <= installments; i++) {
+                    const dueDate = new Date();
+                    dueDate.setMonth(today.getMonth() + i);
+                    // Ajusta para o dia de vencimento escolhido, ou dia atual se inválido
+                    dueDate.setDate(dueDay || today.getDate()); 
+                    
+                    invoices.push({
+                        user_id: userId,
+                        month: `Parcela ${i}/${installments} - ${productName}`,
+                        due_date: dueDate.toISOString().split('T')[0],
+                        amount: installmentValue,
+                        status: 'Em aberto',
+                        notes: `Contrato ${contractId}`
+                    });
+                }
+            }
+        }
+
+        const { error: invoicesError } = await supabase.from('invoices').insert(invoices);
+        if (invoicesError) throw invoicesError;
+
+        // 3. Registrar Pedido
+        await supabase.from('orders').insert({
+            user_id: userId,
+            status: 'processing',
+            total: totalAmount,
+            payment_method: saleType === 'direct' ? paymentMethod : 'crediario',
+            address_snapshot: address
+        });
+
+        return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
+
+    } catch (error: any) {
+        console.error("Erro ao criar venda:", error);
+        return res.status(500).json({ error: error.message || "Erro ao processar venda." });
+    }
+}
+
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     // SQL Completo para garantir que TODAS as colunas existam
@@ -159,6 +251,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         if (path.includes('/setup-database')) return await handleSetupDatabase(res);
         if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
+        if (path.includes('/create-sale')) return await handleCreateSale(req, res);
 
         if (req.method === 'GET' && path.includes('/products')) {
             const { data } = await supabase.from('products').select('*').order('name');
