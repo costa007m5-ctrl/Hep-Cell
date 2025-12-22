@@ -104,6 +104,31 @@ async function handleProcessPayment(req: VercelRequest, res: VercelResponse) {
                 })
                 .eq('id', external_reference);
              
+             // INTEGRAÇÃO DE PEDIDO: Se for venda à vista ou entrada, libera o pedido
+             try {
+                 const { data: invoice } = await supabase.from('invoices').select('user_id').eq('id', external_reference).single();
+                 if (invoice) {
+                     // Busca o pedido mais recente 'processing' deste usuário
+                     const { data: orders } = await supabase.from('orders')
+                        .select('id')
+                        .eq('user_id', invoice.user_id)
+                        .eq('status', 'processing')
+                        .order('created_at', { ascending: false })
+                        .limit(1);
+                     
+                     if (orders && orders.length > 0) {
+                         await supabase.from('orders').update({ 
+                             status: 'preparing', 
+                             tracking_notes: 'Pagamento confirmado! Iniciando separação.' 
+                         }).eq('id', orders[0].id);
+                         
+                         await logAction(supabase, 'ORDER_UPDATED_BY_PAYMENT', 'SUCCESS', `Pedido ${orders[0].id} atualizado para 'preparing' via Cartão.`, { paymentId: result.id });
+                     }
+                 }
+             } catch (orderErr) {
+                 console.error('Erro ao atualizar pedido via cartão:', orderErr);
+             }
+
              await logAction(supabase, 'CARD_PAYMENT_SUCCESS', 'SUCCESS', `Fatura ${external_reference} paga via cartão.`, { paymentId: result.id });
         }
 
@@ -233,17 +258,13 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
         const client = await getMercadoPagoClient(supabase);
         const { body, query } = req;
         
-        // Log RAW da entrada para debug
         await logAction(supabase, 'WEBHOOK_RECEIVED', 'INFO', 'Notificação recebida do Mercado Pago', { body, query });
 
-        // Suporte para ambos os formatos de webhook (body ou query param)
         const type = body?.type || query?.type;
         const dataId = body?.data?.id || query?.['data.id'];
 
-        // Se for um evento de pagamento
         if (type === 'payment' && dataId) {
             try {
-                // Tenta buscar o pagamento no Mercado Pago
                 const payment = new Payment(client);
                 const paymentDetails = await payment.get({ id: dataId });
                 
@@ -252,8 +273,6 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                 if (paymentDetails && paymentDetails.status === 'approved') {
                     const invoiceId = paymentDetails.external_reference;
                     
-                    // Se for um teste com ID fake (ex: 123456), invoiceId será undefined ou algo inválido.
-                    // Se invoiceId existir, tentamos atualizar.
                     if (invoiceId) {
                         const { data: invoices, error } = await supabase.from('invoices')
                             .update({ 
@@ -271,8 +290,34 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                         } else if (invoices && invoices.length > 0) {
                             await logAction(supabase, 'WEBHOOK_SUCCESS', 'SUCCESS', `Fatura ${invoiceId} marcada como Paga via Webhook.`, { paymentId: dataId });
                             
-                            // Processamento de Cashback e Parcelas
                             const invoice = invoices[0];
+                            
+                            // 1. INTEGRAÇÃO COM PEDIDOS (IMPORTANTE)
+                            // Se a fatura paga for uma entrada ou venda à vista, atualiza o pedido correspondente
+                            const isEntryOrDirect = invoice.notes?.includes('ENTRADA') || invoice.notes?.includes('VENDA_AVISTA') || invoice.month.includes('Entrada') || invoice.month.includes('Avulsa');
+                            
+                            if (isEntryOrDirect) {
+                                // Busca pedido em processamento do usuário criado recentemente
+                                const { data: orders } = await supabase.from('orders')
+                                    .select('id')
+                                    .eq('user_id', invoice.user_id)
+                                    .eq('status', 'processing') // Só atualiza se ainda estiver processando
+                                    .order('created_at', { ascending: false })
+                                    .limit(1);
+                                
+                                if (orders && orders.length > 0) {
+                                    await supabase.from('orders')
+                                        .update({ 
+                                            status: 'preparing', 
+                                            tracking_notes: 'Pagamento confirmado! Pedido em preparação.' 
+                                        })
+                                        .eq('id', orders[0].id);
+                                        
+                                    await logAction(supabase, 'WEBHOOK_ORDER_UPDATED', 'SUCCESS', `Pedido ${orders[0].id} movido para 'preparing' após pagamento da fatura ${invoice.id}.`);
+                                }
+                            }
+
+                            // 2. Cashback
                             const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
                             const cashbackPercent = parseFloat(setting?.value || '1.5');
                             const amountPaid = paymentDetails.transaction_amount || invoice.amount;
@@ -283,7 +328,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                                 await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
                             }
                             
-                            // Lógica de Entrada (se aplicável)
+                            // 3. Lógica de Entrada (Parcelas)
                             if (invoice.notes && invoice.notes.startsWith('ENTRADA|')) {
                                 const parts = invoice.notes.split('|');
                                 if (parts.length >= 5) {
@@ -321,25 +366,19 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                     }
                 }
             } catch (paymentError: any) {
-                // IMPORTANTÍSSIMO:
-                // Se a busca do pagamento falhar (ex: ID 123456 do teste), logamos o erro MAS retornamos 200.
-                // Isso evita que o Mercado Pago mostre "Internal Server Error" no painel de teste.
-                console.warn("Erro ao buscar pagamento no MP (provavelmente ID de teste):", paymentError.message);
+                console.warn("Erro ao buscar pagamento no MP:", paymentError.message);
                 await logAction(supabase, 'WEBHOOK_PAYMENT_NOT_FOUND', 'INFO', `Não foi possível buscar o pagamento ${dataId}. Provavelmente é um teste.`, { error: paymentError.message });
             }
         }
 
-        // SEMPRE retornar 200 para confirmar recebimento, mesmo que seja um evento irrelevante ou erro de busca
         res.status(200).send('OK');
     } catch (error: any) {
         console.error('Webhook Critical Error:', error);
-        // Apenas erros gravíssimos de infraestrutura retornam 500
         await logAction(supabase, 'WEBHOOK_FATAL_ERROR', 'FAILURE', 'Erro crítico no handler', { error: error.message });
-        res.status(200).json({ error: 'Erro processado, webhook recebido.' }); 
+        res.status(200).json({ error: 'Erro processado.' }); 
     }
 }
 
-// Router Principal do Arquivo
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const path = req.url || '';
   
