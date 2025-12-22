@@ -9,7 +9,7 @@ function getSupabaseAdmin() {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// Helper robusto para extrair apenas o objeto JSON de uma resposta que pode conter texto extra
+// Helper para extração segura de JSON da IA
 function extractJson(text: string) {
     try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -20,29 +20,24 @@ function extractJson(text: string) {
     }
 }
 
-// --- IA: AUTO PREENCHIMENTO ULTRA DETALHADO (V5.0) ---
+// --- IA: AUTO PREENCHIMENTO (V6.0) ---
 async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
     const { rawText } = req.body;
     if (!rawText) return res.status(400).json({ error: "Texto base é obrigatório." });
 
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: `Analise as especificações técnicas brutas deste eletrônico: "${rawText}".
+            contents: `Você é o mestre de inventário da Relp Cell. Analise: "${rawText}".
             
-            MISSÃO: Você é o mestre de inventário da Relp Cell. Extraia TUDO com precisão cirúrgica.
+            REGRAS OBRIGATÓRIAS:
+            1. DIMENSÕES: Converta mm para cm (divida por 10).
+            2. PESO: Extraia o valor em gramas.
+            3. DISPLAY: Formate como "Tamanho, Tipo, Hz".
+            4. SKU: Gere um código único (Ex: MOT-G06-128).
             
-            REGRAS DE OURO:
-            1. DIMENSÕES: Se o texto diz "171,4 mm", você DEVE converter para "17.14" (cm). Divida mm por 10.
-            2. PESO: Extraia apenas o número puro em gramas. Ex: "194g" vira 194.
-            3. DISPLAY: Junte tamanho, tipo e frequência. Ex: "6.9" IPS LCD 120Hz".
-            4. SKU: Gere um código único curto e profissional. Ex: MOT-G06-128.
-            5. PREÇO: Se não houver, sugira um valor real de mercado no Brasil.
-            6. CONDIÇÃO: Identifique se é "novo", "lacrado" ou "recondicionado".
-            
-            Retorne o JSON rigorosamente conforme a estrutura.`,
+            Retorne JSON rigoroso conforme o schema.`,
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -55,138 +50,125 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
                         sku: { type: Type.STRING },
                         condition: { type: Type.STRING },
                         description: { type: Type.STRING },
-                        description_short: { type: Type.STRING },
-                        highlights: { type: Type.STRING },
                         processor: { type: Type.STRING },
                         ram: { type: Type.STRING },
                         storage: { type: Type.STRING },
                         display: { type: Type.STRING },
-                        os: { type: Type.STRING },
-                        camera: { type: Type.STRING },
                         battery: { type: Type.STRING },
-                        connectivity: { type: Type.STRING },
+                        camera: { type: Type.STRING },
                         price: { type: Type.NUMBER },
                         weight: { type: Type.NUMBER },
                         height: { type: Type.NUMBER },
                         width: { type: Type.NUMBER },
-                        length: { type: Type.NUMBER },
-                        package_content: { type: Type.STRING },
-                        certifications: { type: Type.STRING }
-                    },
-                    required: ["name", "price", "sku"]
+                        length: { type: Type.NUMBER }
+                    }
                 }
             }
         });
 
         const data = extractJson(response.text || '{}');
-        if (!data) throw new Error("A IA não conseguiu gerar um formato válido para este texto.");
-        
-        return res.json(data);
+        return res.json(data || { error: "IA não gerou JSON válido" });
     } catch (e: any) {
-        console.error("Erro Crítico Gemini:", e);
-        return res.status(500).json({ error: "Falha no motor de IA: " + e.message });
+        return res.status(500).json({ error: "Erro na IA: " + e.message });
     }
 }
 
-// --- TESTES DE STATUS (ONLINE/OFFLINE) ---
-async function handleTestSupabase(res: VercelResponse) {
-    const supabase = getSupabaseAdmin();
-    try {
-        const { error } = await supabase.from('profiles').select('id').limit(1);
-        if (error) throw error;
-        return res.json({ success: true, message: "Banco de Dados OK" });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
-}
-
-async function handleTestGemini(res: VercelResponse) {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        const start = Date.now();
-        const response = await ai.models.generateContent({ 
-            model: "gemini-3-flash-preview", 
-            contents: "status check" 
-        });
-        const latency = Date.now() - start;
-
-        // Metadados de Cota (Simulados com base nos limites do modelo)
-        return res.json({ 
-            success: true, 
-            message: "IA Operacional",
-            details: {
-                model: "gemini-3-flash-preview",
-                latency: `${latency}ms`,
-                tokensPerMinuteLimit: 1000000,
-                requestsPerMinuteLimit: 2000,
-                remainingEstimate: "99%+" 
-            }
-        });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
-}
-
-async function handleTestMercadoPago(res: VercelResponse) {
-    if (process.env.MERCADO_PAGO_ACCESS_TOKEN) return res.json({ success: true, message: "Gateway Ativo" });
-    return res.status(500).json({ error: "Token Mercado Pago não configurado." });
-}
-
-// --- SETUP E REPARO AUTOMÁTICO ---
+// --- SETUP E REPARO (CRITICAL FIX) ---
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     const sql = `
         ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT 'novo';
         ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS height NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS width NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS length NUMERIC DEFAULT 0;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC DEFAULT 0;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN DEFAULT TRUE;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS processor TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS ram TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS storage TEXT;
+        ALTER TABLE products ADD COLUMN IF NOT EXISTS battery TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS display TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS os TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS camera TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS battery TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS connectivity TEXT;
         ALTER TABLE products ADD COLUMN IF NOT EXISTS package_content TEXT;
-        ALTER TABLE products ADD COLUMN IF NOT EXISTS certifications TEXT;
     `;
     try {
+        // Tenta executar via RPC (requer a função exec_sql no Supabase)
         const { error } = await supabase.rpc('exec_sql', { sql_query: sql });
         if (error) throw error;
-        return res.json({ success: true, message: "Banco de dados sincronizado!" });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+        return res.json({ success: true, message: "Banco de dados sincronizado com sucesso!" });
+    } catch (e: any) { 
+        return res.status(500).json({ error: "Erro ao sincronizar. Certifique-se de ter a função exec_sql no Supabase: " + e.message }); 
+    }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
-    
-    // Rotas de IA e Negócio
-    if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
-    if (path.includes('/test-supabase')) return await handleTestSupabase(res);
-    if (path.includes('/test-gemini')) return await handleTestGemini(res);
-    if (path.includes('/test-mercadopago')) return await handleTestMercadoPago(res);
-    if (path.includes('/setup-database')) return await handleSetupDatabase(res);
-
-    // Gestão de Limites (Aba de Crédito)
-    if (path.includes('/limit-requests')) {
-        const { data } = await getSupabaseAdmin().from('limit_requests').select('*, profiles(*)').order('created_at', { ascending: false });
-        return res.json(data || []);
-    }
-
-    // CRUD Produtos
     const supabase = getSupabaseAdmin();
-    if (req.method === 'GET' && path.includes('/products')) {
-        const { data } = await supabase.from('products').select('*').order('name');
-        return res.json(data || []);
-    }
 
-    if (req.method === 'POST' && path.includes('/products')) {
-        const { id, created_at, ...data } = req.body;
-        const q = (id && id !== "null") ? supabase.from('products').update(data).eq('id', id) : supabase.from('products').insert(data);
-        const { error } = await q;
-        if (error) return res.status(500).json({ error: error.message });
-        return res.json({ success: true });
-    }
+    try {
+        // --- ROTAS DE STATUS E SETUP ---
+        if (path.includes('/test-supabase')) {
+            const { error } = await supabase.from('profiles').select('id').limit(1);
+            return res.json({ success: !error, message: error ? error.message : "Conectado" });
+        }
+        if (path.includes('/test-gemini')) {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            const resp = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: 'ping' });
+            return res.json({ success: true, message: "IA Ativa", details: { latency: 'OK' } });
+        }
+        if (path.includes('/setup-database')) return await handleSetupDatabase(res);
+        if (path.includes('/auto-fill-product')) return await handleAutoFillProduct(req, res);
 
-    return res.status(404).json({ error: 'Endpoint não mapeado' });
+        // --- ROTAS DE DADOS (PROTEÇÃO CONTRA TELA PRETA) ---
+        if (req.method === 'GET') {
+            if (path.includes('/profiles')) {
+                const { data } = await supabase.from('profiles').select('*').order('first_name');
+                return res.json(data || []);
+            }
+            if (path.includes('/invoices')) {
+                const { data } = await supabase.from('invoices').select('*').order('due_date');
+                return res.json(data || []);
+            }
+            if (path.includes('/products')) {
+                const { data } = await supabase.from('products').select('*').order('name');
+                return res.json(data || []);
+            }
+            if (path.includes('/limit-requests')) {
+                const { data } = await supabase.from('limit_requests').select('*, profiles(*)').order('created_at', { ascending: false });
+                return res.json(data || []);
+            }
+        }
+
+        // --- SALVAMENTO DE PRODUTO (CORREÇÃO ERRO 500) ---
+        if (req.method === 'POST' && path.includes('/products')) {
+            const { id, created_at, ...payload } = req.body;
+            // Sanitização de dados numéricos para evitar erro de string no banco
+            const sanitized = {
+                ...payload,
+                price: Number(payload.price || 0),
+                cost_price: Number(payload.cost_price || 0),
+                stock: Number(payload.stock || 0),
+                weight: Number(payload.weight || 0),
+                height: Number(payload.height || 0),
+                width: Number(payload.width || 0),
+                length: Number(payload.length || 0)
+            };
+
+            const query = (id && id !== "null") 
+                ? supabase.from('products').update(sanitized).eq('id', id)
+                : supabase.from('products').insert(sanitized);
+
+            const { error } = await query;
+            if (error) throw error;
+            return res.json({ success: true });
+        }
+
+        return res.status(404).json({ error: 'Endpoint não encontrado' });
+    } catch (e: any) {
+        console.error("Admin API Error:", e);
+        return res.status(500).json({ error: e.message });
+    }
 }

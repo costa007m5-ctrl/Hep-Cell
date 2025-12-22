@@ -11,6 +11,7 @@ const ClientsTab: React.FC = () => {
     const [invoices, setInvoices] = useState<Invoice[]>([]); 
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [error, setError] = useState<string | null>(null);
     const { addToast } = useToast();
     
     const [selectedClient, setSelectedClient] = useState<Profile | null>(null);
@@ -19,22 +20,21 @@ const ClientsTab: React.FC = () => {
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
+        setError(null);
         try {
-            // Carrega perfis
-            const pRes = await fetch('/api/admin/profiles');
+            const [pRes, iRes] = await Promise.all([
+                fetch('/api/admin/profiles'),
+                fetch('/api/admin/invoices')
+            ]);
+            
             const pData = await pRes.json();
-            setProfiles(Array.isArray(pData) ? pData : []);
+            const iData = await iRes.json();
 
-            // Carrega faturas (separado para não travar os perfis se der erro)
-            try {
-                const iRes = await fetch('/api/admin/invoices');
-                const iData = await iRes.json();
-                setInvoices(Array.isArray(iData) ? iData : []);
-            } catch (e) {
-                console.warn("Falha ao carregar faturas, continuando apenas com perfis.");
-            }
-        } catch (e) {
-            addToast("Erro ao conectar com o banco de dados.", "error");
+            setProfiles(Array.isArray(pData) ? pData : []);
+            setInvoices(Array.isArray(iData) ? iData : []);
+        } catch (e: any) {
+            setError("Falha ao carregar dados dos clientes.");
+            addToast("Erro ao conectar com o servidor.", "error");
         } finally {
             setIsLoading(false);
         }
@@ -43,6 +43,7 @@ const ClientsTab: React.FC = () => {
     useEffect(() => { loadData(); }, [loadData]);
 
     const filtered = useMemo(() => {
+        if (!Array.isArray(profiles)) return [];
         return profiles.filter(p => {
             const name = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
             const email = (p.email || '').toLowerCase();
@@ -76,6 +77,7 @@ const ClientsTab: React.FC = () => {
     };
 
     if (isLoading) return <div className="p-20 flex justify-center"><LoadingSpinner /></div>;
+    if (error) return <div className="p-10"><Alert message={error} type="error" /></div>;
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -110,7 +112,7 @@ const ClientsTab: React.FC = () => {
                                 <td colSpan={3} className="px-6 py-10 text-center text-slate-400 text-sm italic">Nenhum cliente encontrado.</td>
                             </tr>
                         ) : filtered.map(p => {
-                            const debt = invoices.filter(i => i.user_id === p.id && i.status !== 'Paga').reduce((a, b) => a + b.amount, 0);
+                            const debt = Array.isArray(invoices) ? invoices.filter(i => i.user_id === p.id && i.status !== 'Paga').reduce((a, b) => a + b.amount, 0) : 0;
                             return (
                                 <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 cursor-pointer transition-colors" onClick={() => { setSelectedClient(p); setActiveSubTab('dados'); }}>
                                     <td className="px-6 py-4">
@@ -130,7 +132,6 @@ const ClientsTab: React.FC = () => {
                 </table>
             </div>
 
-            {/* Painel de Detalhes (Drawer) */}
             {selectedClient && (
                 <div className="fixed inset-0 z-[2000] flex justify-end">
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedClient(null)}></div>
@@ -144,12 +145,8 @@ const ClientsTab: React.FC = () => {
                         </div>
 
                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1">
-                            {[
-                                { id: 'dados', label: 'Cadastro' },
-                                { id: 'financeiro', label: 'Extrato' },
-                                { id: 'negociacao', label: 'Notas' }
-                            ].map((t) => (
-                                <button key={t.id} onClick={() => setActiveSubTab(t.id as any)} className={`flex-1 py-3 text-[10px] font-black uppercase transition-all rounded-lg ${activeSubTab === t.id ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{t.label}</button>
+                            {['dados', 'financeiro', 'negociacao'].map((t) => (
+                                <button key={t} onClick={() => setActiveSubTab(t as any)} className={`flex-1 py-3 text-[10px] font-black uppercase transition-all rounded-lg ${activeSubTab === t ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{t === 'dados' ? 'Cadastro' : t === 'financeiro' ? 'Extrato' : 'Notas'}</button>
                             ))}
                         </div>
 
@@ -173,60 +170,32 @@ const ClientsTab: React.FC = () => {
                                             <option value="Ativo">Ativo / Liberado</option>
                                             <option value="Bloqueado">Bloqueado p/ Vendas</option>
                                             <option value="Suspenso">Suspenso (Inadimplente)</option>
-                                            <option value="Aguardando_Analise">Aguardando Análise</option>
                                         </select>
                                     </div>
 
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-center px-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Documentação</label>
-                                            <span className="text-[10px] font-bold text-green-600 uppercase">Validado via IA</span>
-                                        </div>
-                                        <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                                             <p className="text-xs text-slate-500 font-medium">CPF: <span className="text-slate-900 dark:text-white font-bold">{selectedClient.identification_number || 'Não informado'}</span></p>
-                                             <p className="text-xs text-slate-500 font-medium mt-1">Telefone: <span className="text-slate-900 dark:text-white font-bold">{selectedClient.phone || 'Não informado'}</span></p>
-                                        </div>
-                                    </div>
-
                                     <button onClick={handleUpdate} disabled={isSaving} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-500/30 active:scale-95 transition-all disabled:opacity-50">
-                                        {isSaving ? 'SALVANDO ALTERAÇÕES...' : 'ATUALIZAR CADASTRO'}
+                                        {isSaving ? 'SALVANDO...' : 'ATUALIZAR CADASTRO'}
                                     </button>
                                 </div>
                             )}
 
                             {activeSubTab === 'financeiro' && (
                                 <div className="space-y-4 animate-fade-in">
-                                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest px-1">Faturas Vinculadas</h4>
                                     {invoices.filter(i => i.user_id === selectedClient.id).length === 0 ? (
                                         <div className="p-10 text-center border-2 border-dashed border-slate-100 rounded-3xl">
-                                            <p className="text-slate-400 text-sm">Nenhuma fatura encontrada para este cliente.</p>
+                                            <p className="text-slate-400 text-sm">Nenhuma fatura encontrada.</p>
                                         </div>
                                     ) : (
                                         invoices.filter(i => i.user_id === selectedClient.id).map(inv => (
-                                            <div key={inv.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex justify-between items-center group">
+                                            <div key={inv.id} className="p-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex justify-between items-center">
                                                 <div>
                                                     <p className="font-bold text-sm text-slate-800 dark:text-white">{inv.month}</p>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{inv.status}</span>
-                                                        <span className="text-[10px] text-slate-400">Venc: {new Date(inv.due_date).toLocaleDateString('pt-BR')}</span>
-                                                    </div>
+                                                    <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${inv.status === 'Paga' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{inv.status}</span>
                                                     <p className="text-base font-black text-indigo-600 mt-1">R$ {inv.amount.toLocaleString('pt-BR')}</p>
-                                                </div>
-                                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {inv.status !== 'Paga' && <button className="p-2.5 bg-green-500 text-white rounded-xl shadow-lg active:scale-90 transition-all">✓</button>}
-                                                    <button className="p-2.5 bg-red-500 text-white rounded-xl shadow-lg active:scale-90 transition-all">✕</button>
                                                 </div>
                                             </div>
                                         ))
                                     )}
-                                </div>
-                            )}
-
-                            {activeSubTab === 'negociacao' && (
-                                <div className="space-y-4 animate-fade-in">
-                                    <p className="text-xs text-slate-500 leading-relaxed bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800">Use este espaço para registrar acordos de pagamento, promessas de quitação ou notas sobre contatos telefônicos.</p>
-                                    <textarea className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm h-40 focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Digite uma nova nota de atendimento..."></textarea>
-                                    <button className="w-full py-3.5 bg-slate-900 dark:bg-slate-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">SALVAR NOTA INTERNA</button>
                                 </div>
                             )}
                         </div>
