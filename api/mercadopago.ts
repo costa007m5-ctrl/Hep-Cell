@@ -27,7 +27,7 @@ function getNotificationUrl(req: VercelRequest): string {
 }
 
 // Log no Banco
-async function logAction(supabase: any, action_type: string, status: 'SUCCESS' | 'FAILURE', description: string, details?: object) {
+async function logAction(supabase: any, action_type: string, status: 'SUCCESS' | 'FAILURE' | 'INFO', description: string, details?: object) {
     try { await supabase.from('action_logs').insert({ action_type, status, description, details }); } catch (e) { console.error('Log failed', e); }
 }
 
@@ -233,6 +233,9 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
         const client = await getMercadoPagoClient(supabase);
         const { body, query } = req;
         
+        // Log RAW da entrada para debug
+        await logAction(supabase, 'WEBHOOK_RECEIVED', 'INFO', 'Notificação recebida do Mercado Pago', { body, query });
+
         // Suporte para ambos os formatos de webhook (body ou query param)
         const type = body?.type || query?.type;
         const dataId = body?.data?.id || query?.['data.id'];
@@ -241,6 +244,8 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
             const payment = new Payment(client);
             const paymentDetails = await payment.get({ id: dataId });
             
+            await logAction(supabase, 'WEBHOOK_PAYMENT_FETCHED', 'INFO', `Detalhes do pagamento ${dataId} obtidos`, { status: paymentDetails.status, ref: paymentDetails.external_reference });
+
             if (paymentDetails && paymentDetails.status === 'approved') {
                 const invoiceId = paymentDetails.external_reference;
                 
@@ -258,7 +263,9 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
                     .select();
                 
                 if (error) {
-                    console.error("Erro ao atualizar fatura no webhook:", error);
+                    await logAction(supabase, 'WEBHOOK_ERROR', 'FAILURE', `Erro ao atualizar fatura ${invoiceId}`, { error });
+                } else {
+                    await logAction(supabase, 'WEBHOOK_SUCCESS', 'SUCCESS', `Fatura ${invoiceId} marcada como Paga via Webhook.`, { paymentId: dataId });
                 }
 
                 if (invoices && invoices.length > 0) {
@@ -314,6 +321,7 @@ async function handleWebhook(req: VercelRequest, res: VercelResponse) {
         res.status(200).send('OK');
     } catch (error: any) {
         console.error('Webhook Error:', error);
+        await logAction(supabase, 'WEBHOOK_FATAL_ERROR', 'FAILURE', 'Erro crítico no processamento do webhook', { error: error.message });
         res.status(500).json({ error: 'Erro webhook' });
     }
 }

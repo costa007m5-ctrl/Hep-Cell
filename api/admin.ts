@@ -2,11 +2,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI, Type } from "@google/genai";
+import { MercadoPagoConfig, Payment } from 'mercadopago';
 
 function getSupabaseAdmin() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+// Inicializa Mercado Pago (Dinâmico: Banco ou Env)
+async function getMercadoPagoClient(supabase: any) {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
+    const accessToken = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
+
+    if (!accessToken) throw new Error("MERCADO_PAGO_ACCESS_TOKEN não configurado.");
+    return new MercadoPagoConfig({ accessToken });
 }
 
 // Helper para extração segura de JSON da IA
@@ -294,6 +304,147 @@ async function handleSetupDatabase(res: VercelResponse) {
     }
 }
 
+async function handleGetAuditInvoices(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    try {
+        const { data, error } = await supabase
+            .from('invoices')
+            .select(`
+                *,
+                profiles:user_id (first_name, last_name, email, identification_number)
+            `)
+            .or('status.eq.Em aberto,status.eq.Boleto Gerado')
+            .order('due_date', { ascending: true });
+
+        if(error) throw error;
+        return res.json(data);
+    } catch(e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleApproveInvoiceManual(req: VercelRequest, res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    const { invoiceId } = req.body;
+
+    try {
+        // 1. Busca fatura
+        const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
+        if(!invoice) throw new Error("Fatura não encontrada");
+
+        // 2. Atualiza para Paga
+        const { error } = await supabase.from('invoices').update({
+            status: 'Paga',
+            payment_date: new Date().toISOString(),
+            payment_method: 'manual_admin',
+            notes: (invoice.notes || '') + ' | APROVADO MANUALMENTE PELO ADMIN'
+        }).eq('id', invoiceId);
+
+        if(error) throw error;
+
+        // 3. Aplica Cashback (Igual ao Webhook)
+        const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
+        const cashbackPercent = parseFloat(setting?.value || '1.5');
+        const coinsEarned = Math.floor(invoice.amount * (cashbackPercent / 100) * 100);
+
+        if (coinsEarned > 0) {
+            const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
+            await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
+        }
+
+        // 4. Log
+        await supabase.from('action_logs').insert({
+            action_type: 'MANUAL_INVOICE_APPROVAL',
+            status: 'SUCCESS',
+            description: `Admin aprovou manualmente fatura ${invoiceId} de R$ ${invoice.amount}`,
+            details: { invoiceId, coinsEarned }
+        });
+
+        return res.json({ success: true, message: "Fatura baixada com sucesso!" });
+
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+// Handler para listar Logs de Webhook
+async function handleGetWebhookLogs(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    try {
+        // Busca logs dos últimos 7 dias relacionados a Webhook
+        const { data, error } = await supabase
+            .from('action_logs')
+            .select('*')
+            .like('action_type', 'WEBHOOK%')
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+        return res.json(data);
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+// Handler para Debug de Pagamento MP (Replay)
+async function handleDebugMpPayment(req: VercelRequest, res: VercelResponse) {
+    const { paymentId } = req.body;
+    const supabase = getSupabaseAdmin();
+    
+    try {
+        const client = await getMercadoPagoClient(supabase);
+        const payment = new Payment(client);
+        
+        // Busca no MP
+        const paymentDetails = await payment.get({ id: paymentId });
+        
+        // Simula o webhook "na marra"
+        // Se estiver aprovado, atualiza o banco
+        let updateResult = null;
+        
+        if (paymentDetails.status === 'approved') {
+            const invoiceId = paymentDetails.external_reference;
+            if (invoiceId) {
+                const { data, error } = await supabase.from('invoices')
+                    .update({ 
+                        status: 'Paga', 
+                        payment_date: new Date().toISOString(), 
+                        payment_id: String(paymentId),
+                        payment_code: null, 
+                        boleto_barcode: null 
+                    })
+                    .eq('id', invoiceId)
+                    .select();
+                
+                if (error) throw error;
+                updateResult = data;
+                
+                // Cashback (simplificado)
+                if (data && data.length > 0) {
+                     const invoice = data[0];
+                     const { data: setting } = await supabase.from('system_settings').select('value').eq('key', 'cashback_percentage').single();
+                     const cashbackPercent = parseFloat(setting?.value || '1.5');
+                     const coinsEarned = Math.floor(invoice.amount * (cashbackPercent / 100) * 100);
+                     if (coinsEarned > 0) {
+                        const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', invoice.user_id).single();
+                        await supabase.from('profiles').update({ coins_balance: (profile?.coins_balance || 0) + coinsEarned }).eq('id', invoice.user_id);
+                     }
+                }
+            }
+        }
+
+        return res.json({ 
+            mp_status: paymentDetails.status, 
+            mp_detail: paymentDetails.status_detail,
+            invoice_updated: !!updateResult,
+            data: paymentDetails
+        });
+
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message || "Erro ao consultar Mercado Pago" });
+    }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
     const supabase = getSupabaseAdmin();
@@ -311,7 +462,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
         if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res);
-        if (isRoute('/manage-coins')) return await handleManageCoins(req, res); // Novo endpoint
+        if (isRoute('/manage-coins')) return await handleManageCoins(req, res);
+        if (isRoute('/audit-invoices')) return await handleGetAuditInvoices(res);
+        if (isRoute('/approve-invoice')) return await handleApproveInvoiceManual(req, res);
+        
+        // Novas Rotas de Webhook Debug
+        if (isRoute('/webhook-logs')) return await handleGetWebhookLogs(res);
+        if (isRoute('/debug-mp-payment')) return await handleDebugMpPayment(req, res);
 
         // ... (GET/POST products mantidos) ...
         if (req.method === 'GET' && isRoute('/products')) {
