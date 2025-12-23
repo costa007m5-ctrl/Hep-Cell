@@ -337,7 +337,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
         const currentYear = now.getFullYear();
         return openInvoices.reduce((acc, inv) => {
             const dueDate = new Date(inv.due_date);
-            // CORREÇÃO: Apenas considera faturas de crediário no comprometimento da fatura mensal do cartão visual
             const isCrediario = !inv.notes?.includes('VENDA_AVISTA');
             if (isCrediario && (dueDate < now || (dueDate.getMonth() === currentMonth && dueDate.getFullYear() === currentYear))) {
                 return acc + inv.amount;
@@ -347,7 +346,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     }, [openInvoices]);
 
     const totalDebt = useMemo(() => {
-        // CORREÇÃO: Dívida comprometida do limite considera APENAS faturas que NÃO são à vista
         return openInvoices
             .filter(inv => !inv.notes?.includes('VENDA_AVISTA'))
             .reduce((acc, inv) => acc + inv.amount, 0);
@@ -363,7 +361,6 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
             let type: 'crediario' | 'avista' = 'avista';
             
             if (inv.notes) {
-                // PRIORIDADE: Detectar Venda à Vista pelo novo prefixo
                 if (inv.notes.includes('VENDA_AVISTA')) {
                     key = `direct_${inv.id}`; 
                     type = 'avista';
@@ -406,9 +403,19 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
     if (paymentStep !== 'list' && selectedInvoice) {
         const invoiceWithExtras = { ...selectedInvoice, amount: (selectedInvoice as any)._finalAmount || selectedInvoice.amount, coinsToUse: (selectedInvoice as any)._coinsToUse };
         switch (paymentStep) {
-            case 'select_method': return <div className="w-full max-w-md pt-4 px-2"><PaymentMethodSelector invoice={selectedInvoice} onSelectMethod={handlePaymentMethodSelection} onBack={() => setPaymentStep('list')} /></div>;
-            case 'pay_pix': return <PixPayment invoice={invoiceWithExtras} onBack={() => setPaymentStep('list')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
-            case 'pay_boleto': return <BoletoPayment invoice={invoiceWithExtras} onBack={() => setPaymentStep('list')} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
+            case 'select_method': 
+                return <div className="w-full max-w-md pt-4 px-2">
+                    <PaymentMethodSelector 
+                        invoice={selectedInvoice} 
+                        onSelectMethod={handlePaymentMethodSelection} 
+                        onBack={() => { setPaymentStep('list'); setUseCoins(false); }}
+                        userCoins={coinsBalance}
+                        onToggleCoins={setUseCoins}
+                        useCoins={useCoins}
+                    />
+                </div>;
+            case 'pay_pix': return <PixPayment invoice={invoiceWithExtras} onBack={() => setPaymentStep('select_method')} onPaymentConfirmed={() => {setPaymentStep('list'); fetchInvoices(); setShowConfetti(true);}} />;
+            case 'pay_boleto': return <BoletoPayment invoice={invoiceWithExtras} onBack={() => setPaymentStep('select_method')} onBoletoGenerated={(updated) => { setInvoices(p => p.map(i => i.id === updated.id ? updated : i)); setSelectedInvoice(updated); setPaymentStep('boleto_details'); }} />;
             case 'pay_credit': return <PaymentForm invoice={invoiceWithExtras} mpPublicKey={mpPublicKey} onBack={() => setPaymentStep('select_method')} onPaymentSuccess={() => { setPaymentStep('list'); fetchInvoices(); setShowConfetti(true); }} />;
             case 'boleto_details': return <BoletoDetails invoice={selectedInvoice} onBack={() => setPaymentStep('list')} />;
             default: return null;
@@ -431,8 +438,8 @@ const PageFaturas: React.FC<PageFaturasProps> = ({ mpPublicKey }) => {
                     <>
                         {viewTab === 'open' && (
                             <div className="space-y-6">
-                                {crediarioGroups.length > 0 && <div className="space-y-3"><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-indigo-500">📱 Crediário</h3>{crediarioGroups.map(group => <PurchaseGroupCard key={group.id} group={group} showValues={showValues} onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); }} />)}</div>}
-                                {avistaGroups.length > 0 && <div className="space-y-3"><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-green-500">🛍️ Vendas à Vista / Entradas</h3>{avistaGroups.map(group => <PurchaseGroupCard key={group.id} group={group} showValues={showValues} onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); }} />)}</div>}
+                                {crediarioGroups.length > 0 && <div className="space-y-3"><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-indigo-500">📱 Crediário</h3>{crediarioGroups.map(group => <PurchaseGroupCard key={group.id} group={group} showValues={showValues} onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); setUseCoins(false); }} />)}</div>}
+                                {avistaGroups.length > 0 && <div className="space-y-3"><h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-2 border-l-2 border-green-500">🛍️ Vendas à Vista / Entradas</h3>{avistaGroups.map(group => <PurchaseGroupCard key={group.id} group={group} showValues={showValues} onPay={(inv) => { setSelectedInvoice(inv); setPaymentStep('select_method'); setUseCoins(false); }} />)}</div>}
                             </div>
                         )}
                         {viewTab === 'paid' && <div className="space-y-3">{paidInvoices.map(inv => <PaymentHistoryCard key={inv.id} invoice={inv} showValues={showValues} />)}</div>}

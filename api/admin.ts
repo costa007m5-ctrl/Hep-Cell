@@ -10,7 +10,6 @@ function getSupabaseAdmin() {
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// Inicializa Mercado Pago
 async function getMercadoPagoClient(supabase: any) {
     const { data } = await supabase.from('system_settings').select('value').eq('key', 'mp_access_token').single();
     const accessToken = data?.value || process.env.MERCADO_PAGO_ACCESS_TOKEN;
@@ -18,7 +17,6 @@ async function getMercadoPagoClient(supabase: any) {
     return new MercadoPagoConfig({ accessToken });
 }
 
-// Helper JSON IA
 function extractJson(text: string) {
     try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -47,10 +45,33 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
     }
 }
 
+async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
+    const { rawText } = req.body;
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+        const systemInstruction = "Você é um especialista em extração de dados de produtos. Receba um texto bruto com especificações e retorne um JSON estrito com os campos: name, brand, model, processor, ram, storage, display, os, camera, battery, connectivity, color, description_short (resumo comercial).";
+        
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: rawText,
+            config: { 
+                systemInstruction, 
+                responseMimeType: "application/json" 
+            }
+        });
+
+        const jsonText = response.text || "{}";
+        const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '');
+        
+        return res.json(JSON.parse(cleanJson));
+    } catch (error: any) {
+        return res.status(500).json({ error: "Erro ao processar com IA." });
+    }
+}
+
 async function handleGetOrders(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     try {
-        // Traz todos os pedidos e faz o join com profiles para pegar nome do cliente
         const { data, error } = await supabase
             .from('orders')
             .select(`
@@ -61,7 +82,6 @@ async function handleGetOrders(res: VercelResponse) {
         
         if (error) {
             console.error("Erro ao buscar orders:", error);
-            // Se a tabela não existir, retorna array vazio em vez de erro 500
             if (error.code === '42P01') return res.json([]); 
             throw error;
         }
@@ -86,7 +106,6 @@ async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) 
             throw new Error(`Erro no banco: ${error.message}`);
         }
         
-        // Notificação ao Cliente
         if (status) {
              const { data: order } = await supabase.from('orders').select('user_id').eq('id', orderId).single();
              if (order) {
@@ -96,9 +115,7 @@ async function handleUpdateOrderStatus(req: VercelRequest, res: VercelResponse) 
                      'out_for_delivery': 'saiu para entrega',
                      'delivered': 'foi entregue'
                  };
-                 
                  const msg = `Seu pedido ${statusLabels[status] || 'teve o status atualizado'}. ${notes ? `Obs: ${notes}` : ''}`;
-                 
                  await supabase.from('notifications').insert({
                      user_id: order.user_id,
                      title: 'Atualização do Pedido',
@@ -141,14 +158,12 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     } = req.body;
 
     try {
-        // 1. Deduzir coins se usado
         if (coinsUsed > 0) {
             const { data: profile } = await supabase.from('profiles').select('coins_balance').eq('id', userId).single();
             if (!profile || profile.coins_balance < coinsUsed) throw new Error("Saldo insuficiente.");
             await supabase.from('profiles').update({ coins_balance: profile.coins_balance - coinsUsed }).eq('id', userId);
         }
 
-        // 2. Gerar Contrato (apenas crediário normalmente)
         let contractId = null;
         if (signature) {
             const { data: contract } = await supabase.from('contracts').insert({
@@ -163,11 +178,9 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             contractId = contract?.id;
         }
 
-        // 3. Gerar Faturas
         const invoices = [];
         const today = new Date();
         
-        // Entrada ou Venda à Vista
         if (downPayment > 0) {
             invoices.push({
                 user_id: userId,
@@ -208,17 +221,13 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
             }
         }
         
-        // Inserir Faturas
         if (invoices.length > 0) {
             await supabase.from('invoices').insert(invoices);
         }
 
-        // 4. CRIAR O PEDIDO (ESSENCIAL PARA APARECER NO RASTREIO)
-        // Corrigido: Agora cria o registro na tabela orders para TODOS os tipos de venda
-        const orderStatus = saleType === 'direct' ? 'processing' : 'processing'; // Ambos começam como processing
-        const trackingNote = saleType === 'direct' 
-            ? "Aguardando pagamento para envio." 
-            : "Aguardando aprovação do crédito/entrada.";
+        // CRIA O PEDIDO NA TABELA ORDERS
+        const orderStatus = saleType === 'direct' ? 'processing' : 'processing'; 
+        const trackingNote = saleType === 'direct' ? "Aguardando pagamento para envio." : "Aguardando aprovação do crédito/entrada.";
 
         const { error: orderError } = await supabase.from('orders').insert({
             user_id: userId,
@@ -232,7 +241,6 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
 
         if (orderError) {
             console.error("Erro ao criar pedido na tabela orders:", orderError);
-            // Não falha a requisição inteira se apenas o log do pedido falhar, mas loga
         }
 
         return res.json({ success: true, paymentData: { type: saleType, invoicesCreated: invoices.length } });
@@ -242,16 +250,65 @@ async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
-    const { rawText } = req.body;
+async function handleSyncMissingOrders(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `Analise: "${rawText}". Extraia JSON de produto.`,
-            config: { responseMimeType: "application/json" }
-        });
-        return res.json(extractJson(response.text || '{}') || {});
+        // Busca faturas recentes que indicam inicio de venda
+        const { data: invoices } = await supabase
+            .from('invoices')
+            .select('*')
+            .or('notes.ilike.%ENTRADA%,notes.ilike.%VENDA_AVISTA%')
+            .order('created_at', { ascending: false });
+
+        if (!invoices) return res.json({ message: 'Nenhuma fatura base encontrada.' });
+
+        let createdCount = 0;
+
+        for (const invoice of invoices) {
+            const invDate = new Date(invoice.created_at);
+            const minDate = new Date(invDate.getTime() - 60000).toISOString();
+            const maxDate = new Date(invDate.getTime() + 60000).toISOString();
+
+            // Verifica se já existe um pedido para este usuário neste horário
+            const { data: existingOrder } = await supabase
+                .from('orders')
+                .select('id')
+                .eq('user_id', invoice.user_id)
+                .gte('created_at', minDate)
+                .lte('created_at', maxDate)
+                .maybeSingle();
+
+            if (!existingOrder) {
+                // Recupera valor total (aproximado)
+                let realTotal = invoice.amount;
+                let productName = 'Produto Recuperado';
+                
+                if (invoice.notes && invoice.notes.includes('|')) {
+                    const parts = invoice.notes.split('|');
+                    if(parts.length >= 3) {
+                        const remaining = parseFloat(parts[2]);
+                        realTotal = invoice.amount + remaining;
+                    }
+                }
+                
+                if (invoice.month.includes('-')) {
+                    productName = invoice.month.split('-')[1].trim();
+                }
+
+                await supabase.from('orders').insert({
+                    user_id: invoice.user_id,
+                    status: 'processing',
+                    total: realTotal,
+                    created_at: invoice.created_at, 
+                    payment_method: invoice.notes?.includes('VENDA_AVISTA') ? 'pix' : 'crediario',
+                    tracking_notes: 'Pedido recuperado automaticamente.',
+                    items_snapshot: [{ name: productName, price: realTotal }]
+                });
+                createdCount++;
+            }
+        }
+
+        return res.json({ success: true, recovered: createdCount });
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
     }
@@ -259,14 +316,11 @@ async function handleAutoFillProduct(req: VercelRequest, res: VercelResponse) {
 
 async function handleSetupDatabase(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
-    // Script básico para habilitar exec_sql
     const sql = `CREATE TABLE IF NOT EXISTS action_logs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), action_type TEXT, status TEXT, description TEXT, details JSONB, created_at TIMESTAMPTZ DEFAULT now());`;
     try {
-        // Tenta rodar via RPC se existir
         await supabase.rpc('exec_sql', { sql_query: sql });
         return res.json({ success: true });
     } catch (e: any) { 
-        // Se falhar (RPC nao existe), instrui usuario
         return res.status(500).json({ error: e.message + " - Instale a função exec_sql no Supabase." }); 
     }
 }
@@ -326,7 +380,6 @@ async function handleApproveInvoiceManual(req: VercelRequest, res: VercelRespons
     }
 }
 
-// --- WEBHOOK LOGS ---
 async function handleGetWebhookLogs(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     try {
@@ -382,9 +435,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (isRoute('/test-supabase')) return res.json({ success: true });
         if (isRoute('/chat')) return await handleChat(req, res);
         if (isRoute('/setup-database')) return await handleSetupDatabase(res);
-        if (isRoute('/execute-sql')) return await handleExecuteSql(req, res); // Novo endpoint
+        if (isRoute('/execute-sql')) return await handleExecuteSql(req, res);
         if (isRoute('/auto-fill-product')) return await handleAutoFillProduct(req, res);
         if (isRoute('/create-sale')) return await handleCreateSale(req, res);
+        if (isRoute('/sync-orders')) return await handleSyncMissingOrders(res); // Novo Endpoint
         if (isRoute('/get-orders')) return await handleGetOrders(res);
         if (isRoute('/update-order')) return await handleUpdateOrderStatus(req, res);
         if (isRoute('/manage-coins')) return await handleManageCoins(req, res);

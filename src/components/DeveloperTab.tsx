@@ -10,66 +10,70 @@ const DeveloperTab: React.FC = () => {
     const { addToast } = useToast();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
-    const SETUP_FUNCTION_SQL = `-- PASSO 1: COLE ISSO NO SQL EDITOR DO SUPABASE
-CREATE OR REPLACE FUNCTION exec_sql(sql_query TEXT)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  EXECUTE sql_query;
-END;
-$$;`;
-
-    // SQL ATUALIZADO COM A TABELA ORDERS COMPLETA
-    const REPAIR_SQL = `-- PASSO 2: ATUALIZAÇÃO DA ESTRUTURA
--- Tabela de Produtos
-ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS model TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS category TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
-ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 0;
-
--- Tabela de Pedidos (Orders) - CORREÇÃO DE RASTREIO
-CREATE TABLE IF NOT EXISTS orders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  status TEXT DEFAULT 'processing',
-  total NUMERIC DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT now()
+    const REPAIR_SQL = `-- RODAR ESTE SQL PARA CORRIGIR TABELA ORDERS
+CREATE TABLE IF NOT EXISTS public.orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    status TEXT DEFAULT 'processing',
+    total NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_notes TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS items_snapshot JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS address_snapshot JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS tracking_notes TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS items_snapshot JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS address_snapshot JSONB DEFAULT '{}'::jsonb;
 
--- Garante permissões (Policies simples para teste)
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public read orders" ON orders FOR SELECT USING (true);
-CREATE POLICY "Public insert orders" ON orders FOR INSERT WITH CHECK (true);
-CREATE POLICY "Public update orders" ON orders FOR UPDATE USING (true);
+CREATE TABLE IF NOT EXISTS public.action_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action_type TEXT,
+    status TEXT,
+    description TEXT,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public read orders" ON public.orders;
+CREATE POLICY "Public read orders" ON public.orders FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Public insert orders" ON public.orders;
+CREATE POLICY "Public insert orders" ON public.orders FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Public update orders" ON public.orders;
+CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
 `;
 
     const handleAutoRepair = async () => {
         setIsLoading(true);
         setMessage(null);
         try {
-            const res = await fetch('/api/admin/setup-database', { method: 'POST' });
+            // Tenta criar via endpoint se RPC estiver ativo
+            const res = await fetch('/api/admin/execute-sql', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sql: REPAIR_SQL })
+            });
+            
             const data = await res.json();
             if (res.ok) {
-                setMessage({ text: 'Banco de dados sincronizado e tabela de Pedidos corrigida!', type: 'success' });
-                addToast("Sucesso! Tabela Orders atualizada.", "success");
+                setMessage({ text: 'Tabelas corrigidas via comando remoto!', type: 'success' });
             } else {
-                if (data.error?.includes('exec_sql')) {
-                    throw new Error("Motor SQL não encontrado. Siga as instruções do 'Passo 1' abaixo.");
-                }
-                throw new Error(data.error || "Erro desconhecido.");
+                // Se falhar (sem RPC), instrui manual
+                throw new Error("Não foi possível rodar automático. Copie o SQL abaixo e rode no Supabase.");
             }
+        } catch (e: any) {
+            setMessage({ text: e.message, type: 'error' });
+        } finally { setIsLoading(false); }
+    };
+
+    const handleSyncOrders = async () => {
+        setIsLoading(true);
+        setMessage(null);
+        try {
+            const res = await fetch('/api/admin/sync-orders', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) {
+                setMessage({ text: `Sucesso! ${data.recovered} pedidos recuperados do histórico de faturas.`, type: 'success' });
+            } else throw new Error(data.error);
         } catch (e: any) {
             setMessage({ text: e.message, type: 'error' });
         } finally { setIsLoading(false); }
@@ -104,76 +108,65 @@ CREATE POLICY "Public update orders" ON orders FOR UPDATE USING (true);
             {message && <div className="animate-pop-in"><Alert message={message.text} type={message.type} /></div>}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* REPARO AUTOMÁTICO */}
-                <section className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-indigo-100 dark:border-indigo-900 shadow-xl flex flex-col">
+                {/* SINCRONIZAÇÃO */}
+                <section className="bg-indigo-50 dark:bg-indigo-900/20 p-8 rounded-[2rem] border border-indigo-100 dark:border-indigo-900 shadow-xl flex flex-col">
                     <div className="mb-6">
-                        <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg mb-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                        </div>
-                        <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase">Sincronizar Pedidos</h3>
-                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                            Clique aqui se estiver vendo erro ao salvar status ou se os pedidos sumiram. Isso cria as colunas faltantes.
+                        <h3 className="text-xl font-black text-indigo-900 dark:text-white uppercase">Recuperar Pedidos</h3>
+                        <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-2 leading-relaxed">
+                            Seus pedidos sumiram mas as faturas estão lá? Clique aqui para recriar os pedidos com base no histórico de faturas.
                         </p>
                     </div>
                     <button 
-                        onClick={handleAutoRepair} disabled={isLoading}
+                        onClick={handleSyncOrders} disabled={isLoading}
                         className="mt-auto w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 disabled:opacity-50"
                     >
-                        {isLoading ? <LoadingSpinner /> : 'EXECUTAR REPARO AGORA'}
+                        {isLoading ? <LoadingSpinner /> : 'SINCRONIZAR PEDIDOS ANTIGOS'}
                     </button>
                 </section>
 
-                {/* TERMINAL MANUAL */}
-                <section className="bg-slate-900 p-8 rounded-[2rem] border border-white/10 shadow-2xl flex flex-col">
-                    <div className="flex items-center gap-2 mb-4">
-                         <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                         <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                         <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                         <span className="text-[10px] font-mono text-emerald-500/50 uppercase ml-2">Terminal SQL</span>
+                {/* SQL REPAIR */}
+                <section className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-xl flex flex-col">
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase mb-4">Reparo SQL</h3>
+                    <p className="text-xs text-slate-500 mb-4">Copie e rode no SQL Editor do Supabase se o automático falhar.</p>
+                    <div className="relative group flex-1">
+                        <pre className="h-full p-4 bg-slate-900 text-emerald-400 rounded-xl text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-slate-700">
+                            {REPAIR_SQL}
+                        </pre>
+                        <button 
+                            onClick={() => { navigator.clipboard.writeText(REPAIR_SQL); addToast("SQL Copiado!", "success"); }}
+                            className="absolute top-2 right-2 px-3 py-1 bg-white/20 hover:bg-white/30 text-white text-[9px] font-black rounded uppercase transition-colors"
+                        >
+                            Copiar
+                        </button>
                     </div>
-                    <textarea 
-                        value={sqlQuery} onChange={e => setSqlQuery(e.target.value)}
-                        placeholder="Digite o comando SQL..."
-                        className="flex-1 w-full min-h-[120px] bg-black/50 border border-white/5 rounded-2xl p-4 font-mono text-[11px] text-emerald-400 focus:ring-1 focus:ring-emerald-500 outline-none mb-4"
-                    />
                     <button 
-                        onClick={handleRunManualSql} disabled={isLoading || !sqlQuery.trim()}
-                        className="w-full py-3 bg-emerald-500 text-black rounded-xl font-black text-[10px] uppercase active:scale-95 disabled:opacity-30"
+                        onClick={handleAutoRepair} disabled={isLoading}
+                        className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-xl font-black text-xs uppercase shadow-lg active:scale-95 disabled:opacity-50"
                     >
-                        EXECUTAR SQL MANUAL
+                        TENTAR REPARO AUTOMÁTICO
                     </button>
                 </section>
             </div>
 
-            {/* GUIA DE CONFIGURAÇÃO SUPABASE */}
-            <section className="bg-amber-50 dark:bg-amber-900/10 p-8 rounded-[2.5rem] border border-amber-200 dark:border-amber-800/50">
-                <div className="flex items-center gap-4 mb-6">
-                    <div className="w-14 h-14 bg-amber-500 text-white rounded-2xl flex items-center justify-center shadow-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-black text-amber-900 dark:text-amber-200 uppercase tracking-tighter">Instalação Inicial</h3>
-                        <p className="text-xs text-amber-700 dark:text-amber-400">Necessário apenas na primeira vez.</p>
-                    </div>
+            {/* TERMINAL MANUAL */}
+            <section className="bg-slate-900 p-8 rounded-[2rem] border border-white/10 shadow-2xl flex flex-col">
+                <div className="flex items-center gap-2 mb-4">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span className="text-[10px] font-mono text-emerald-500/50 uppercase ml-2">Terminal SQL</span>
                 </div>
-
-                <div className="space-y-6">
-                    <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-amber-200">
-                        <p className="text-sm font-bold text-slate-800 dark:text-white mb-2">Passo 1: Habilitar Motor SQL</p>
-                        <p className="text-xs text-slate-500 mb-4">Cole no SQL Editor do Supabase:</p>
-                        <div className="relative group">
-                            <pre className="p-4 bg-slate-900 text-emerald-400 rounded-xl text-[10px] font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed border border-white/5">
-                                {SETUP_FUNCTION_SQL}
-                            </pre>
-                            <button 
-                                onClick={() => { navigator.clipboard.writeText(SETUP_FUNCTION_SQL); addToast("Copiado!", "success"); }}
-                                className="absolute top-2 right-2 px-3 py-1 bg-white/10 hover:bg-white/20 text-white text-[9px] font-black rounded uppercase transition-colors"
-                            >
-                                Copiar
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <textarea 
+                    value={sqlQuery} onChange={e => setSqlQuery(e.target.value)}
+                    placeholder="Digite comando SQL manual..."
+                    className="flex-1 w-full min-h-[120px] bg-black/50 border border-white/5 rounded-2xl p-4 font-mono text-[11px] text-emerald-400 focus:ring-1 focus:ring-emerald-500 outline-none mb-4"
+                />
+                <button 
+                    onClick={handleRunManualSql} disabled={isLoading || !sqlQuery.trim()}
+                    className="w-full py-3 bg-emerald-500 text-black rounded-xl font-black text-[10px] uppercase active:scale-95 disabled:opacity-30"
+                >
+                    EXECUTAR
+                </button>
             </section>
         </div>
     );

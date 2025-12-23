@@ -1,11 +1,14 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Invoice } from '../types';
 
 interface PaymentMethodSelectorProps {
   invoice: Invoice & { originalAmount?: number; discountValue?: number };
   onSelectMethod: (method: string) => void;
   onBack: () => void;
+  userCoins?: number; // Novo: Recebe o saldo de coins
+  onToggleCoins?: (use: boolean) => void; // Novo: Handler para o toggle
+  useCoins?: boolean; // Novo: Estado atual
 }
 
 const CreditCardIcon = () => (
@@ -43,7 +46,14 @@ const ExternalLinkIcon = () => (
     </div>
 );
 
-const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, onSelectMethod, onBack }) => {
+const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ 
+    invoice, 
+    onSelectMethod, 
+    onBack, 
+    userCoins = 0, 
+    onToggleCoins, 
+    useCoins = false 
+}) => {
 
     const paymentOptions = [
       { 
@@ -84,7 +94,15 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
       },
     ];
 
-    const hasDiscount = invoice.discountValue && invoice.discountValue > 0;
+    // Cálculos de desconto
+    // O valor da fatura que vem no prop 'invoice' já pode estar com desconto se o pai manipular, 
+    // mas aqui recalculamos visualmente para garantir
+    const originalAmount = invoice.originalAmount || invoice.amount;
+    
+    // Regra: 100 Coins = R$ 1.00
+    // O desconto máximo não pode exceder o valor da fatura (menos 1 centavo pra validar pgto)
+    const coinDiscountValue = useCoins ? Math.min(userCoins / 100, originalAmount - 0.01) : 0;
+    const finalAmount = Math.max(0.01, originalAmount - coinDiscountValue);
 
     return (
       <div className="w-full max-w-md bg-white dark:bg-slate-800 rounded-3xl shadow-2xl transform transition-all animate-fade-in overflow-hidden">
@@ -97,22 +115,47 @@ const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({ invoice, 
             <div className="relative z-10 text-center">
                 <p className="text-sm text-slate-300 font-medium uppercase tracking-wider mb-1">Total a Pagar</p>
                 <h2 className="text-4xl font-bold tracking-tight mb-2">
-                    {invoice.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {finalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </h2>
                 <p className="text-sm text-slate-400">
                     Fatura de {invoice.month}
                 </p>
 
-                {hasDiscount && (
-                    <div className="mt-4 inline-flex items-center gap-2 bg-green-500/20 border border-green-500/30 rounded-full px-4 py-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                        <span className="text-xs font-bold text-green-300">
-                            Economia de {invoice.discountValue?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                {/* Badge de desconto aplicado */}
+                {useCoins && coinDiscountValue > 0 && (
+                    <div className="mt-4 inline-flex items-center gap-2 bg-yellow-500/20 border border-yellow-500/30 rounded-full px-4 py-1.5 animate-pop-in">
+                        <span className="w-4 h-4 rounded-full bg-yellow-400 text-yellow-900 flex items-center justify-center font-bold text-[10px]">RC</span>
+                        <span className="text-xs font-bold text-yellow-300">
+                            Desconto de R$ {coinDiscountValue.toFixed(2)}
                         </span>
                     </div>
                 )}
             </div>
         </div>
+
+        {/* Toggle de Coins (Se tiver saldo) */}
+        {userCoins > 0 && onToggleCoins && (
+            <div className="mx-6 mt-6 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-xl font-black">
+                        RC
+                    </div>
+                    <div>
+                        <p className="text-sm font-bold text-slate-800 dark:text-white">Usar Relp Coins</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Saldo: {userCoins} (R$ {(userCoins/100).toFixed(2)})</p>
+                    </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={useCoins} 
+                        onChange={(e) => onToggleCoins(e.target.checked)} 
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                </label>
+            </div>
+        )}
 
         {/* Opções de Pagamento */}
         <div className="p-6 space-y-4 bg-white dark:bg-slate-800">

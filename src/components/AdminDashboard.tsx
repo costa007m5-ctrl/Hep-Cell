@@ -10,7 +10,8 @@ import CreditAnalysisTab from './CreditAnalysisTab';
 import OrdersManagerTab from './OrdersManagerTab';
 import CoinsManagerTab from './CoinsManagerTab'; 
 import PaymentsVerifierTab from './PaymentsVerifierTab';
-import WebhookManagerTab from './WebhookManagerTab'; // Novo componente
+import WebhookManagerTab from './WebhookManagerTab';
+import AdminOverviewTab from './AdminOverviewTab'; // Importa o novo componente
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -38,7 +39,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Resumo', icon: Icons.Dashboard },
     { id: 'audit', label: 'Auditoria (Pagamentos)', icon: Icons.Audit },
-    { id: 'webhooks', label: 'Webhooks MP', icon: Icons.Webhook }, // Novo
+    { id: 'webhooks', label: 'Webhooks MP', icon: Icons.Webhook },
     { id: 'orders', label: 'Gestão de Pedidos', icon: Icons.Orders },
     { id: 'coins', label: 'Gestão de Coins', icon: Icons.Coins },
     { id: 'status', label: 'Integrações (API)', icon: Icons.Status },
@@ -52,16 +53,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   const renderContent = () => {
       switch(currentView) {
-          case 'dashboard': return (
-              <div className="space-y-6 animate-fade-in">
-                  <div className="bg-indigo-50 dark:bg-indigo-900/20 p-8 rounded-3xl border border-indigo-100 dark:border-indigo-800 text-center">
-                       <h3 className="text-xl font-bold text-indigo-900 dark:text-indigo-200">Painel Relp Cell Administrativo</h3>
-                       <p className="text-indigo-600 dark:text-indigo-400 text-sm mt-1">Gerencie seu crediário, coins e catálogo com IA integrada.</p>
-                  </div>
-              </div>
-          );
+          case 'dashboard': return <AdminOverviewTab />; // Novo componente
           case 'audit': return <PaymentsVerifierTab />;
-          case 'webhooks': return <WebhookManagerTab />; // Renderiza nova aba
+          case 'webhooks': return <WebhookManagerTab />;
           case 'orders': return <OrdersManagerTab />;
           case 'coins': return <CoinsManagerTab />;
           case 'status': return <StatusTab />;
@@ -113,8 +107,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
             </div>
         </aside>
 
-        <main className="flex-1 h-full overflow-y-auto p-4 lg:p-8 relative custom-scrollbar">
-             <div className="max-w-5xl mx-auto pb-20">
+        <main className="flex-1 h-full overflow-y-auto p-4 lg:p-8 relative custom-scrollbar bg-slate-50 dark:bg-slate-950">
+             <div className="max-w-5xl mx-auto pb-20 min-h-screen">
                 {renderContent()}
              </div>
         </main>
