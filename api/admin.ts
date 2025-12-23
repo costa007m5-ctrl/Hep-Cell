@@ -340,11 +340,11 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             return res.json(JSON.parse(response.text || "{}"));
         }
         if (mode === 'image_creation') {
-            // Tentativa 1: Gemini 2.5 Flash Image
+            // Tentativa 1: Gemini 2.5 Flash Image (Mais rápido/barato)
             try {
                 const response = await ai.models.generateContent({
                     model: "gemini-2.5-flash-image",
-                    contents: { parts: [{ text: `Create a professional e-commerce banner image. High resolution, advertising style. Theme: ${prompt}` }] },
+                    contents: { parts: [{ text: `Generate a professional e-commerce banner image. High quality, advertising style. Theme: ${prompt}` }] },
                     config: { 
                         imageConfig: { aspectRatio: "16:9" } 
                     },
@@ -354,28 +354,31 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                         return res.json({ image: `data:image/png;base64,${part.inlineData.data}` });
                     }
                 }
-            } catch (flashError) {
-                console.warn("Gemini Flash Image falhou, tentando Imagen 3...", flashError);
+            } catch (flashError: any) {
+                console.warn("Gemini Flash Image falhou, tentando Pro...", flashError.message);
             }
 
-            // Tentativa 2: Imagen 3 (Fallback robusto)
+            // Tentativa 2: Gemini 3 Pro Image (Fallback para cotas/erros do Flash)
             try {
-                const response = await ai.models.generateImages({
-                    model: 'imagen-3.0-generate-001',
-                    prompt: `Professional e-commerce banner image, advertising style, high quality. Theme: ${prompt}`,
+                const response = await ai.models.generateContent({
+                    model: "gemini-3-pro-image-preview",
+                    contents: { parts: [{ text: `Professional e-commerce banner image, advertising style, high quality. Theme: ${prompt}` }] },
                     config: {
-                        numberOfImages: 1,
-                        aspectRatio: '16:9',
-                        outputMimeType: 'image/jpeg',
+                        imageConfig: { 
+                            aspectRatio: "16:9",
+                            imageSize: "1K" 
+                        }
                     },
                 });
                 
-                const base64 = response.generatedImages?.[0]?.image?.imageBytes;
-                if (base64) {
-                    return res.json({ image: `data:image/jpeg;base64,${base64}` });
+                for (const part of response.candidates?.[0]?.content?.parts || []) {
+                    if (part.inlineData) {
+                        return res.json({ image: `data:image/png;base64,${part.inlineData.data}` });
+                    }
                 }
-            } catch (imagenError: any) {
-                 throw new Error(`Falha em ambos modelos de imagem. Erro: ${imagenError.message}`);
+            } catch (proError: any) {
+                 // Se ambos falharem (ex: cota excedida em ambos), retornamos o erro do Pro.
+                 throw new Error(`Falha na geração de imagem (Cota ou Serviço): ${proError.message}`);
             }
 
             throw new Error("Não foi possível gerar a imagem (sem dados retornados).");
