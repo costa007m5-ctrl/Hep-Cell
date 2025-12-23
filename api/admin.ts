@@ -404,6 +404,60 @@ async function handleSyncMissingOrders(res: VercelResponse) {
     return res.json({ success: true, recovered: count });
 }
 
+// 8. TEST HEALTH CHECKS
+async function handleTestSupabase(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    const start = Date.now();
+    try {
+        await supabase.from('profiles').select('id').limit(1);
+        const latency = Date.now() - start;
+        return res.json({ message: 'Conectado', details: { latency: `${latency}ms` } });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleTestGemini(res: VercelResponse) {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'API Key não configurada (API_KEY)' });
+
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const start = Date.now();
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: "Ping. Reply only with Pong.",
+        });
+        const latency = Date.now() - start;
+        return res.json({ 
+            message: 'Operacional', 
+            details: { 
+                latency: `${latency}ms`,
+                response: response.text,
+                remainingEstimate: 'N/A' // Quota info not directly available in response
+            } 
+        });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
+async function handleTestMercadoPago(res: VercelResponse) {
+    const supabase = getSupabaseAdmin();
+    try {
+        const client = await getMercadoPagoClient(supabase);
+        // Teste leve: Validar token acessando a API de métodos de pagamento
+        const headers = { 'Authorization': `Bearer ${client.accessToken}` };
+        const apiRes = await fetch('https://api.mercadopago.com/v1/payment_methods', { headers });
+        
+        if (!apiRes.ok) throw new Error('Token inválido ou expirado');
+        
+        return res.json({ message: 'Autorizado', details: { status: apiRes.status } });
+    } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+    }
+}
+
 // --- ROTEADOR PRINCIPAL ---
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = req.url || '';
@@ -438,6 +492,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         if (isRoute('generate-banner')) return await handleGenerateBanner(req, res); // IA: Texto ou Imagem
         if (isRoute('edit-image')) return await handleGenerateBanner(req, res); // Deprecated alias
+
+        // STATUS & HEALTH
+        if (isRoute('test-supabase')) return await handleTestSupabase(res);
+        if (isRoute('test-gemini')) return await handleTestGemini(res);
+        if (isRoute('test-mercadopago')) return await handleTestMercadoPago(res);
 
         // UTILS & DB
         if (isRoute('chat')) return await handleChat(req, res);
