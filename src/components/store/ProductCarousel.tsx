@@ -11,7 +11,6 @@ interface ProductCarouselProps {
 }
 
 const ProductCard: React.FC<{ product: Product; onClick: () => void }> = ({ product, onClick }) => {
-    // Cálculo de parcela simples (sem juros visualmente para atrair)
     const installmentValue = (product.price / 12).toFixed(2).replace('.', ',');
     const discount = product.promotional_price ? Math.round(((product.price - product.promotional_price) / product.price) * 100) : 0;
     const finalPrice = product.promotional_price || product.price;
@@ -19,73 +18,68 @@ const ProductCard: React.FC<{ product: Product; onClick: () => void }> = ({ prod
     return (
         <button 
             onClick={onClick}
-            className="flex-shrink-0 w-40 sm:w-48 bg-white dark:bg-slate-800 rounded-lg shadow-sm hover:shadow-md overflow-hidden snap-start text-left border border-slate-100 dark:border-slate-700 relative group transition-all duration-300"
+            className="flex-shrink-0 w-36 sm:w-44 bg-white dark:bg-slate-800 rounded-2xl shadow-sm hover:shadow-lg overflow-hidden snap-start text-left border border-slate-100 dark:border-slate-700 relative group transition-all duration-300 transform hover:-translate-y-1"
         >
-            <div className="relative w-full h-40 bg-white p-4 flex items-center justify-center border-b border-slate-50 dark:border-slate-700">
+            <div className="relative w-full h-36 bg-white p-3 flex items-center justify-center">
                 <img 
-                    src={product.image_url || 'https://via.placeholder.com/400x400.png/E2E8F0/475569?text=Relp'} 
+                    src={product.image_url || 'https://placehold.co/400x400/png?text=Relp'} 
                     alt={product.name}
-                    className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300 mix-blend-multiply dark:mix-blend-normal"
+                    className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-500"
                     loading="lazy"
                 />
-                {product.free_shipping && (
-                    <span className="absolute bottom-2 left-2 bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">
-                        FRETE GRÁTIS
+                {discount > 0 && (
+                    <span className="absolute top-2 left-2 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm">
+                        -{discount}%
                     </span>
                 )}
             </div>
             
             <div className="p-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 h-8 mb-1 leading-tight">{product.name}</p>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 h-8 mb-1 leading-tight font-medium">{product.name}</p>
                 
                 <div className="mt-1">
-                    {discount > 0 && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-400 line-through">R$ {product.price.toLocaleString('pt-BR')}</span>
-                            <span className="text-[10px] text-green-600 font-bold">{discount}% OFF</span>
-                        </div>
-                    )}
-                    
-                    <div className="flex items-baseline gap-1">
-                        <span className="text-xs font-medium text-slate-900 dark:text-white">R$</span>
-                        <span className="text-lg font-bold text-slate-900 dark:text-white">
-                            {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    <div className="flex flex-col">
+                        {discount > 0 && <span className="text-[10px] text-slate-400 line-through">R$ {product.price.toLocaleString('pt-BR')}</span>}
+                        <span className="text-sm font-black text-slate-900 dark:text-white">
+                            R$ {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
                         </span>
                     </div>
                     
-                    <p className="text-[10px] text-green-600 dark:text-green-400 font-medium">
-                        em 12x R$ {installmentValue}
+                    <p className="text-[9px] text-green-600 dark:text-green-400 font-bold mt-0.5">
+                        12x R$ {installmentValue}
                     </p>
-
-                    {product.is_full && (
-                        <p className="text-[10px] text-indigo-600 font-bold mt-1 flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" /></svg>
-                            Chega amanhã
-                        </p>
-                    )}
                 </div>
             </div>
         </button>
     );
 };
 
-
 const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products, onProductClick, linkText, onLinkClick }) => {
     if (products.length === 0) return null;
 
     return (
-        <section className="py-4 bg-white dark:bg-slate-900 border-t border-b border-slate-100 dark:border-slate-800 mb-3">
+        <section className="mb-6 animate-fade-in-up">
+            <style>{`
+                .scrollbar-hide::-webkit-scrollbar {
+                    display: none;
+                }
+                .scrollbar-hide {
+                    -ms-overflow-style: none;
+                    scrollbar-width: none;
+                }
+            `}</style>
             <div className="flex justify-between items-center px-4 mb-3">
-                <h2 className="text-lg font-bold text-slate-800 dark:text-white tracking-tight">
+                <h2 className="text-base font-black text-slate-900 dark:text-white tracking-tight uppercase">
                     {title}
                 </h2>
                 {linkText && (
-                    <button onClick={onLinkClick} className="text-xs font-bold text-indigo-600 hover:text-indigo-700">
-                        {linkText} ›
+                    <button onClick={onLinkClick} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                        {linkText} <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" /></svg>
                     </button>
                 )}
             </div>
-            <div className="flex space-x-3 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory scroll-smooth">
+            {/* Removida borda inferior e adicionado padding bottom para sombra dos cards não cortar */}
+            <div className="flex space-x-3 overflow-x-auto px-4 pb-4 scrollbar-hide snap-x snap-mandatory scroll-smooth">
                 {products.map(product => (
                     <ProductCard 
                         key={product.id} 

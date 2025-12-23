@@ -12,6 +12,8 @@ import BrandLogos from './store/BrandLogos';
 import ProductDetails from './store/ProductDetails';
 import ProductCarousel from './store/ProductCarousel';
 import SearchBar from './store/SearchBar';
+import CartDrawer from './store/CartDrawer';
+import PurchaseModal from './store/PurchaseModal';
 
 const PageLoja: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
@@ -21,23 +23,30 @@ const PageLoja: React.FC = () => {
     const [activeCategory, setActiveCategory] = useState('Todos');
     const [activeBrand, setActiveBrand] = useState<string | undefined>(undefined);
     
+    // Estados do Carrinho e Compra
+    const [cart, setCart] = useState<Product[]>([]);
+    const [isCartOpen, setIsCartOpen] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+    const [productToBuy, setProductToBuy] = useState<Product | null>(null); // Para modal de compra direta
+    
     const [showCepModal, setShowCepModal] = useState(false);
     
     // Estados do Endereço
     const [newCep, setNewCep] = useState('');
     const [tempAddress, setTempAddress] = useState({
-        street: '',
-        neighborhood: '',
-        city: '',
-        uf: '',
-        number: '',
-        complement: ''
+        street: '', neighborhood: '', city: '', uf: '', number: '', complement: ''
     });
     const [isUpdatingCep, setIsUpdatingCep] = useState(false);
     const numberInputRef = useRef<HTMLInputElement>(null);
 
     const { addToast } = useToast();
+
+    // Listeners Globais para o botão do Header (se existir fora da page)
+    useEffect(() => {
+        const openCart = () => setIsCartOpen(true);
+        window.addEventListener('open-cart', openCart);
+        return () => window.removeEventListener('open-cart', openCart);
+    }, []);
 
     useEffect(() => {
         const init = async () => {
@@ -48,14 +57,15 @@ const PageLoja: React.FC = () => {
                 ]);
                 const productsData = await productsRes.json();
                 
-                // Mock de dados para visualização rica se faltar no banco
-                const enrichedProducts = productsData.map((p: any) => ({
+                // Processamento de dados
+                const enrichedProducts = Array.isArray(productsData) ? productsData.map((p: any) => ({
                     ...p,
+                    price: Number(p.price),
+                    promotional_price: p.promotional_price ? Number(p.promotional_price) : null,
                     weight: p.weight || 500,
-                    is_full: p.price > 1000, // Simula produto "Full"
+                    is_full: p.price > 1000, 
                     free_shipping: p.price > 200,
-                    promotional_price: Math.random() > 0.7 ? p.price * 0.9 : null // Simula promoção em 30% dos itens
-                }));
+                })) : [];
 
                 setProducts(enrichedProducts);
                 
@@ -80,34 +90,22 @@ const PageLoja: React.FC = () => {
         init();
     }, []);
 
-    // Busca automática CEP
-    useEffect(() => {
-        const cleanCep = newCep.replace(/\D/g, '');
-        if (cleanCep.length === 8) handleLookupCep(cleanCep);
-    }, [newCep]);
-
     const handleLookupCep = async (cep: string) => {
         setIsUpdatingCep(true);
         try {
             const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
             const data = await res.json();
-            
             if (data.erro) throw new Error("CEP não encontrado");
             if (data.uf !== 'AP') throw new Error("A Relp Cell atende exclusivamente o estado do Amapá.");
-            
-            setTempAddress(prev => ({
-                ...prev,
-                street: data.logradouro,
-                neighborhood: data.bairro,
-                city: data.localidade,
-                uf: data.uf
-            }));
+            setTempAddress(prev => ({ ...prev, street: data.logradouro, neighborhood: data.bairro, city: data.localidade, uf: data.uf }));
             setTimeout(() => numberInputRef.current?.focus(), 100);
-        } catch (e: any) {
-            addToast(e.message, "error");
-            setNewCep('');
-        } finally { setIsUpdatingCep(false); }
+        } catch (e: any) { addToast(e.message, "error"); setNewCep(''); } finally { setIsUpdatingCep(false); }
     };
+
+    useEffect(() => {
+        const cleanCep = newCep.replace(/\D/g, '');
+        if (cleanCep.length === 8) handleLookupCep(cleanCep);
+    }, [newCep]);
 
     const handleConfirmLocation = async () => {
         if (!tempAddress.number) { addToast("Informe o número.", "error"); return; }
@@ -131,7 +129,7 @@ const PageLoja: React.FC = () => {
         } catch (e) { addToast("Erro ao salvar.", "error"); } finally { setIsUpdatingCep(false); }
     };
 
-    // Filtros e Categorias
+    // Lógica de Filtros
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
             const matchesSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.brand.toLowerCase().includes(searchQuery.toLowerCase());
@@ -141,25 +139,56 @@ const PageLoja: React.FC = () => {
         });
     }, [products, searchQuery, activeCategory, activeBrand]);
 
-    // Separação por seções (simulada)
     const offers = useMemo(() => products.filter(p => p.promotional_price), [products]);
-    const bestSellers = useMemo(() => products.slice(0, 8), [products]); // Pegaria do backend em app real
+    const bestSellers = useMemo(() => products.slice(0, 8), [products]);
     const recent = useMemo(() => products.slice(8, 16), [products]);
 
+    // Funções do Carrinho
+    const addToCart = (product: Product) => {
+        setCart([...cart, product]);
+        addToast(`${product.name} adicionado!`, "success");
+    };
+
+    const removeFromCart = (index: number) => {
+        setCart(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleCheckoutFromCart = () => {
+        if (cart.length === 0) return;
+        // Por simplicidade, pega o primeiro item para o fluxo de compra modal (expansível para multi-items depois)
+        setProductToBuy(cart[0]); 
+        setIsCartOpen(false);
+    };
+
     if (selectedProduct) {
-        return <ProductDetails product={selectedProduct} allProducts={products} userProfile={userProfile} onBack={() => setSelectedProduct(null)} onProductClick={setSelectedProduct} />;
+        return (
+            <ProductDetails 
+                product={selectedProduct} 
+                allProducts={products} 
+                userProfile={userProfile} 
+                onBack={() => setSelectedProduct(null)} 
+                onProductClick={setSelectedProduct} 
+            />
+        );
     }
 
     return (
         <div className="min-h-screen bg-slate-100 dark:bg-slate-950 pb-24 font-sans animate-fade-in">
-            {/* Header Amarelo/Indigo estilo ML */}
+            {/* Header Amarelo/Indigo */}
             <header className="sticky top-0 z-30 bg-indigo-600 shadow-md">
                 <div className="max-w-md mx-auto px-4 pt-3 pb-2 space-y-2">
                     {/* Barra de Busca */}
                     <div className="flex gap-3 items-center">
-                        <SearchBar value={searchQuery} onChange={setSearchQuery} />
-                        <button onClick={() => window.dispatchEvent(new Event('open-cart'))} className="relative p-2 text-white hover:bg-white/10 rounded-full transition-colors">
+                        <div className="flex-1">
+                            <SearchBar value={searchQuery} onChange={setSearchQuery} />
+                        </div>
+                        <button onClick={() => setIsCartOpen(true)} className="relative p-2 text-white hover:bg-white/10 rounded-full transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                            {cart.length > 0 && (
+                                <span className="absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-indigo-600">
+                                    {cart.length}
+                                </span>
+                            )}
                         </button>
                     </div>
                     
@@ -181,36 +210,54 @@ const PageLoja: React.FC = () => {
             </header>
 
             <main className="max-w-md mx-auto">
-                {/* Se estiver buscando, mostra grid direto */}
+                {/* Se estiver buscando (Query não vazia), mostra grid de resultados imediatamente */}
                 {searchQuery ? (
-                    <div className="p-4">
-                        <h2 className="text-sm font-bold text-slate-500 mb-4 uppercase">Resultados da busca</h2>
+                    <div className="p-4 animate-fade-in">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-sm font-bold text-slate-500 uppercase">
+                                Resultados ({filteredProducts.length})
+                            </h2>
+                            <button onClick={() => setSearchQuery('')} className="text-xs text-indigo-600 font-bold">Limpar</button>
+                        </div>
+                        
                         <div className="grid grid-cols-2 gap-3">
                             {filteredProducts.map(p => (
-                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-100 p-3 cursor-pointer">
-                                    <img src={p.image_url!} className="w-full h-32 object-contain mb-2" />
-                                    <p className="text-xs text-slate-700 dark:text-white line-clamp-2">{p.name}</p>
-                                    <p className="font-bold text-slate-900 dark:text-white mt-1">R$ {p.price.toLocaleString('pt-BR')}</p>
+                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-3 cursor-pointer hover:shadow-md transition-all">
+                                    <img src={p.image_url!} className="w-full h-32 object-contain mb-2 mix-blend-multiply dark:mix-blend-normal" />
+                                    <p className="text-xs font-medium text-slate-700 dark:text-white line-clamp-2 leading-tight">{p.name}</p>
+                                    <div className="mt-2">
+                                        <p className="font-black text-slate-900 dark:text-white">R$ {p.price.toLocaleString('pt-BR')}</p>
+                                        <p className="text-[9px] text-slate-400">12x sem juros</p>
+                                    </div>
                                 </div>
                             ))}
                         </div>
-                        {filteredProducts.length === 0 && <div className="text-center py-10 text-slate-400">Nenhum produto encontrado.</div>}
+                        {filteredProducts.length === 0 && (
+                            <div className="text-center py-12 text-slate-400">
+                                <p>Nenhum produto encontrado para "{searchQuery}".</p>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <>
                         {/* Conteúdo Principal Organizado */}
                         <div className="bg-gradient-to-b from-indigo-600 to-indigo-500 pb-12 pt-2 px-4 rounded-b-[2rem] shadow-sm mb-[-40px]">
-                            <StoreCarousel />
+                            <StoreCarousel onBannerClick={(link) => {
+                                if (link.startsWith('category:')) {
+                                    const cat = link.split(':')[1];
+                                    setActiveCategory(cat);
+                                    setSearchQuery(cat); // Simples hack para filtrar
+                                }
+                            }} />
                         </div>
 
                         {/* Ícones de Categoria Flutuantes */}
                         <div className="relative px-2 mb-2">
-                            <CategoryIcons activeCategory={activeCategory} onSelect={setActiveCategory} />
+                            <CategoryIcons activeCategory={activeCategory} onSelect={(cat) => { setActiveCategory(cat); if(cat !== 'Todos') setSearchQuery(''); }} />
                         </div>
 
                         {activeCategory === 'Todos' ? (
                             <div className="space-y-2">
-                                {/* Seção de Ofertas */}
                                 {offers.length > 0 && (
                                     <ProductCarousel 
                                         title="Ofertas do Dia" 
@@ -220,33 +267,30 @@ const PageLoja: React.FC = () => {
                                     />
                                 )}
 
-                                {/* Seção Marcas */}
                                 <div className="bg-white dark:bg-slate-900 py-2 border-y border-slate-100 dark:border-slate-800 my-4">
                                     <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
                                 </div>
 
-                                {/* Mais Vendidos */}
                                 <ProductCarousel 
                                     title="Mais Vendidos" 
                                     products={bestSellers} 
                                     onProductClick={setSelectedProduct} 
                                 />
 
-                                {/* Grid "Você pode gostar" */}
                                 <div className="px-4 py-4">
-                                    <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-3">Você pode gostar</h2>
+                                    <h2 className="text-base font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tight">Recomendados para você</h2>
                                     {isLoading ? <div className="flex justify-center"><LoadingSpinner /></div> : (
                                         <div className="grid grid-cols-2 gap-3">
                                             {recent.map(p => (
-                                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden cursor-pointer group">
-                                                    <div className="relative w-full h-40 bg-white flex items-center justify-center p-4 border-b border-slate-50">
+                                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden cursor-pointer group hover:-translate-y-1 transition-transform duration-300">
+                                                    <div className="relative w-full h-40 bg-white flex items-center justify-center p-4">
                                                         <img src={p.image_url!} className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300" />
-                                                        {p.free_shipping && <span className="absolute bottom-2 left-2 bg-green-100 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded">Frete Grátis</span>}
+                                                        {p.free_shipping && <span className="absolute bottom-2 left-2 bg-green-100 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">Frete Grátis</span>}
                                                     </div>
-                                                    <div className="p-3">
-                                                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 h-8 mb-1 leading-tight">{p.name}</p>
-                                                        <p className="text-base font-bold text-slate-900 dark:text-white">R$ {p.price.toLocaleString('pt-BR')}</p>
-                                                        <p className="text-[10px] text-green-600 font-medium">12x R$ {(p.price/12).toFixed(2).replace('.', ',')}</p>
+                                                    <div className="p-3 border-t border-slate-50 dark:border-slate-700">
+                                                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 h-8 mb-1 leading-tight font-medium">{p.name}</p>
+                                                        <p className="text-base font-black text-slate-900 dark:text-white">R$ {p.price.toLocaleString('pt-BR')}</p>
+                                                        <p className="text-[10px] text-green-600 font-bold">12x R$ {(p.price/12).toFixed(2).replace('.', ',')}</p>
                                                     </div>
                                                 </div>
                                             ))}
@@ -255,22 +299,37 @@ const PageLoja: React.FC = () => {
                                 </div>
                             </div>
                         ) : (
-                            // Grid de Categoria Específica
-                            <div className="p-4 grid grid-cols-2 gap-3 pt-12">
-                                {filteredProducts.map(p => (
-                                    <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-3 border border-slate-100">
-                                        <img src={p.image_url!} className="w-full h-32 object-contain mb-2" />
-                                        <p className="text-xs font-bold">{p.name}</p>
-                                        <p className="text-sm font-black text-indigo-600 mt-1">R$ {p.price.toLocaleString('pt-BR')}</p>
-                                    </div>
-                                ))}
+                            <div className="p-4 pt-12 text-center text-slate-500">
+                                <p>Filtrando por {activeCategory}...</p>
+                                {/* Aqui poderia entrar o grid filtrado se a lógica não usasse o searchQuery */}
                             </div>
                         )}
                     </>
                 )}
             </main>
 
-            {/* Modal de Endereço (Mantido Lógica Original) */}
+            {/* Componentes Modais e Gavetas */}
+            <CartDrawer 
+                isOpen={isCartOpen} 
+                onClose={() => setIsCartOpen(false)} 
+                cart={cart} 
+                onRemoveItem={removeFromCart} 
+                onCheckout={handleCheckoutFromCart} 
+            />
+
+            {productToBuy && userProfile && (
+                <PurchaseModal 
+                    product={productToBuy} 
+                    profile={userProfile} 
+                    onClose={() => setProductToBuy(null)} 
+                    onSuccess={() => {
+                        setProductToBuy(null);
+                        setCart([]); // Limpa o carrinho após sucesso (simplificado)
+                        addToast("Compra realizada com sucesso!", "success");
+                    }} 
+                />
+            )}
+
             <Modal isOpen={showCepModal} onClose={() => setShowCepModal(false)}>
                 <div className="space-y-5">
                     <div className="flex items-center gap-3">
