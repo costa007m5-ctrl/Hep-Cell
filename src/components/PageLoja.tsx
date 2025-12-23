@@ -17,6 +17,7 @@ import PurchaseModal from './store/PurchaseModal';
 
 const PageLoja: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
+    const [banners, setBanners] = useState<any[]>([]);
     const [userProfile, setUserProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -27,11 +28,11 @@ const PageLoja: React.FC = () => {
     const [cart, setCart] = useState<Product[]>([]);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-    const [productToBuy, setProductToBuy] = useState<Product | null>(null); // Para modal de compra direta
+    const [productToBuy, setProductToBuy] = useState<Product | null>(null);
     
     const [showCepModal, setShowCepModal] = useState(false);
     
-    // Estados do Endereço
+    // Endereço
     const [newCep, setNewCep] = useState('');
     const [tempAddress, setTempAddress] = useState({
         street: '', neighborhood: '', city: '', uf: '', number: '', complement: ''
@@ -41,7 +42,6 @@ const PageLoja: React.FC = () => {
 
     const { addToast } = useToast();
 
-    // Listeners Globais para o botão do Header (se existir fora da page)
     useEffect(() => {
         const openCart = () => setIsCartOpen(true);
         window.addEventListener('open-cart', openCart);
@@ -51,13 +51,16 @@ const PageLoja: React.FC = () => {
     useEffect(() => {
         const init = async () => {
             try {
-                const [productsRes, userRes] = await Promise.all([
+                const [productsRes, bannersRes, userRes] = await Promise.all([
                     fetch('/api/products'),
+                    fetch('/api/admin?action=banners'),
                     supabase.auth.getUser()
                 ]);
-                const productsData = await productsRes.json();
                 
-                // Processamento de dados
+                const productsData = await productsRes.json();
+                const bannersData = await bannersRes.json();
+                
+                // Normaliza dados de produtos
                 const enrichedProducts = Array.isArray(productsData) ? productsData.map((p: any) => ({
                     ...p,
                     price: Number(p.price),
@@ -68,6 +71,10 @@ const PageLoja: React.FC = () => {
                 })) : [];
 
                 setProducts(enrichedProducts);
+                
+                if (Array.isArray(bannersData)) {
+                    setBanners(bannersData);
+                }
                 
                 if (userRes.data.user) {
                     const profile = await getProfile(userRes.data.user.id);
@@ -89,6 +96,26 @@ const PageLoja: React.FC = () => {
         };
         init();
     }, []);
+
+    // Lógica de distribuição de banners
+    // Divide os banners em grupos para espalhar pela loja
+    const bannerGroups = useMemo(() => {
+        // Fallbacks se não tiver banners suficientes
+        const defaultBanners = [
+            { id: 'fb1', image_url: 'https://images.unsplash.com/photo-1603539278276-8f328406450f?auto=format&fit=crop&w=1200&q=80', prompt: 'Acessórios', link: '' },
+            { id: 'fb2', image_url: 'https://images.unsplash.com/photo-1595942472934-400890209c73?auto=format&fit=crop&w=1200&q=80', prompt: 'Moda Tech', link: '' },
+            { id: 'fb3', image_url: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80', prompt: 'Celulares', link: '' },
+            { id: 'fb4', image_url: 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80', prompt: 'Eletrônicos', link: '' }
+        ];
+        
+        const all = banners.length > 0 ? banners : defaultBanners;
+        
+        return {
+            hero: all.slice(0, 3), // Primeiros 3 para o topo
+            mid: all.slice(3, 4).length > 0 ? all.slice(3, 4) : [defaultBanners[0]], // 1 para o meio
+            bottom: all.slice(4, 6).length > 0 ? all.slice(4, 6) : defaultBanners.slice(2, 4) // 2 para o grid final
+        };
+    }, [banners]);
 
     const handleLookupCep = async (cep: string) => {
         setIsUpdatingCep(true);
@@ -139,11 +166,13 @@ const PageLoja: React.FC = () => {
         });
     }, [products, searchQuery, activeCategory, activeBrand]);
 
+    // Separação de produtos
     const offers = useMemo(() => products.filter(p => p.promotional_price), [products]);
-    const bestSellers = useMemo(() => products.slice(0, 8), [products]);
-    const recent = useMemo(() => products.slice(8, 16), [products]);
+    const bestSellers = useMemo(() => products.slice(0, 5), [products]);
+    const recent = useMemo(() => products.slice(5, 15), [products]);
+    const accessories = useMemo(() => products.filter(p => p.category === 'Acessórios' || p.price < 200).slice(0, 10), [products]);
 
-    // Funções do Carrinho
+    // Carrinho
     const addToCart = (product: Product) => {
         setCart([...cart, product]);
         addToast(`${product.name} adicionado!`, "success");
@@ -155,9 +184,16 @@ const PageLoja: React.FC = () => {
 
     const handleCheckoutFromCart = () => {
         if (cart.length === 0) return;
-        // Por simplicidade, pega o primeiro item para o fluxo de compra modal (expansível para multi-items depois)
         setProductToBuy(cart[0]); 
         setIsCartOpen(false);
+    };
+
+    const handleBannerClick = (link: string) => {
+        if (link && link.startsWith('category:')) {
+            const cat = link.split(':')[1];
+            setActiveCategory(cat);
+            setSearchQuery(cat);
+        }
     };
 
     if (selectedProduct) {
@@ -210,7 +246,7 @@ const PageLoja: React.FC = () => {
             </header>
 
             <main className="max-w-md mx-auto">
-                {/* Se estiver buscando (Query não vazia), mostra grid de resultados imediatamente */}
+                {/* BUSCA ATIVA */}
                 {searchQuery ? (
                     <div className="p-4 animate-fade-in">
                         <div className="flex justify-between items-center mb-4">
@@ -232,53 +268,70 @@ const PageLoja: React.FC = () => {
                                 </div>
                             ))}
                         </div>
-                        {filteredProducts.length === 0 && (
-                            <div className="text-center py-12 text-slate-400">
-                                <p>Nenhum produto encontrado para "{searchQuery}".</p>
-                            </div>
-                        )}
                     </div>
                 ) : (
                     <>
-                        {/* Conteúdo Principal Organizado */}
+                        {/* 1. HERO CAROUSEL (Topo) */}
                         <div className="bg-gradient-to-b from-indigo-600 to-indigo-500 pb-12 pt-2 px-4 rounded-b-[2rem] shadow-sm mb-[-40px]">
-                            <StoreCarousel onBannerClick={(link) => {
-                                if (link.startsWith('category:')) {
-                                    const cat = link.split(':')[1];
-                                    setActiveCategory(cat);
-                                    setSearchQuery(cat); // Simples hack para filtrar
-                                }
-                            }} />
+                            <StoreCarousel variant="hero" bannersData={bannerGroups.hero} onBannerClick={handleBannerClick} />
                         </div>
 
-                        {/* Ícones de Categoria Flutuantes */}
-                        <div className="relative px-2 mb-2">
+                        {/* 2. CATEGORIAS */}
+                        <div className="relative px-2 mb-4">
                             <CategoryIcons activeCategory={activeCategory} onSelect={(cat) => { setActiveCategory(cat); if(cat !== 'Todos') setSearchQuery(''); }} />
                         </div>
 
                         {activeCategory === 'Todos' ? (
-                            <div className="space-y-2">
+                            <div className="space-y-4">
+                                
+                                {/* 3. OFERTAS (Carrossel Padrão) */}
                                 {offers.length > 0 && (
                                     <ProductCarousel 
-                                        title="Ofertas do Dia" 
+                                        title="Ofertas Relâmpago" 
                                         products={offers} 
                                         onProductClick={setSelectedProduct} 
-                                        linkText="Ver todas"
+                                        linkText="Ver tudo"
+                                        variant="default"
                                     />
                                 )}
 
-                                <div className="bg-white dark:bg-slate-900 py-2 border-y border-slate-100 dark:border-slate-800 my-4">
+                                {/* 4. BANNER SLIM (Meio) */}
+                                <div className="py-2">
+                                    <StoreCarousel variant="slim" bannersData={bannerGroups.mid} onBannerClick={handleBannerClick} />
+                                </div>
+
+                                {/* 5. MARCAS */}
+                                <div className="bg-white dark:bg-slate-900 py-3 border-y border-slate-100 dark:border-slate-800">
                                     <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
                                 </div>
 
+                                {/* 6. MAIS VENDIDOS (Carrossel Large) */}
                                 <ProductCarousel 
-                                    title="Mais Vendidos" 
+                                    title="Destaques da Semana" 
                                     products={bestSellers} 
-                                    onProductClick={setSelectedProduct} 
+                                    onProductClick={setSelectedProduct}
+                                    variant="large"
                                 />
 
-                                <div className="px-4 py-4">
-                                    <h2 className="text-base font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tight">Recomendados para você</h2>
+                                {/* 7. BANNERS MOSAICO (Fundo) */}
+                                <div className="mt-4">
+                                    <h2 className="px-4 text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Coleções</h2>
+                                    <StoreCarousel variant="grid" bannersData={bannerGroups.bottom} onBannerClick={handleBannerClick} />
+                                </div>
+
+                                {/* 8. ACESSÓRIOS (Carrossel Compacto) */}
+                                {accessories.length > 0 && (
+                                    <ProductCarousel 
+                                        title="Acessórios Essenciais" 
+                                        products={accessories} 
+                                        onProductClick={setSelectedProduct}
+                                        variant="compact"
+                                    />
+                                )}
+
+                                {/* 9. RECOMENDADOS (Grid Final) */}
+                                <div className="px-4 py-4 pb-12">
+                                    <h2 className="text-base font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tight">Sugestões para você</h2>
                                     {isLoading ? <div className="flex justify-center"><LoadingSpinner /></div> : (
                                         <div className="grid grid-cols-2 gap-3">
                                             {recent.map(p => (
@@ -301,14 +354,13 @@ const PageLoja: React.FC = () => {
                         ) : (
                             <div className="p-4 pt-12 text-center text-slate-500">
                                 <p>Filtrando por {activeCategory}...</p>
-                                {/* Aqui poderia entrar o grid filtrado se a lógica não usasse o searchQuery */}
                             </div>
                         )}
                     </>
                 )}
             </main>
 
-            {/* Componentes Modais e Gavetas */}
+            {/* Modais */}
             <CartDrawer 
                 isOpen={isCartOpen} 
                 onClose={() => setIsCartOpen(false)} 
@@ -324,7 +376,7 @@ const PageLoja: React.FC = () => {
                     onClose={() => setProductToBuy(null)} 
                     onSuccess={() => {
                         setProductToBuy(null);
-                        setCart([]); // Limpa o carrinho após sucesso (simplificado)
+                        setCart([]); 
                         addToast("Compra realizada com sucesso!", "success");
                     }} 
                 />
