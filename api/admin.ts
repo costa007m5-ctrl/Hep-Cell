@@ -340,7 +340,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             return res.json(JSON.parse(response.text || "{}"));
         }
         if (mode === 'image_creation') {
-            // Tentativa 1: Gemini 2.5 Flash Image (Mais rápido/barato)
+            // Tentativa 1: Gemini 2.5 Flash Image
             try {
                 const response = await ai.models.generateContent({
                     model: "gemini-2.5-flash-image",
@@ -358,7 +358,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                 console.warn("Gemini Flash Image falhou, tentando Pro...", flashError.message);
             }
 
-            // Tentativa 2: Gemini 3 Pro Image (Fallback para cotas/erros do Flash)
+            // Tentativa 2: Gemini 3 Pro Image (Fallback para cotas/erros do Flash e substitui o Imagen que deu erro 404)
             try {
                 const response = await ai.models.generateContent({
                     model: "gemini-3-pro-image-preview",
@@ -377,8 +377,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
                     }
                 }
             } catch (proError: any) {
-                 // Se ambos falharem (ex: cota excedida em ambos), retornamos o erro do Pro.
-                 throw new Error(`Falha na geração de imagem (Cota ou Serviço): ${proError.message}`);
+                 throw new Error(`Falha na geração de imagem (Todos os modelos falharam): ${proError.message}`);
             }
 
             throw new Error("Não foi possível gerar a imagem (sem dados retornados).");
