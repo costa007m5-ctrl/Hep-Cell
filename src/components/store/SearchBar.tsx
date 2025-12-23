@@ -13,13 +13,13 @@ const SearchBar: React.FC<SearchBarProps> = ({ value, onChange }) => {
                 type="search"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
-                placeholder="Buscar produtos, marcas e muito mais..."
-                className="w-full pl-11 pr-4 py-2.5 rounded-full bg-white text-slate-900 shadow-sm border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-sm placeholder-slate-400"
+                placeholder="Buscar produtos, marcas..."
+                className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white shadow-sm border border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-sm placeholder-slate-400"
             />
             <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-600 transition-colors"
+                    className="h-5 w-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
