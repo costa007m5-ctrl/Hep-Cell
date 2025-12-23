@@ -2,11 +2,12 @@
 import React from 'react';
 
 const categories = [
-    { name: 'Celulares', icon: '📱', color: 'from-blue-500 to-indigo-600' },
-    { name: 'Acessórios', icon: '⚡', color: 'from-purple-500 to-violet-600' },
-    { name: 'Fones', icon: '🎧', color: 'from-pink-500 to-rose-600' },
-    { name: 'Smartwatch', icon: '⌚', color: 'from-emerald-500 to-teal-600' },
-    { name: 'Ofertas', icon: '🔥', color: 'from-orange-500 to-red-600' },
+    { name: 'Celulares', icon: '📱' },
+    { name: 'Acessórios', icon: '⚡' },
+    { name: 'Fones', icon: '🎧' },
+    { name: 'Smartwatch', icon: '⌚' },
+    { name: 'Ofertas', icon: '🔥' },
+    { name: 'Games', icon: '🎮' },
 ];
 
 interface CategoryIconsProps {
@@ -16,28 +17,23 @@ interface CategoryIconsProps {
 
 const CategoryIcons: React.FC<CategoryIconsProps> = ({ activeCategory, onSelect }) => {
     return (
-        <section className="py-6 overflow-hidden">
-            <div className="flex space-x-4 overflow-x-auto pb-4 px-4 scrollbar-hide snap-x">
+        <section className="py-2">
+            <div className="flex space-x-4 overflow-x-auto pb-2 px-4 scrollbar-hide">
                 {categories.map((cat) => (
                     <button 
                         key={cat.name} 
                         onClick={() => onSelect(cat.name)}
-                        className="flex-shrink-0 flex flex-col items-center gap-3 snap-start group"
+                        className="flex-shrink-0 flex flex-col items-center gap-2 group"
                     >
-                        <div className={`relative w-20 h-20 rounded-3xl flex items-center justify-center transition-all duration-500 transform ${
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-sm border ${
                             activeCategory === cat.name 
-                            ? 'scale-110 shadow-2xl -translate-y-1 ring-4 ring-white dark:ring-slate-700' 
-                            : 'bg-white dark:bg-slate-800 shadow-lg group-hover:scale-105'
+                            ? 'bg-indigo-600 text-white border-indigo-600 scale-105 shadow-md' 
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-indigo-300'
                         }`}>
-                            {activeCategory === cat.name && (
-                                <div className={`absolute inset-0 bg-gradient-to-br ${cat.color} rounded-3xl opacity-90 animate-pulse`}></div>
-                            )}
-                            <span className={`text-3xl relative z-10 transition-transform ${activeCategory === cat.name ? 'scale-125 rotate-6' : 'grayscale group-hover:grayscale-0'}`}>
-                                {cat.icon}
-                            </span>
+                            <span className="text-xl">{cat.icon}</span>
                         </div>
-                        <span className={`text-xs font-bold transition-colors ${
-                            activeCategory === cat.name ? 'text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'
+                        <span className={`text-[10px] font-medium transition-colors ${
+                            activeCategory === cat.name ? 'text-indigo-600 font-bold' : 'text-slate-500'
                         }`}>
                             {cat.name}
                         </span>

@@ -18,8 +18,6 @@ const AdvertisingTab: React.FC = () => {
     const [prompt, setPrompt] = useState('');
     const [targetLink, setTargetLink] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
-    const [isEditing, setIsEditing] = useState(false); // Novo state para edição
-    const [generatedImage, setGeneratedImage] = useState<string | null>(null);
     const [generateError, setGenerateError] = useState<string | null>(null);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
 
@@ -38,7 +36,7 @@ const AdvertisingTab: React.FC = () => {
     const fetchBanners = async () => {
         setIsLoadingBanners(true);
         try {
-            const res = await fetch('/api/admin/banners');
+            const res = await fetch('/api/admin?action=banners');
             if (res.ok) {
                 setBanners(await res.json());
             }
@@ -49,7 +47,6 @@ const AdvertisingTab: React.FC = () => {
         }
     };
 
-    // Função para converter qualquer formato de imagem (AVIF, WebP, etc) para JPEG compatível
     const processImageFile = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -57,8 +54,7 @@ const AdvertisingTab: React.FC = () => {
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    // Redimensiona se for muito grande para economizar tokens e evitar timeouts
-                    const maxDimension = 1024; 
+                    const maxDimension = 1200; 
                     let width = img.width;
                     let height = img.height;
 
@@ -74,25 +70,16 @@ const AdvertisingTab: React.FC = () => {
 
                     canvas.width = width;
                     canvas.height = height;
-                    
                     const ctx = canvas.getContext('2d');
                     if (ctx) {
-                        // Fundo branco para PNGs transparentes
                         ctx.fillStyle = '#FFFFFF';
                         ctx.fillRect(0, 0, width, height);
                         ctx.drawImage(img, 0, 0, width, height);
-                        
-                        // Converte sempre para JPEG
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-                        resolve(dataUrl);
-                    } else {
-                        reject(new Error("Falha ao processar imagem no canvas."));
-                    }
+                        resolve(canvas.toDataURL('image/jpeg', 0.9));
+                    } else reject(new Error("Erro no canvas"));
                 };
-                img.onerror = (err) => reject(err);
                 img.src = event.target?.result as string;
             };
-            reader.onerror = (err) => reject(err);
             reader.readAsDataURL(file);
         });
     };
@@ -101,13 +88,11 @@ const AdvertisingTab: React.FC = () => {
         const file = e.target.files?.[0];
         if (file) {
             setIsProcessingImage(true);
-            setGenerateError(null);
             try {
                 const processedBase64 = await processImageFile(file);
                 setSelectedImage(processedBase64);
             } catch (error) {
-                console.error("Erro ao processar imagem:", error);
-                setGenerateError("Erro ao processar o arquivo de imagem. Tente outro formato.");
+                setGenerateError("Erro ao processar imagem.");
             } finally {
                 setIsProcessingImage(false);
             }
@@ -115,112 +100,52 @@ const AdvertisingTab: React.FC = () => {
     };
 
     const handleGenerate = async () => {
-        if (!selectedImage) {
-            setGenerateError("Por favor, selecione uma imagem do produto.");
-            return;
-        }
+        if (!selectedImage) return;
         setIsGenerating(true);
-        setGenerateError(null);
-        setGeneratedImage(null);
-
         try {
-            const response = await fetch('/api/admin/generate-banner', {
+            const response = await fetch('/api/admin?action=generate-banner', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    imageBase64: selectedImage,
-                    prompt: prompt 
-                })
+                body: JSON.stringify({ imageBase64: selectedImage, prompt: prompt || 'Banner promocional' })
             });
             const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message || data.error || "Erro ao gerar banner.");
-            }
-
-            setGeneratedImage(data.image);
-            // Preenche o link sugerido pela IA
-            if (data.suggestedLink) {
-                setTargetLink(data.suggestedLink);
+            if (response.ok) {
+                // Atualiza a imagem com a versão processada pela IA (se houver) ou mantém a original
+                if (data.image) setSelectedImage(data.image);
+                if (data.suggestedLink) setTargetLink(data.suggestedLink);
+            } else {
+                throw new Error(data.error);
             }
         } catch (error: any) {
-            let msg = error.message;
-            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
-                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
-            }
-            setGenerateError(msg);
+            setGenerateError(error.message);
         } finally {
             setIsGenerating(false);
         }
     };
 
-    const handleEdit = async () => {
-        if (!selectedImage) {
-            setGenerateError("Por favor, selecione uma imagem para editar.");
-            return;
-        }
-        if (!prompt) {
-            setGenerateError("Por favor, digite uma instrução para a edição (ex: 'Adicionar filtro retro').");
-            return;
-        }
-        setIsEditing(true);
-        setGenerateError(null);
-        setGeneratedImage(null);
-
-        try {
-            const response = await fetch('/api/admin/edit-image', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    imageBase64: selectedImage,
-                    prompt: prompt 
-                })
-            });
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.message || data.error || "Erro ao editar imagem.");
-            }
-
-            setGeneratedImage(data.image);
-        } catch (error: any) {
-            let msg = error.message;
-            if (msg.includes('429') || msg.includes('Quota') || msg.includes('limite') || msg.includes('tráfego') || msg.includes('RESOURCE_EXHAUSTED')) {
-                msg = "⚠️ O sistema de IA está com alto tráfego. Por favor, aguarde cerca de 1 minuto e tente novamente.";
-            }
-            setGenerateError(msg);
-        } finally {
-            setIsEditing(false);
-        }
-    };
-
     const handleSaveBanner = async () => {
-        if (!generatedImage) return;
+        if (!selectedImage) return;
         setIsSaving(true);
         setSaveMessage(null);
 
         try {
-            const response = await fetch('/api/admin/banners', {
+            const response = await fetch('/api/admin?action=banners', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    image_base64: generatedImage,
-                    prompt: prompt || 'Banner Gerado por IA',
-                    link: targetLink // Envia o link
+                    image_base64: selectedImage,
+                    prompt: prompt || 'Banner da Loja',
+                    link: targetLink 
                 })
             });
             
             if (!response.ok) throw new Error("Erro ao salvar banner.");
             
-            setSaveMessage({ text: "Banner salvo e ativado na loja!", type: 'success' });
-            fetchBanners(); // Atualiza lista
-            
-            // Reset form parcial
-            setGeneratedImage(null);
+            setSaveMessage({ text: "Banner ativado na loja!", type: 'success' });
+            fetchBanners();
             setSelectedImage(null);
             setPrompt('');
             setTargetLink('');
-
         } catch (error: any) {
             setSaveMessage({ text: error.message, type: 'error' });
         } finally {
@@ -229,44 +154,35 @@ const AdvertisingTab: React.FC = () => {
     };
 
     const handleDeleteBanner = async (id: string) => {
-        if (!confirm("Tem certeza que deseja remover este banner?")) return;
+        if (!confirm("Remover este banner?")) return;
         try {
-             await fetch('/api/admin/banners', {
+             await fetch('/api/admin?action=banners', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id })
             });
             setBanners(prev => prev.filter(b => b.id !== id));
-        } catch (error) {
-            console.error(error);
-        }
+        } catch (error) { console.error(error); }
     };
 
     return (
-        <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Coluna Esquerda: Gerador */}
+        <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-y-auto">
+            {/* Editor */}
             <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Estúdio de IA</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Criar Novo Banner</h2>
                 
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    {/* Upload Imagem */}
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                    {/* Upload */}
                     <div className="mb-6">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">1. Imagem Base</label>
+                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Imagem (Formatos Wide funcionam melhor)</label>
                         <div className="flex items-center justify-center w-full">
-                            <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50 cursor-wait' : ''}`}>
+                            <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50' : ''}`}>
                                 {selectedImage ? (
-                                    <img src={selectedImage} className="absolute inset-0 w-full h-full object-contain p-2" alt="Preview" />
+                                    <img src={selectedImage} className="absolute inset-0 w-full h-full object-cover" alt="Preview" />
                                 ) : (
                                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                        {isProcessingImage ? (
-                                            <LoadingSpinner />
-                                        ) : (
-                                            <>
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-                                                <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Clique para enviar</span> ou arraste</p>
-                                                <p className="text-xs text-slate-500">JPG, PNG, WEBP, AVIF</p>
-                                            </>
-                                        )}
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                        <p className="text-sm text-slate-500 font-medium">Clique para enviar imagem</p>
                                     </div>
                                 )}
                                 <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" disabled={isProcessingImage} />
@@ -274,112 +190,89 @@ const AdvertisingTab: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Prompt */}
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">2. Instrução</label>
-                        <textarea 
-                            rows={2} 
-                            className="block w-full px-3 py-2 border rounded-md shadow-sm bg-slate-50 border-slate-300 text-slate-900 dark:bg-slate-700 dark:border-slate-600 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="Ex: 'Oferta de Natal' para gerar banner OU 'Adicionar filtro vintage' para editar."
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                        ></textarea>
+                    {/* Dados */}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Link de Destino (Opcional)</label>
+                            <input 
+                                type="text" 
+                                value={targetLink}
+                                onChange={(e) => setTargetLink(e.target.value)}
+                                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Ex: category:Celulares ou https://..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Título / Descrição (Opcional)</label>
+                            <input 
+                                type="text" 
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Título do banner para referência"
+                            />
+                        </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Ações */}
+                    <div className="mt-6 flex flex-col gap-3">
                         <button 
                             onClick={handleGenerate} 
-                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
-                            className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                            disabled={isGenerating || !selectedImage}
+                            className="w-full py-3 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                         >
                             {isGenerating ? <LoadingSpinner /> : (
                                 <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
-                                    Gerar Novo Banner
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                    Melhorar com IA (Opcional)
                                 </>
                             )}
                         </button>
                         
                         <button 
-                            onClick={handleEdit} 
-                            disabled={isGenerating || isEditing || !selectedImage || isProcessingImage}
-                            className="flex-1 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+                            onClick={handleSaveBanner}
+                            disabled={isSaving || !selectedImage}
+                            className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-lg disabled:opacity-50 transition-all active:scale-[0.98]"
                         >
-                            {isEditing ? <LoadingSpinner /> : (
-                                <>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                                    Editar Imagem
-                                </>
-                            )}
+                             {isSaving ? <LoadingSpinner /> : 'Salvar Banner na Loja'}
                         </button>
                     </div>
                     
-                    {generateError && (
-                        <div className="mt-4 animate-fade-in">
-                             <Alert message={generateError} type="error" />
-                        </div>
-                    )}
+                    {generateError && <div className="mt-4"><Alert message={generateError} type="error" /></div>}
+                    {saveMessage && <div className="mt-4"><Alert message={saveMessage.text} type={saveMessage.type} /></div>}
                 </div>
-
-                {/* Preview Resultado */}
-                {generatedImage && (
-                    <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-lg border-2 border-indigo-500 animate-fade-in">
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Resultado:</h3>
-                        <img src={generatedImage} className="w-full rounded-lg shadow-md mb-4" alt="Resultado IA" />
-                        
-                        {/* Campo de Link Gerado/Editável */}
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 uppercase">Link de Destino (Sugerido)</label>
-                            <div className="flex gap-2">
-                                <input 
-                                    type="text" 
-                                    value={targetLink}
-                                    onChange={(e) => setTargetLink(e.target.value)}
-                                    className="flex-1 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-md bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:ring-indigo-500"
-                                    placeholder="category:Celulares"
-                                />
-                            </div>
-                            <p className="text-[10px] text-slate-500 mt-1">Formatos: category:Nome ou brand:Nome</p>
-                        </div>
-
-                        <button 
-                            onClick={handleSaveBanner}
-                            disabled={isSaving}
-                            className="w-full py-3 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                             {isSaving ? <LoadingSpinner /> : 'Salvar e Ativar na Loja'}
-                        </button>
-                        {saveMessage && <div className="mt-4"><Alert message={saveMessage.text} type={saveMessage.type} /></div>}
-                    </div>
-                )}
             </div>
 
-            {/* Coluna Direita: Banners Ativos */}
+            {/* Lista de Banners */}
             <div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Banners Ativos na Loja</h2>
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Banners Ativos ({banners.length})</h2>
                 
                 {isLoadingBanners ? <div className="flex justify-center"><LoadingSpinner /></div> : (
-                    <div className="space-y-4">
+                    <div className="grid gap-4">
                         {banners.length === 0 ? (
-                            <p className="text-slate-500 dark:text-slate-400">Nenhum banner personalizado criado ainda.</p>
+                            <div className="text-center py-10 bg-slate-100 dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                                <p className="text-slate-500">Nenhum banner ativo. Adicione um ao lado.</p>
+                            </div>
                         ) : (
                             banners.map(banner => (
-                                <div key={banner.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 relative group">
-                                    <img src={banner.image_url} className="w-full h-32 object-cover rounded-lg mb-2" alt="Banner" />
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex flex-col">
-                                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[150px]">{banner.prompt}</p>
-                                            {banner.link && <span className="text-[10px] text-indigo-500 font-mono bg-indigo-50 dark:bg-indigo-900/20 px-1 rounded w-fit mt-1">{banner.link}</span>}
+                                <div key={banner.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex gap-4 group">
+                                    <img src={banner.image_url} className="w-32 h-20 object-cover rounded-lg bg-slate-100" alt="Banner" />
+                                    <div className="flex-1 flex flex-col justify-between py-1">
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{banner.prompt}</p>
+                                            {banner.link && <p className="text-xs text-indigo-600 truncate bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded w-fit mt-1">{banner.link}</p>}
                                         </div>
-                                        <button 
-                                            onClick={() => handleDeleteBanner(banner.id)}
-                                            className="text-red-500 hover:text-red-700 text-sm font-medium flex items-center gap-1"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                                            Remover
-                                        </button>
+                                        <div className="flex justify-between items-end">
+                                            <span className="text-[10px] text-slate-400">{new Date(banner.created_at).toLocaleDateString()}</span>
+                                            <button 
+                                                onClick={() => handleDeleteBanner(banner.id)}
+                                                className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                                                title="Excluir Banner"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="absolute top-2 right-2 bg-green-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">Ativo</div>
                                 </div>
                             ))
                         )}

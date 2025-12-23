@@ -1,16 +1,17 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Product, Profile, Tab } from '../types';
+import { Product, Profile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import { supabase } from '../services/clients';
 import { getProfile, updateProfile } from '../services/profileService';
 import { useToast } from './Toast';
 import Modal from './Modal';
-import Logo from './Logo';
 import StoreCarousel from './store/StoreCarousel';
 import CategoryIcons from './store/CategoryIcons';
 import BrandLogos from './store/BrandLogos';
 import ProductDetails from './store/ProductDetails';
+import ProductCarousel from './store/ProductCarousel';
+import SearchBar from './store/SearchBar';
 
 const PageLoja: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
@@ -47,24 +48,21 @@ const PageLoja: React.FC = () => {
                 ]);
                 const productsData = await productsRes.json();
                 
-                // Mock de dimensões se não houver no banco
+                // Mock de dados para visualização rica se faltar no banco
                 const enrichedProducts = productsData.map((p: any) => ({
                     ...p,
-                    weight: p.weight || 800,
-                    height: p.height || 10,
-                    width: p.width || 10,
-                    length: p.length || 10,
-                    is_full: Math.random() > 0.7,
-                    free_shipping: p.price > 150
+                    weight: p.weight || 500,
+                    is_full: p.price > 1000, // Simula produto "Full"
+                    free_shipping: p.price > 200,
+                    promotional_price: Math.random() > 0.7 ? p.price * 0.9 : null // Simula promoção em 30% dos itens
                 }));
 
                 setProducts(enrichedProducts);
+                
                 if (userRes.data.user) {
                     const profile = await getProfile(userRes.data.user.id);
                     if(profile) {
-                        const fullProfile = { ...profile, id: userRes.data.user.id };
-                        setUserProfile(fullProfile);
-                        // Se já tem endereço, preenche o estado temporário para exibição na barra
+                        setUserProfile({ ...profile, id: userRes.data.user.id });
                         if (profile.zip_code) {
                             setTempAddress({
                                 street: profile.street_name || '',
@@ -82,12 +80,10 @@ const PageLoja: React.FC = () => {
         init();
     }, []);
 
-    // Busca automática ao digitar o CEP no modal
+    // Busca automática CEP
     useEffect(() => {
         const cleanCep = newCep.replace(/\D/g, '');
-        if (cleanCep.length === 8) {
-            handleLookupCep(cleanCep);
-        }
+        if (cleanCep.length === 8) handleLookupCep(cleanCep);
     }, [newCep]);
 
     const handleLookupCep = async (cep: string) => {
@@ -99,11 +95,6 @@ const PageLoja: React.FC = () => {
             if (data.erro) throw new Error("CEP não encontrado");
             if (data.uf !== 'AP') throw new Error("A Relp Cell atende exclusivamente o estado do Amapá.");
             
-            const allowedCities = ['Macapá', 'Santana'];
-            if (!allowedCities.includes(data.localidade)) {
-                throw new Error("No momento entregamos apenas em Macapá e Santana.");
-            }
-            
             setTempAddress(prev => ({
                 ...prev,
                 street: data.logradouro,
@@ -111,9 +102,7 @@ const PageLoja: React.FC = () => {
                 city: data.localidade,
                 uf: data.uf
             }));
-
             setTimeout(() => numberInputRef.current?.focus(), 100);
-
         } catch (e: any) {
             addToast(e.message, "error");
             setNewCep('');
@@ -121,11 +110,7 @@ const PageLoja: React.FC = () => {
     };
 
     const handleConfirmLocation = async () => {
-        if (!tempAddress.number) {
-            addToast("Informe o número da residência.", "error");
-            return;
-        }
-
+        if (!tempAddress.number) { addToast("Informe o número.", "error"); return; }
         setIsUpdatingCep(true);
         try {
             const finalAddress = {
@@ -136,102 +121,156 @@ const PageLoja: React.FC = () => {
                 city: tempAddress.city,
                 federal_unit: tempAddress.uf,
             };
-
             if (userProfile) {
                 const updated = { ...userProfile, ...finalAddress };
                 await updateProfile(updated);
                 setUserProfile(updated);
-            } else {
-                localStorage.setItem('relp_guest_location', JSON.stringify(finalAddress));
             }
-
-            addToast("Endereço de entrega definido!", "success");
+            addToast("Endereço atualizado!", "success");
             setShowCepModal(false);
-        } catch (e: any) {
-            addToast("Erro ao salvar localização.", "error");
-        } finally { setIsUpdatingCep(false); }
+        } catch (e) { addToast("Erro ao salvar.", "error"); } finally { setIsUpdatingCep(false); }
     };
 
+    // Filtros e Categorias
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
-            const matchesSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.brand.toLowerCase().includes(searchQuery.toLowerCase());
             const matchesCategory = activeCategory === 'Todos' || p.category === activeCategory;
             const matchesBrand = !activeBrand || activeBrand === 'Todas' || (p.brand && p.brand.toLowerCase() === activeBrand.toLowerCase());
             return matchesSearch && matchesCategory && matchesBrand;
         });
     }, [products, searchQuery, activeCategory, activeBrand]);
 
+    // Separação por seções (simulada)
+    const offers = useMemo(() => products.filter(p => p.promotional_price), [products]);
+    const bestSellers = useMemo(() => products.slice(0, 8), [products]); // Pegaria do backend em app real
+    const recent = useMemo(() => products.slice(8, 16), [products]);
+
     if (selectedProduct) {
         return <ProductDetails product={selectedProduct} allProducts={products} userProfile={userProfile} onBack={() => setSelectedProduct(null)} onProductClick={setSelectedProduct} />;
     }
 
     return (
-        <div className="min-h-screen bg-[#f5f5f5] dark:bg-slate-900 pb-24 animate-fade-in font-sans">
-            {/* Header com Busca e Localização Estilo ML */}
-            <header className="sticky top-0 z-30 bg-indigo-600 dark:bg-slate-900 shadow-lg">
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-950 pb-24 font-sans animate-fade-in">
+            {/* Header Amarelo/Indigo estilo ML */}
+            <header className="sticky top-0 z-30 bg-indigo-600 shadow-md">
                 <div className="max-w-md mx-auto px-4 pt-3 pb-2 space-y-2">
-                    <div className="flex items-center gap-3">
-                        <Logo className="h-9 w-9 text-white" variant="light" />
-                        <div className="relative flex-1">
-                            <input 
-                                type="text" placeholder="Buscar na Relp Cell..." value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 rounded-full text-sm shadow-sm focus:ring-2 focus:ring-yellow-400 outline-none transition-all"
-                            />
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3.5 top-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                        </div>
+                    {/* Barra de Busca */}
+                    <div className="flex gap-3 items-center">
+                        <SearchBar value={searchQuery} onChange={setSearchQuery} />
+                        <button onClick={() => window.dispatchEvent(new Event('open-cart'))} className="relative p-2 text-white hover:bg-white/10 rounded-full transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                        </button>
                     </div>
                     
-                    {/* Barra de Localização (Abaixo da busca) */}
-                    <div 
+                    {/* Barra de Endereço */}
+                    <button 
                         onClick={() => setShowCepModal(true)}
-                        className="flex items-center gap-1.5 py-1.5 px-1 cursor-pointer group"
+                        className="flex items-center gap-1.5 py-1 px-1 max-w-full hover:bg-white/10 rounded transition-colors"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white/80 group-hover:text-yellow-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        <span className="text-[11px] text-white font-medium truncate">
-                            {tempAddress.street ? `Enviar para ${tempAddress.street}, ${tempAddress.number}` : 'Informe seu CEP para ver prazos no Amapá'}
-                        </span>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                    </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white/80 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <div className="flex flex-col items-start truncate">
+                            <span className="text-[10px] text-white/70 leading-none">Enviar para {userProfile?.first_name || 'Visitante'}</span>
+                            <span className="text-[11px] text-white font-medium truncate leading-tight w-full text-left">
+                                {tempAddress.street ? `${tempAddress.street}, ${tempAddress.number}` : 'Informe seu CEP para ver prazos'}
+                            </span>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white/50 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </button>
                 </div>
             </header>
 
             <main className="max-w-md mx-auto">
-                {!searchQuery && activeCategory === 'Todos' && (
-                    <>
-                        <div className="pt-4 px-4">
-                            <StoreCarousel />
-                        </div>
-                        <CategoryIcons activeCategory={activeCategory} onSelect={setActiveCategory} />
-                        <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
-                    </>
-                )}
-
-                <div className="px-4 pb-12 pt-4">
-                    {isLoading ? (
+                {/* Se estiver buscando, mostra grid direto */}
+                {searchQuery ? (
+                    <div className="p-4">
+                        <h2 className="text-sm font-bold text-slate-500 mb-4 uppercase">Resultados da busca</h2>
                         <div className="grid grid-cols-2 gap-3">
-                            <div className="h-48 bg-slate-200 rounded-xl animate-pulse"></div>
-                            <div className="h-48 bg-slate-200 rounded-xl animate-pulse"></div>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-2 gap-3">
-                            {filteredProducts.map(product => (
-                                <div key={product.id} onClick={() => setSelectedProduct(product)} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden group active:scale-95 transition-all">
-                                    <div className="aspect-square p-4 flex items-center justify-center bg-white border-b border-slate-50 dark:border-slate-700">
-                                        <img src={product.image_url!} className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-500" alt={product.name} />
-                                    </div>
-                                    <div className="p-3">
-                                        <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-2 h-8 mb-2 leading-tight">{product.name}</h3>
-                                        <p className="text-base font-black text-indigo-600 dark:text-indigo-400">R$ {product.price.toLocaleString('pt-BR')}</p>
-                                        {product.free_shipping && <span className="text-[9px] font-black text-green-600 bg-green-50 px-1.5 py-0.5 rounded italic mt-2 inline-block">FRETE GRÁTIS</span>}
-                                    </div>
+                            {filteredProducts.map(p => (
+                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-100 p-3 cursor-pointer">
+                                    <img src={p.image_url!} className="w-full h-32 object-contain mb-2" />
+                                    <p className="text-xs text-slate-700 dark:text-white line-clamp-2">{p.name}</p>
+                                    <p className="font-bold text-slate-900 dark:text-white mt-1">R$ {p.price.toLocaleString('pt-BR')}</p>
                                 </div>
                             ))}
                         </div>
-                    )}
-                </div>
+                        {filteredProducts.length === 0 && <div className="text-center py-10 text-slate-400">Nenhum produto encontrado.</div>}
+                    </div>
+                ) : (
+                    <>
+                        {/* Conteúdo Principal Organizado */}
+                        <div className="bg-gradient-to-b from-indigo-600 to-indigo-500 pb-12 pt-2 px-4 rounded-b-[2rem] shadow-sm mb-[-40px]">
+                            <StoreCarousel />
+                        </div>
+
+                        {/* Ícones de Categoria Flutuantes */}
+                        <div className="relative px-2 mb-2">
+                            <CategoryIcons activeCategory={activeCategory} onSelect={setActiveCategory} />
+                        </div>
+
+                        {activeCategory === 'Todos' ? (
+                            <div className="space-y-2">
+                                {/* Seção de Ofertas */}
+                                {offers.length > 0 && (
+                                    <ProductCarousel 
+                                        title="Ofertas do Dia" 
+                                        products={offers} 
+                                        onProductClick={setSelectedProduct} 
+                                        linkText="Ver todas"
+                                    />
+                                )}
+
+                                {/* Seção Marcas */}
+                                <div className="bg-white dark:bg-slate-900 py-2 border-y border-slate-100 dark:border-slate-800 my-4">
+                                    <BrandLogos activeBrand={activeBrand} onSelect={setActiveBrand} />
+                                </div>
+
+                                {/* Mais Vendidos */}
+                                <ProductCarousel 
+                                    title="Mais Vendidos" 
+                                    products={bestSellers} 
+                                    onProductClick={setSelectedProduct} 
+                                />
+
+                                {/* Grid "Você pode gostar" */}
+                                <div className="px-4 py-4">
+                                    <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-3">Você pode gostar</h2>
+                                    {isLoading ? <div className="flex justify-center"><LoadingSpinner /></div> : (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {recent.map(p => (
+                                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden cursor-pointer group">
+                                                    <div className="relative w-full h-40 bg-white flex items-center justify-center p-4 border-b border-slate-50">
+                                                        <img src={p.image_url!} className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300" />
+                                                        {p.free_shipping && <span className="absolute bottom-2 left-2 bg-green-100 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded">Frete Grátis</span>}
+                                                    </div>
+                                                    <div className="p-3">
+                                                        <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2 h-8 mb-1 leading-tight">{p.name}</p>
+                                                        <p className="text-base font-bold text-slate-900 dark:text-white">R$ {p.price.toLocaleString('pt-BR')}</p>
+                                                        <p className="text-[10px] text-green-600 font-medium">12x R$ {(p.price/12).toFixed(2).replace('.', ',')}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            // Grid de Categoria Específica
+                            <div className="p-4 grid grid-cols-2 gap-3 pt-12">
+                                {filteredProducts.map(p => (
+                                    <div key={p.id} onClick={() => setSelectedProduct(p)} className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-3 border border-slate-100">
+                                        <img src={p.image_url!} className="w-full h-32 object-contain mb-2" />
+                                        <p className="text-xs font-bold">{p.name}</p>
+                                        <p className="text-sm font-black text-indigo-600 mt-1">R$ {p.price.toLocaleString('pt-BR')}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
             </main>
 
+            {/* Modal de Endereço (Mantido Lógica Original) */}
             <Modal isOpen={showCepModal} onClose={() => setShowCepModal(false)}>
                 <div className="space-y-5">
                     <div className="flex items-center gap-3">
@@ -240,58 +279,23 @@ const PageLoja: React.FC = () => {
                         </div>
                         <h3 className="text-xl font-bold text-slate-900 dark:text-white">Onde você está?</h3>
                     </div>
-                    
                     <div className="space-y-4">
                         <div className="relative">
-                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">CEP (Apenas Amapá)</label>
-                            <input 
-                                type="text" value={newCep} 
-                                onChange={e => setNewCep(e.target.value.replace(/\D/g, '').replace(/^(\d{5})(\d)/, '$1-$2'))}
-                                className="w-full p-4 text-2xl font-black text-center bg-slate-100 dark:bg-slate-700 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/20 dark:text-white transition-all"
-                                placeholder="00000-000" maxLength={9}
-                            />
+                            <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">CEP (Amapá)</label>
+                            <input type="text" value={newCep} onChange={e => setNewCep(e.target.value)} className="w-full p-4 text-2xl font-black text-center bg-slate-100 dark:bg-slate-700 rounded-2xl outline-none" placeholder="00000-000" maxLength={9} />
                             {isUpdatingCep && <div className="absolute right-4 top-10"><LoadingSpinner /></div>}
                         </div>
-
                         {tempAddress.street && (
                             <div className="space-y-4 animate-fade-in-up">
-                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
-                                    <p className="text-[10px] font-black uppercase text-indigo-400 mb-1">Endereço Confirmado</p>
+                                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100">
                                     <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{tempAddress.street}</p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tempAddress.neighborhood}, {tempAddress.city} - {tempAddress.uf}</p>
+                                    <p className="text-xs text-slate-500">{tempAddress.neighborhood}, {tempAddress.city}</p>
                                 </div>
-
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div className="col-span-1">
-                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">Número</label>
-                                        <input 
-                                            ref={numberInputRef}
-                                            type="text" 
-                                            value={tempAddress.number}
-                                            onChange={e => setTempAddress({...tempAddress, number: e.target.value})}
-                                            className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            placeholder="Ex: 4105"
-                                        />
-                                    </div>
-                                    <div className="col-span-2">
-                                        <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 ml-1">Complemento</label>
-                                        <input 
-                                            type="text" 
-                                            value={tempAddress.complement}
-                                            onChange={e => setTempAddress({...tempAddress, complement: e.target.value})}
-                                            className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            placeholder="Ex: Apto 101"
-                                        />
-                                    </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 mb-1 ml-1">Número</label>
+                                    <input ref={numberInputRef} type="text" value={tempAddress.number} onChange={e => setTempAddress({...tempAddress, number: e.target.value})} className="w-full p-3 bg-white dark:bg-slate-800 border rounded-xl" placeholder="Ex: 123" />
                                 </div>
-
-                                <button 
-                                    onClick={handleConfirmLocation} 
-                                    disabled={!tempAddress.number || isUpdatingCep}
-                                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-500/30 disabled:opacity-50 transition-all active:scale-95"
-                                >
-                                    Confirmar Localização
-                                </button>
+                                <button onClick={handleConfirmLocation} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg">Confirmar Localização</button>
                             </div>
                         )}
                     </div>
