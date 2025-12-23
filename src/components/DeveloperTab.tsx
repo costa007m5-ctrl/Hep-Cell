@@ -10,7 +10,8 @@ const DeveloperTab: React.FC = () => {
     const { addToast } = useToast();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
-    const REPAIR_SQL = `-- RODAR ESTE SQL PARA CORRIGIR TABELA ORDERS
+    const REPAIR_SQL = `-- ESTRUTURA DO BANCO DE DADOS RELP CELL
+-- Tabela de Pedidos
 CREATE TABLE IF NOT EXISTS public.orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
@@ -24,6 +25,24 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS tracking_notes TEXT;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS items_snapshot JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS address_snapshot JSONB DEFAULT '{}'::jsonb;
 
+-- Tabela de Configurações do Sistema (Juros, Cashback, Banners)
+CREATE TABLE IF NOT EXISTS public.system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Tabela de Banners
+CREATE TABLE IF NOT EXISTS public.banners (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    image_url TEXT NOT NULL,
+    prompt TEXT,
+    link TEXT,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Tabela de Logs
 CREATE TABLE IF NOT EXISTS public.action_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     action_type TEXT,
@@ -33,20 +52,28 @@ CREATE TABLE IF NOT EXISTS public.action_logs (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Permissões
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Public read orders" ON public.orders;
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
+
+-- Políticas Permissivas (Admin/Dev)
 CREATE POLICY "Public read orders" ON public.orders FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Public insert orders" ON public.orders;
 CREATE POLICY "Public insert orders" ON public.orders FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Public update orders" ON public.orders;
 CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
+
+CREATE POLICY "Public read settings" ON public.system_settings FOR SELECT USING (true);
+CREATE POLICY "Public update settings" ON public.system_settings FOR UPDATE USING (true);
+CREATE POLICY "Public insert settings" ON public.system_settings FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Public read banners" ON public.banners FOR SELECT USING (true);
+CREATE POLICY "Public all banners" ON public.banners FOR ALL USING (true);
 `;
 
     const handleAutoRepair = async () => {
         setIsLoading(true);
         setMessage(null);
         try {
-            // Tenta criar via endpoint se RPC estiver ativo
             const res = await fetch('/api/admin/execute-sql', { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -55,10 +82,9 @@ CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
             
             const data = await res.json();
             if (res.ok) {
-                setMessage({ text: 'Tabelas corrigidas via comando remoto!', type: 'success' });
+                setMessage({ text: 'Banco de dados atualizado! Tabelas de Configuração e Financeiro criadas.', type: 'success' });
             } else {
-                // Se falhar (sem RPC), instrui manual
-                throw new Error("Não foi possível rodar automático. Copie o SQL abaixo e rode no Supabase.");
+                throw new Error("Erro ao rodar script automático. Tente copiar e rodar manualmente no Supabase.");
             }
         } catch (e: any) {
             setMessage({ text: e.message, type: 'error' });
@@ -72,7 +98,7 @@ CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
             const res = await fetch('/api/admin/sync-orders', { method: 'POST' });
             const data = await res.json();
             if (res.ok) {
-                setMessage({ text: `Sucesso! ${data.recovered} pedidos recuperados do histórico de faturas.`, type: 'success' });
+                setMessage({ text: `Sucesso! ${data.recovered} pedidos recuperados.`, type: 'success' });
             } else throw new Error(data.error);
         } catch (e: any) {
             setMessage({ text: e.message, type: 'error' });
@@ -108,12 +134,31 @@ CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
             {message && <div className="animate-pop-in"><Alert message={message.text} type={message.type} /></div>}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* SINCRONIZAÇÃO */}
+                {/* REPARO AUTOMÁTICO */}
+                <section className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-indigo-100 dark:border-indigo-900 shadow-xl flex flex-col">
+                    <div className="mb-6">
+                        <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        </div>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase">Atualizar Estrutura</h3>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                            Cria as tabelas necessárias para o Financeiro (taxas, cashback) e Banners da loja. Execute isso se o painel financeiro não salvar.
+                        </p>
+                    </div>
+                    <button 
+                        onClick={handleAutoRepair} disabled={isLoading}
+                        className="mt-auto w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 disabled:opacity-50"
+                    >
+                        {isLoading ? <LoadingSpinner /> : 'EXECUTAR REPARO AGORA'}
+                    </button>
+                </section>
+
+                {/* RECUPERAR PEDIDOS */}
                 <section className="bg-indigo-50 dark:bg-indigo-900/20 p-8 rounded-[2rem] border border-indigo-100 dark:border-indigo-900 shadow-xl flex flex-col">
                     <div className="mb-6">
                         <h3 className="text-xl font-black text-indigo-900 dark:text-white uppercase">Recuperar Pedidos</h3>
                         <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-2 leading-relaxed">
-                            Seus pedidos sumiram mas as faturas estão lá? Clique aqui para recriar os pedidos com base no histórico de faturas.
+                            Seus pedidos sumiram mas as faturas estão lá? Clique aqui para recriar os pedidos com base no histórico.
                         </p>
                     </div>
                     <button 
@@ -123,49 +168,23 @@ CREATE POLICY "Public update orders" ON public.orders FOR UPDATE USING (true);
                         {isLoading ? <LoadingSpinner /> : 'SINCRONIZAR PEDIDOS ANTIGOS'}
                     </button>
                 </section>
-
-                {/* SQL REPAIR */}
-                <section className="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-slate-700 shadow-xl flex flex-col">
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase mb-4">Reparo SQL</h3>
-                    <p className="text-xs text-slate-500 mb-4">Copie e rode no SQL Editor do Supabase se o automático falhar.</p>
-                    <div className="relative group flex-1">
-                        <pre className="h-full p-4 bg-slate-900 text-emerald-400 rounded-xl text-[10px] font-mono overflow-auto whitespace-pre-wrap border border-slate-700">
-                            {REPAIR_SQL}
-                        </pre>
-                        <button 
-                            onClick={() => { navigator.clipboard.writeText(REPAIR_SQL); addToast("SQL Copiado!", "success"); }}
-                            className="absolute top-2 right-2 px-3 py-1 bg-white/20 hover:bg-white/30 text-white text-[9px] font-black rounded uppercase transition-colors"
-                        >
-                            Copiar
-                        </button>
-                    </div>
-                    <button 
-                        onClick={handleAutoRepair} disabled={isLoading}
-                        className="mt-4 w-full py-3 bg-emerald-600 text-white rounded-xl font-black text-xs uppercase shadow-lg active:scale-95 disabled:opacity-50"
-                    >
-                        TENTAR REPARO AUTOMÁTICO
-                    </button>
-                </section>
             </div>
 
-            {/* TERMINAL MANUAL */}
+            {/* SQL MANUAL */}
             <section className="bg-slate-900 p-8 rounded-[2rem] border border-white/10 shadow-2xl flex flex-col">
                 <div className="flex items-center gap-2 mb-4">
-                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-[10px] font-mono text-emerald-500/50 uppercase ml-2">Terminal SQL</span>
+                     <span className="text-[10px] font-mono text-emerald-500/50 uppercase ml-2">Terminal SQL</span>
                 </div>
                 <textarea 
                     value={sqlQuery} onChange={e => setSqlQuery(e.target.value)}
-                    placeholder="Digite comando SQL manual..."
+                    placeholder="Digite o comando SQL..."
                     className="flex-1 w-full min-h-[120px] bg-black/50 border border-white/5 rounded-2xl p-4 font-mono text-[11px] text-emerald-400 focus:ring-1 focus:ring-emerald-500 outline-none mb-4"
                 />
                 <button 
                     onClick={handleRunManualSql} disabled={isLoading || !sqlQuery.trim()}
                     className="w-full py-3 bg-emerald-500 text-black rounded-xl font-black text-[10px] uppercase active:scale-95 disabled:opacity-30"
                 >
-                    EXECUTAR
+                    EXECUTAR SQL MANUAL
                 </button>
             </section>
         </div>

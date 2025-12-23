@@ -9,162 +9,204 @@ interface FinancialDashboardProps {
   isLoading: boolean;
 }
 
-const MetricCard: React.FC<{ title: string; value: string; description?: string }> = ({ title, value, description }) => (
-    <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-xl shadow-md">
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
-        <p className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{value}</p>
-        {description && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{description}</p>}
+const MetricCard: React.FC<{ title: string; value: string; description?: string; color?: string }> = ({ title, value, description, color = "bg-white dark:bg-slate-800" }) => (
+    <div className={`${color} p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700 transition-transform hover:scale-[1.02]`}>
+        <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">{title}</p>
+        <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">{value}</p>
+        {description && <p className="mt-2 text-xs font-medium text-slate-400 dark:text-slate-500">{description}</p>}
     </div>
 );
 
-const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices, isLoading }) => {
-    const [interestRate, setInterestRate] = useState<string>('');
-    const [negotiationInterest, setNegotiationInterest] = useState<string>('');
-    const [minEntryPercentage, setMinEntryPercentage] = useState<string>('');
-    const [cashbackPercent, setCashbackPercent] = useState<string>(''); // Novo estado Cashback
-    const [isSavingInterest, setIsSavingInterest] = useState(false);
-    const [interestMessage, setInterestMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ invoices: propInvoices, isLoading: propLoading }) => {
+    // Config States
+    const [settings, setSettings] = useState({
+        interest_rate: '0',
+        negotiation_interest: '15',
+        min_entry_percentage: '15',
+        cashback_percentage: '1.5'
+    });
+    
+    // Data States
+    const [invoices, setInvoices] = useState<Invoice[]>(propInvoices);
+    const [loadingData, setLoadingData] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-    const fetchSettings = async () => {
-        try {
-            const res = await fetch('/api/admin/settings');
-            if (res.ok) {
-                const settings = await res.json();
-                setInterestRate(settings.interest_rate || '0');
-                setNegotiationInterest(settings.negotiation_interest || '15');
-                setMinEntryPercentage(settings.min_entry_percentage || '15');
-                setCashbackPercent(settings.cashback_percentage || '1.5'); // Default 1.5%
-            }
-        } catch (e) {
-            console.error("Erro ao buscar configurações", e);
-        }
-    };
-
+    // Carrega configurações e dados atualizados
     useEffect(() => {
-        fetchSettings();
+        const fetchData = async () => {
+            setLoadingData(true);
+            try {
+                const [settingsRes, invRes] = await Promise.all([
+                    fetch('/api/admin?action=settings'),
+                    fetch('/api/admin/invoices') // Garante que pega faturas atualizadas
+                ]);
+                
+                const settingsData = await settingsRes.json();
+                const invData = await invRes.json();
+
+                if (settingsRes.ok) setSettings(prev => ({ ...prev, ...settingsData }));
+                if (invRes.ok && Array.isArray(invData)) setInvoices(invData);
+
+            } catch (e) {
+                console.error("Erro dashboard", e);
+            } finally {
+                setLoadingData(false);
+            }
+        };
+        fetchData();
     }, []);
 
-    const handleSaveSettings = async () => {
-        setIsSavingInterest(true);
-        setInterestMessage(null);
+    const handleSaveSetting = async (key: string, value: string) => {
+        setSettings(prev => ({ ...prev, [key]: value })); // Otimistic update
+        setIsSaving(true);
+        setSaveMessage(null);
         try {
-            await Promise.all([
-                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'interest_rate', value: interestRate }) }),
-                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'negotiation_interest', value: negotiationInterest }) }),
-                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'min_entry_percentage', value: minEntryPercentage }) }),
-                fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'cashback_percentage', value: cashbackPercent }) }) // Salva Cashback
-            ]);
-            
-            setInterestMessage({ text: 'Configurações atualizadas com sucesso!', type: 'success' });
-            setTimeout(() => setInterestMessage(null), 3000);
+            await fetch('/api/admin?action=settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key, value })
+            });
+            setSaveMessage({ text: 'Salvo!', type: 'success' });
+            setTimeout(() => setSaveMessage(null), 2000);
         } catch (e) {
-            setInterestMessage({ text: 'Erro ao salvar.', type: 'error' });
+            setSaveMessage({ text: 'Erro ao salvar.', type: 'error' });
         } finally {
-            setIsSavingInterest(false);
+            setIsSaving(false);
         }
     };
 
-    const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-
-    const paidInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Paga' && inv.payment_date), [invoices]);
-    const openInvoices = useMemo(() => invoices.filter(inv => inv.status === 'Em aberto' || inv.status === 'Boleto Gerado'), [invoices]);
-
-    const financialMetrics = useMemo(() => {
+    const metrics = useMemo(() => {
         const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfWeek = new Date(startOfToday);
-        startOfWeek.setDate(startOfWeek.getDate() - now.getDay());
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
 
-        const dailyIncome = paidInvoices
-            .filter(inv => new Date(inv.payment_date!) >= startOfToday)
-            .reduce((sum, inv) => sum + inv.amount, 0);
+        const paid = invoices.filter(i => i.status === 'Paga');
+        const open = invoices.filter(i => i.status === 'Em aberto' || i.status === 'Boleto Gerado');
 
-        const weeklyIncome = paidInvoices
-            .filter(inv => new Date(inv.payment_date!) >= startOfWeek)
-            .reduce((sum, inv) => sum + inv.amount, 0);
+        const totalRevenue = paid.reduce((acc, curr) => acc + curr.amount, 0);
+        const monthlyRevenue = paid.filter(i => {
+            const d = new Date(i.payment_date || i.created_at);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        }).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const monthlyIncome = paidInvoices
-            .filter(inv => new Date(inv.payment_date!) >= startOfMonth)
-            .reduce((sum, inv) => sum + inv.amount, 0);
+        const pendingRevenue = open.reduce((acc, curr) => acc + curr.amount, 0);
+        const overdueRevenue = open.filter(i => new Date(i.due_date) < now).reduce((acc, curr) => acc + curr.amount, 0);
 
-        const yearlyIncome = paidInvoices
-            .filter(inv => new Date(inv.payment_date!) >= startOfYear)
-            .reduce((sum, inv) => sum + inv.amount, 0);
+        return { totalRevenue, monthlyRevenue, pendingRevenue, overdueRevenue };
+    }, [invoices]);
 
-        const projectedRemainingYearly = openInvoices
-            .filter(inv => {
-                const dueDate = new Date(inv.due_date + 'T00:00:00');
-                return dueDate >= now && dueDate.getFullYear() === now.getFullYear();
-            })
-            .reduce((sum, inv) => sum + inv.amount, 0);
-        
-        const monthlyProjections = openInvoices.reduce((acc, inv) => {
-            const dueDate = new Date(inv.due_date + 'T00:00:00');
-            const monthYear = dueDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
-            acc[monthYear] = (acc[monthYear] || 0) + inv.amount;
-            return acc;
-        }, {} as Record<string, number>);
+    const formatBRL = (val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-        const sortedProjections = Object.entries(monthlyProjections).sort(([keyA], [keyB]) => {
-            const dateA = new Date(keyA.split('/').reverse().join('-'));
-            const dateB = new Date(keyB.split('/').reverse().join('-'));
-            return dateA.getTime() - dateB.getTime();
-        });
-
-        return { dailyIncome, weeklyIncome, monthlyIncome, yearlyIncome, projectedRemainingYearly, sortedProjections };
-    }, [paidInvoices, openInvoices]);
-
-    if (isLoading) {
-        return <div className="flex justify-center p-8"><LoadingSpinner /></div>;
-    }
+    if (loadingData && propLoading) return <div className="p-20 flex justify-center"><LoadingSpinner /></div>;
 
     return (
-        <div className="p-4 space-y-8">
-            <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Configuração do Sistema</h2>
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 max-w-4xl">
-                     <h3 className="text-lg font-semibold mb-4 text-slate-800 dark:text-white">Taxas e Regras</h3>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Juros Venda (% a.m.)</label>
-                            <input type="number" step="0.01" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Entrada Mínima (%)</label>
-                            <input type="number" step="1" value={minEntryPercentage} onChange={(e) => setMinEntryPercentage(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cashback (%)</label>
-                            <input type="number" step="0.1" value={cashbackPercent} onChange={(e) => setCashbackPercent(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white border-green-300 focus:border-green-500 ring-green-200" placeholder="1.5" />
-                            <p className="text-xs text-green-600 mt-1">Devolvido em Coins ao cliente.</p>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max Juros Negociação</label>
-                            <input type="number" step="0.01" value={negotiationInterest} onChange={(e) => setNegotiationInterest(e.target.value)} className="block w-full px-3 py-2 border rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
-                        </div>
-                     </div>
-                     <div className="flex justify-end">
-                        <button onClick={handleSaveSettings} disabled={isSavingInterest} className="py-2 px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
-                            {isSavingInterest ? <LoadingSpinner /> : 'Salvar Configurações'}
-                        </button>
-                     </div>
-                     {interestMessage && <div className="mt-3"><Alert message={interestMessage.text} type={interestMessage.type} /></div>}
+        <div className="space-y-8 animate-fade-in pb-20">
+            <header className="flex justify-between items-end px-2">
+                <div>
+                    <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter">Financeiro</h2>
+                    <p className="text-slate-500 font-medium text-sm">Visão geral de caixa e configurações</p>
                 </div>
-            </section>
-            
-            <section>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">Resumo Financeiro</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <MetricCard title="Faturamento Hoje" value={formatCurrency(financialMetrics.dailyIncome)} />
-                    <MetricCard title="Faturamento na Semana" value={formatCurrency(financialMetrics.weeklyIncome)} />
-                    <MetricCard title="Faturamento no Mês" value={formatCurrency(financialMetrics.monthlyIncome)} />
-                    <MetricCard title="Faturamento Total do Ano" value={formatCurrency(financialMetrics.yearlyIncome)} />
-                    <MetricCard title="A Receber no Ano" value={formatCurrency(financialMetrics.projectedRemainingYearly)} description="Valor de faturas em aberto no ano corrente" />
-                    <MetricCard title="Faturas Pendentes" value={String(openInvoices.length)} description="Total de faturas em aberto ou com boleto gerado" />
+                {saveMessage && <span className="text-xs font-bold text-green-600 bg-green-100 px-3 py-1 rounded-full animate-fade-in">{saveMessage.text}</span>}
+            </header>
+
+            {/* DASHBOARD GRID */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard 
+                    title="Faturamento Total" 
+                    value={formatBRL(metrics.totalRevenue)} 
+                    description="Desde o início"
+                    color="bg-emerald-50 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-900"
+                />
+                <MetricCard 
+                    title="Receita Mês Atual" 
+                    value={formatBRL(metrics.monthlyRevenue)} 
+                    description="Entradas confirmadas este mês"
+                />
+                <MetricCard 
+                    title="A Receber (Aberto)" 
+                    value={formatBRL(metrics.pendingRevenue)} 
+                    description="Faturas geradas pendentes"
+                />
+                <MetricCard 
+                    title="Inadimplência" 
+                    value={formatBRL(metrics.overdueRevenue)} 
+                    description="Faturas vencidas"
+                    color="bg-red-50 dark:bg-red-900/10 border-red-100 dark:border-red-900"
+                />
+            </div>
+
+            {/* CONFIGURAÇÕES DO SISTEMA */}
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-700">
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Parâmetros do Sistema</h3>
+                        <p className="text-xs text-slate-500 font-medium">As alterações afetam novas vendas imediatamente.</p>
+                    </div>
                 </div>
-            </section>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Juros Mensal (%)</label>
+                        <div className="relative group">
+                            <input 
+                                type="number" 
+                                value={settings.interest_rate} 
+                                onChange={(e) => setSettings({...settings, interest_rate: e.target.value})}
+                                onBlur={(e) => handleSaveSetting('interest_rate', e.target.value)}
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl font-black text-xl text-slate-800 dark:text-white border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Entrada Mínima (%)</label>
+                        <div className="relative group">
+                            <input 
+                                type="number" 
+                                value={settings.min_entry_percentage} 
+                                onChange={(e) => setSettings({...settings, min_entry_percentage: e.target.value})}
+                                onBlur={(e) => handleSaveSetting('min_entry_percentage', e.target.value)}
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl font-black text-xl text-slate-800 dark:text-white border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Cashback Padrão (%)</label>
+                        <div className="relative group">
+                            <input 
+                                type="number" 
+                                value={settings.cashback_percentage} 
+                                onChange={(e) => setSettings({...settings, cashback_percentage: e.target.value})}
+                                onBlur={(e) => handleSaveSetting('cashback_percentage', e.target.value)}
+                                className="w-full p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-2xl font-black text-xl text-emerald-700 dark:text-emerald-400 border-2 border-transparent focus:border-emerald-500 outline-none transition-all"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">%</span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 pl-1">Devolvido em Coins ao cliente.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Max Juros Negociação (%)</label>
+                        <div className="relative group">
+                            <input 
+                                type="number" 
+                                value={settings.negotiation_interest} 
+                                onChange={(e) => setSettings({...settings, negotiation_interest: e.target.value})}
+                                onBlur={(e) => handleSaveSetting('negotiation_interest', e.target.value)}
+                                className="w-full p-4 bg-slate-50 dark:bg-slate-900 rounded-2xl font-black text-xl text-slate-800 dark:text-white border-2 border-transparent focus:border-indigo-500 outline-none transition-all"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
