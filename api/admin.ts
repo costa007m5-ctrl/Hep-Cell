@@ -340,23 +340,45 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             return res.json(JSON.parse(response.text || "{}"));
         }
         if (mode === 'image_creation') {
-            // Usando modelo Flash para evitar Resource Exhausted (429) no modelo Pro
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash-image",
-                contents: { parts: [{ text: `Professional e-commerce banner image, high quality, advertising style. Theme: ${prompt}` }] },
-                config: { 
-                    imageConfig: { 
-                        aspectRatio: "16:9"
-                        // imageSize: "1K" // Não suportado no flash-image
-                    } 
-                },
-            });
-            for (const part of response.candidates?.[0]?.content?.parts || []) {
-                if (part.inlineData) {
-                    return res.json({ image: `data:image/png;base64,${part.inlineData.data}` });
+            // Tentativa 1: Gemini 2.5 Flash Image
+            try {
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash-image",
+                    contents: { parts: [{ text: `Create a professional e-commerce banner image. High resolution, advertising style. Theme: ${prompt}` }] },
+                    config: { 
+                        imageConfig: { aspectRatio: "16:9" } 
+                    },
+                });
+                for (const part of response.candidates?.[0]?.content?.parts || []) {
+                    if (part.inlineData) {
+                        return res.json({ image: `data:image/png;base64,${part.inlineData.data}` });
+                    }
                 }
+            } catch (flashError) {
+                console.warn("Gemini Flash Image falhou, tentando Imagen 3...", flashError);
             }
-            throw new Error("Não foi possível gerar a imagem.");
+
+            // Tentativa 2: Imagen 3 (Fallback robusto)
+            try {
+                const response = await ai.models.generateImages({
+                    model: 'imagen-3.0-generate-001',
+                    prompt: `Professional e-commerce banner image, advertising style, high quality. Theme: ${prompt}`,
+                    config: {
+                        numberOfImages: 1,
+                        aspectRatio: '16:9',
+                        outputMimeType: 'image/jpeg',
+                    },
+                });
+                
+                const base64 = response.generatedImages?.[0]?.image?.imageBytes;
+                if (base64) {
+                    return res.json({ image: `data:image/jpeg;base64,${base64}` });
+                }
+            } catch (imagenError: any) {
+                 throw new Error(`Falha em ambos modelos de imagem. Erro: ${imagenError.message}`);
+            }
+
+            throw new Error("Não foi possível gerar a imagem (sem dados retornados).");
         }
         return res.status(400).json({ error: "Modo inválido." });
     } catch (e: any) { 
