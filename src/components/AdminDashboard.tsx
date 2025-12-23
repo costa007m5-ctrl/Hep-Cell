@@ -11,7 +11,9 @@ import OrdersManagerTab from './OrdersManagerTab';
 import CoinsManagerTab from './CoinsManagerTab'; 
 import PaymentsVerifierTab from './PaymentsVerifierTab';
 import WebhookManagerTab from './WebhookManagerTab';
-import AdminOverviewTab from './AdminOverviewTab'; // Importa o novo componente
+import AdminOverviewTab from './AdminOverviewTab';
+import AdvertisingTab from './AdvertisingTab'; // Nova Aba Importada
+import AiConfigTab from './AiConfigTab';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -29,7 +31,9 @@ const Icons = {
     Orders: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
     Coins: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
     Audit: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
-    Webhook: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+    Webhook: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>,
+    Advertising: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+    AI: <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
 };
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
@@ -38,22 +42,25 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   
   const menuItems = [
     { id: 'dashboard', label: 'Resumo', icon: Icons.Dashboard },
-    { id: 'audit', label: 'Auditoria (Pagamentos)', icon: Icons.Audit },
-    { id: 'webhooks', label: 'Webhooks MP', icon: Icons.Webhook },
     { id: 'orders', label: 'Gestão de Pedidos', icon: Icons.Orders },
-    { id: 'coins', label: 'Gestão de Coins', icon: Icons.Coins },
-    { id: 'status', label: 'Integrações (API)', icon: Icons.Status },
-    { id: 'credit', label: 'Análise de Crédito', icon: Icons.Credit },
-    { id: 'clients', label: 'Clientes CRM', icon: Icons.Clients },
+    { id: 'advertising', label: 'Publicidade / Banners', icon: Icons.Advertising }, // Nova Aba
     { id: 'new_sale', label: 'Nova Venda', icon: Icons.NewSale },
+    { id: 'clients', label: 'Clientes CRM', icon: Icons.Clients },
     { id: 'products', label: 'Catálogo', icon: Icons.Products },
+    { id: 'credit', label: 'Análise de Crédito', icon: Icons.Credit },
+    { id: 'coins', label: 'Gestão de Coins', icon: Icons.Coins },
     { id: 'financials', label: 'Financeiro', icon: Icons.Financials },
+    { id: 'audit', label: 'Auditoria (Pagamentos)', icon: Icons.Audit },
+    { id: 'ai_config', label: 'Configuração IA', icon: Icons.AI },
+    { id: 'webhooks', label: 'Webhooks MP', icon: Icons.Webhook },
+    { id: 'status', label: 'Status API', icon: Icons.Status },
     { id: 'dev', label: 'Ferramentas Dev', icon: Icons.Tools },
   ];
 
   const renderContent = () => {
       switch(currentView) {
-          case 'dashboard': return <AdminOverviewTab />; // Novo componente
+          case 'dashboard': return <AdminOverviewTab />;
+          case 'advertising': return <AdvertisingTab />; // Renderiza componente
           case 'audit': return <PaymentsVerifierTab />;
           case 'webhooks': return <WebhookManagerTab />;
           case 'orders': return <OrdersManagerTab />;
@@ -64,6 +71,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
           case 'financials': return <FinancialDashboard invoices={[]} isLoading={false} />;
           case 'products': return <ProductsTab />;
           case 'new_sale': return <NewSaleTab />;
+          case 'ai_config': return <AiConfigTab />;
           case 'dev': return <DeveloperTab />;
           default: return <div className="p-20 text-center">Selecione uma opção</div>;
       }
@@ -86,12 +94,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">Gestão de Crédito e Vendas</p>
             </div>
             
-            <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+            <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1 custom-scrollbar">
                 {menuItems.map(item => (
                     <button 
                         key={item.id}
                         onClick={() => { setCurrentView(item.id); setIsSidebarOpen(false); }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold uppercase transition-all ${
                             currentView === item.id 
                             ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
                             : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
