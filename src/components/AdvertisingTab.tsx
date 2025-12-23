@@ -24,8 +24,11 @@ const AdvertisingTab: React.FC = () => {
     const [position, setPosition] = useState<'hero' | 'slim' | 'grid'>('hero');
     const [isActive, setIsActive] = useState(true);
 
+    // AI States
+    const [aiPrompt, setAiPrompt] = useState('');
+    const [isAiLoading, setIsAiLoading] = useState<'text' | 'image' | null>(null);
+
     // UX States
-    const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -105,26 +108,55 @@ const AdvertisingTab: React.FC = () => {
         }
     };
 
-    const handleGenerate = async () => {
-        if (!selectedImage) return;
-        setIsGenerating(true);
+    // --- AI HANDLERS ---
+
+    const handleGenerateText = async () => {
+        if (!aiPrompt.trim()) { setError("Digite um tema para a IA."); return; }
+        setIsAiLoading('text');
+        setError(null);
         try {
             const response = await fetch('/api/admin?action=generate-banner', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageBase64: selectedImage, prompt: title || 'Banner promocional' })
+                body: JSON.stringify({ prompt: aiPrompt, mode: 'text_metadata' })
             });
             const data = await response.json();
             if (response.ok) {
-                if (data.image) setSelectedImage(data.image);
-                if (data.suggestedLink && !targetLink) setTargetLink(data.suggestedLink);
-            }
+                if (data.title) setTitle(data.title);
+                if (data.subtitle) setSubtitle(data.subtitle);
+                if (data.link) setTargetLink(data.link);
+                setSaveMessage("Textos preenchidos pela IA!");
+            } else throw new Error(data.error);
         } catch (error: any) {
             setError(error.message);
         } finally {
-            setIsGenerating(false);
+            setIsAiLoading(null);
         }
     };
+
+    const handleGenerateImage = async () => {
+        if (!aiPrompt.trim()) { setError("Digite uma descrição para a imagem."); return; }
+        setIsAiLoading('image');
+        setError(null);
+        try {
+            const response = await fetch('/api/admin?action=generate-banner', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: aiPrompt, mode: 'image_creation' })
+            });
+            const data = await response.json();
+            if (response.ok && data.image) {
+                setSelectedImage(data.image);
+                setSaveMessage("Imagem criada pela IA!");
+            } else throw new Error(data.error || "Falha ao gerar imagem.");
+        } catch (error: any) {
+            setError(error.message);
+        } finally {
+            setIsAiLoading(null);
+        }
+    };
+
+    // --- END AI HANDLERS ---
 
     const resetForm = () => {
         setEditingId(null);
@@ -136,6 +168,7 @@ const AdvertisingTab: React.FC = () => {
         setIsActive(true);
         setError(null);
         setSaveMessage(null);
+        setAiPrompt('');
     };
 
     const handleEdit = (banner: Banner) => {
@@ -147,13 +180,12 @@ const AdvertisingTab: React.FC = () => {
         setPosition(banner.position || 'hero');
         setIsActive(banner.active);
         
-        // Scroll to top
         document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const handleSaveBanner = async () => {
         if (!selectedImage && !editingId) {
-            setError("Selecione uma imagem para criar um banner.");
+            setError("Selecione ou gere uma imagem para o banner.");
             return;
         }
         setIsSaving(true);
@@ -175,7 +207,7 @@ const AdvertisingTab: React.FC = () => {
                 })
             });
             
-            if (!response.ok) throw new Error("Erro ao salvar banner. Verifique o banco de dados.");
+            if (!response.ok) throw new Error("Erro ao salvar banner.");
             
             setSaveMessage(editingId ? "Banner atualizado!" : "Banner criado!");
             fetchBanners();
@@ -224,6 +256,39 @@ const AdvertisingTab: React.FC = () => {
                     )}
                 </div>
                 
+                {/* Ferramentas de IA */}
+                <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-5 rounded-2xl shadow-lg text-white">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xl">✨</span>
+                        <h3 className="font-bold text-sm uppercase tracking-wide">Criação com IA</h3>
+                    </div>
+                    <div className="space-y-3">
+                        <input 
+                            type="text" 
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            placeholder="Ex: Oferta de Carnaval para iPhones..."
+                            className="w-full px-3 py-2 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/60 text-sm focus:outline-none focus:ring-2 focus:ring-white/50"
+                        />
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={handleGenerateText}
+                                disabled={!!isAiLoading}
+                                className="flex-1 py-2 bg-white text-indigo-600 rounded-lg text-xs font-bold hover:bg-indigo-50 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                            >
+                                {isAiLoading === 'text' ? <LoadingSpinner /> : 'Preencher Textos'}
+                            </button>
+                            <button 
+                                onClick={handleGenerateImage}
+                                disabled={!!isAiLoading}
+                                className="flex-1 py-2 bg-purple-500 hover:bg-purple-400 text-white rounded-lg text-xs font-bold disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                            >
+                                {isAiLoading === 'image' ? <LoadingSpinner /> : 'Gerar Imagem'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
                     {/* Visualizador de Imagem */}
                     <div>
@@ -270,9 +335,6 @@ const AdvertisingTab: React.FC = () => {
                                     className="flex-1 px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                                     placeholder="Ex: category:Celulares"
                                 />
-                                <button onClick={handleGenerate} disabled={isGenerating || !selectedImage} className="bg-purple-100 text-purple-600 p-2 rounded-lg hover:bg-purple-200" title="Sugerir com IA">
-                                    {isGenerating ? <LoadingSpinner /> : '✨'}
-                                </button>
                             </div>
                             <div className="mt-2 flex gap-2 overflow-x-auto pb-1 text-[10px]">
                                 <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100" onClick={() => setTargetLink('category:Celulares')}>category:Nome</span>

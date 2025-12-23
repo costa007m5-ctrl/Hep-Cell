@@ -326,19 +326,50 @@ async function handleDeleteBanner(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
-    const { imageBase64, prompt } = req.body;
+    const { prompt, mode } = req.body; // mode: 'text_metadata' | 'image_creation'
+    
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
         
-        // 1. Gera link sugerido com base no prompt (Texto)
-        const linkResponse = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: `Analise este prompt de banner: "${prompt}". Retorne APENAS um link interno sugerido no formato category:Nome ou brand:Nome. Ex: category:Celulares`,
-        });
-        const suggestedLink = linkResponse.text?.trim() || "";
+        // 1. MODO TEXTO: Gera títulos e link com base no tema
+        if (mode === 'text_metadata') {
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: `Create marketing metadata for a store banner based on this theme: "${prompt}". Return valid JSON with: title (short catchy), subtitle (persuasive), link (suggested internal link format like 'category:Name', 'brand:Name', 'collection:Name').`,
+                config: { responseMimeType: "application/json" }
+            });
+            return res.json(JSON.parse(response.text || "{}"));
+        }
 
-        // Retorna a imagem original (ou processada no futuro) e o link sugerido
-        return res.json({ image: imageBase64, suggestedLink }); 
+        // 2. MODO IMAGEM: Gera a imagem do banner
+        if (mode === 'image_creation') {
+            const response = await ai.models.generateContent({
+                model: "gemini-3-pro-image-preview",
+                contents: {
+                    parts: [
+                        { text: `Professional e-commerce banner image, high quality, advertising style. Theme: ${prompt}` },
+                    ],
+                },
+                config: {
+                    imageConfig: {
+                        aspectRatio: "16:9",
+                        imageSize: "1K"
+                    },
+                },
+            });
+
+            // Extrai a imagem do response
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData) {
+                    const base64EncodeString = part.inlineData.data;
+                    const imageUrl = `data:image/png;base64,${base64EncodeString}`;
+                    return res.json({ image: imageUrl });
+                }
+            }
+            throw new Error("Não foi possível gerar a imagem.");
+        }
+
+        return res.status(400).json({ error: "Modo inválido." });
 
     } catch (e: any) {
         return res.status(500).json({ error: e.message });
@@ -405,8 +436,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             if (req.method === 'DELETE') return await handleDeleteBanner(req, res);
             return await handleGetBanners(res);
         }
-        if (isRoute('generate-banner')) return await handleGenerateBanner(req, res); // IA
-        if (isRoute('edit-image')) return await handleGenerateBanner(req, res); // Reusa logica
+        if (isRoute('generate-banner')) return await handleGenerateBanner(req, res); // IA: Texto ou Imagem
+        if (isRoute('edit-image')) return await handleGenerateBanner(req, res); // Deprecated alias
 
         // UTILS & DB
         if (isRoute('chat')) return await handleChat(req, res);
