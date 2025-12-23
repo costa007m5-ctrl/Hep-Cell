@@ -7,23 +7,29 @@ interface Banner {
     id: string;
     image_url: string;
     prompt: string;
+    subtitle?: string;
     link?: string;
     active: boolean;
+    position?: 'hero' | 'slim' | 'grid';
     created_at: string;
 }
 
 const AdvertisingTab: React.FC = () => {
-    // Generation State
+    // Form State
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
-    const [prompt, setPrompt] = useState('');
+    const [title, setTitle] = useState('');
+    const [subtitle, setSubtitle] = useState('');
     const [targetLink, setTargetLink] = useState('');
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [generateError, setGenerateError] = useState<string | null>(null);
-    const [isProcessingImage, setIsProcessingImage] = useState(false);
+    const [position, setPosition] = useState<'hero' | 'slim' | 'grid'>('hero');
+    const [isActive, setIsActive] = useState(true);
 
-    // Saving State
+    // UX States
+    const [isGenerating, setIsGenerating] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
-    const [saveMessage, setSaveMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+    const [isProcessingImage, setIsProcessingImage] = useState(false);
 
     // List State
     const [banners, setBanners] = useState<Banner[]>([]);
@@ -92,7 +98,7 @@ const AdvertisingTab: React.FC = () => {
                 const processedBase64 = await processImageFile(file);
                 setSelectedImage(processedBase64);
             } catch (error) {
-                setGenerateError("Erro ao processar imagem.");
+                setError("Erro ao processar imagem.");
             } finally {
                 setIsProcessingImage(false);
             }
@@ -106,26 +112,52 @@ const AdvertisingTab: React.FC = () => {
             const response = await fetch('/api/admin?action=generate-banner', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageBase64: selectedImage, prompt: prompt || 'Banner promocional' })
+                body: JSON.stringify({ imageBase64: selectedImage, prompt: title || 'Banner promocional' })
             });
             const data = await response.json();
             if (response.ok) {
-                // Atualiza a imagem com a versão processada pela IA (se houver) ou mantém a original
                 if (data.image) setSelectedImage(data.image);
-                if (data.suggestedLink) setTargetLink(data.suggestedLink);
-            } else {
-                throw new Error(data.error);
+                if (data.suggestedLink && !targetLink) setTargetLink(data.suggestedLink);
             }
         } catch (error: any) {
-            setGenerateError(error.message);
+            setError(error.message);
         } finally {
             setIsGenerating(false);
         }
     };
 
+    const resetForm = () => {
+        setEditingId(null);
+        setSelectedImage(null);
+        setTitle('');
+        setSubtitle('');
+        setTargetLink('');
+        setPosition('hero');
+        setIsActive(true);
+        setError(null);
+        setSaveMessage(null);
+    };
+
+    const handleEdit = (banner: Banner) => {
+        setEditingId(banner.id);
+        setSelectedImage(banner.image_url);
+        setTitle(banner.prompt || '');
+        setSubtitle(banner.subtitle || '');
+        setTargetLink(banner.link || '');
+        setPosition(banner.position || 'hero');
+        setIsActive(banner.active);
+        
+        // Scroll to top
+        document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     const handleSaveBanner = async () => {
-        if (!selectedImage) return;
+        if (!selectedImage && !editingId) {
+            setError("Selecione uma imagem para criar um banner.");
+            return;
+        }
         setIsSaving(true);
+        setError(null);
         setSaveMessage(null);
 
         try {
@@ -133,28 +165,30 @@ const AdvertisingTab: React.FC = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
+                    id: editingId,
                     image_base64: selectedImage,
-                    prompt: prompt || 'Banner da Loja',
-                    link: targetLink 
+                    prompt: title,
+                    subtitle,
+                    link: targetLink,
+                    position,
+                    active: isActive
                 })
             });
             
-            if (!response.ok) throw new Error("Erro ao salvar banner.");
+            if (!response.ok) throw new Error("Erro ao salvar banner. Verifique o banco de dados.");
             
-            setSaveMessage({ text: "Banner ativado na loja!", type: 'success' });
+            setSaveMessage(editingId ? "Banner atualizado!" : "Banner criado!");
             fetchBanners();
-            setSelectedImage(null);
-            setPrompt('');
-            setTargetLink('');
+            if (!editingId) resetForm();
         } catch (error: any) {
-            setSaveMessage({ text: error.message, type: 'error' });
+            setError(error.message);
         } finally {
             setIsSaving(false);
         }
     };
 
     const handleDeleteBanner = async (id: string) => {
-        if (!confirm("Remover este banner?")) return;
+        if (!confirm("Remover este banner permanentemente?")) return;
         try {
              await fetch('/api/admin?action=banners', {
                 method: 'DELETE',
@@ -165,111 +199,184 @@ const AdvertisingTab: React.FC = () => {
         } catch (error) { console.error(error); }
     };
 
+    const getPositionLabel = (pos?: string) => {
+        switch(pos) {
+            case 'hero': return 'Topo (Principal)';
+            case 'slim': return 'Meio (Faixa)';
+            case 'grid': return 'Fim (Quadrado)';
+            default: return 'Geral';
+        }
+    };
+
     return (
-        <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-8 h-full overflow-y-auto">
-            {/* Editor */}
-            <div className="space-y-6">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Criar Novo Banner</h2>
+        <div className="p-4 grid grid-cols-1 lg:grid-cols-12 gap-8 h-full overflow-y-auto">
+            {/* EDITOR (4 COLUNAS) */}
+            <div className="lg:col-span-5 space-y-6">
+                <div className="flex justify-between items-center">
+                    <div>
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                            {editingId ? 'Editar Banner' : 'Novo Banner'}
+                        </h2>
+                        <p className="text-xs text-slate-500">Configure imagem e link de destino.</p>
+                    </div>
+                    {editingId && (
+                        <button onClick={resetForm} className="text-xs text-red-500 font-bold hover:underline bg-red-50 px-3 py-1 rounded-lg">Cancelar</button>
+                    )}
+                </div>
                 
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                    {/* Upload */}
-                    <div className="mb-6">
-                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">1. Imagem (Formatos Wide funcionam melhor)</label>
-                        <div className="flex items-center justify-center w-full">
-                            <label className={`flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 transition-colors relative overflow-hidden ${isProcessingImage ? 'opacity-50' : ''}`}>
-                                {selectedImage ? (
+                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-5">
+                    {/* Visualizador de Imagem */}
+                    <div>
+                        <label className="block text-xs font-bold uppercase text-slate-500 mb-2">Imagem do Banner</label>
+                        <label className={`flex flex-col items-center justify-center w-full aspect-[2/1] border-2 border-dashed rounded-xl cursor-pointer bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:bg-slate-100 transition-all relative overflow-hidden group ${isProcessingImage ? 'opacity-50' : ''}`}>
+                            {selectedImage ? (
+                                <>
                                     <img src={selectedImage} className="absolute inset-0 w-full h-full object-cover" alt="Preview" />
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mb-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                        <p className="text-sm text-slate-500 font-medium">Clique para enviar imagem</p>
-                                    </div>
-                                )}
-                                <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" disabled={isProcessingImage} />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white font-bold transition-opacity">Trocar Imagem</div>
+                                </>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 mb-2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    <p className="text-xs text-slate-500">Clique para enviar</p>
+                                </div>
+                            )}
+                            <input type="file" className="hidden" onChange={handleImageUpload} accept="image/*" disabled={isProcessingImage} />
+                        </label>
+                    </div>
+
+                    {/* Campos de Texto */}
+                    <div className="grid grid-cols-1 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Título Principal</label>
+                            <input 
+                                type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+                                className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                placeholder="Ex: Oferta Relâmpago"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Subtítulo (Opcional)</label>
+                            <input 
+                                type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)}
+                                className="w-full px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                placeholder="Ex: Até 50% OFF"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Link de Redirecionamento</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="text" value={targetLink} onChange={(e) => setTargetLink(e.target.value)}
+                                    className="flex-1 px-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                    placeholder="Ex: category:Celulares"
+                                />
+                                <button onClick={handleGenerate} disabled={isGenerating || !selectedImage} className="bg-purple-100 text-purple-600 p-2 rounded-lg hover:bg-purple-200" title="Sugerir com IA">
+                                    {isGenerating ? <LoadingSpinner /> : '✨'}
+                                </button>
+                            </div>
+                            <div className="mt-2 flex gap-2 overflow-x-auto pb-1 text-[10px]">
+                                <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100" onClick={() => setTargetLink('category:Celulares')}>category:Nome</span>
+                                <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100" onClick={() => setTargetLink('collection:Ofertas')}>collection:Nome</span>
+                                <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded cursor-pointer hover:bg-indigo-100" onClick={() => setTargetLink('brand:Apple')}>brand:Nome</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Configurações */}
+                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100 dark:border-slate-700">
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Posição na Loja</label>
+                            <select 
+                                value={position} 
+                                onChange={(e) => setPosition(e.target.value as any)}
+                                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                                <option value="hero">Topo (Hero)</option>
+                                <option value="slim">Meio (Slim)</option>
+                                <option value="grid">Fim (Grid)</option>
+                            </select>
+                        </div>
+                        <div className="flex items-end">
+                            <label className="flex items-center space-x-3 cursor-pointer p-2 border rounded-lg w-full bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-600 hover:bg-slate-100 transition-colors">
+                                <input 
+                                    type="checkbox" 
+                                    checked={isActive} 
+                                    onChange={(e) => setIsActive(e.target.checked)}
+                                    className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                                />
+                                <span className={`text-sm font-bold ${isActive ? 'text-green-600' : 'text-slate-400'}`}>
+                                    {isActive ? 'Ativo' : 'Inativo'}
+                                </span>
                             </label>
                         </div>
                     </div>
 
-                    {/* Dados */}
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Link de Destino (Opcional)</label>
-                            <input 
-                                type="text" 
-                                value={targetLink}
-                                onChange={(e) => setTargetLink(e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm focus:ring-2 focus:ring-indigo-500"
-                                placeholder="Ex: category:Celulares ou https://..."
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Título / Descrição (Opcional)</label>
-                            <input 
-                                type="text" 
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 text-sm focus:ring-2 focus:ring-indigo-500"
-                                placeholder="Título do banner para referência"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Ações */}
-                    <div className="mt-6 flex flex-col gap-3">
-                        <button 
-                            onClick={handleGenerate} 
-                            disabled={isGenerating || !selectedImage}
-                            className="w-full py-3 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                        >
-                            {isGenerating ? <LoadingSpinner /> : (
-                                <>
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                    Melhorar com IA (Opcional)
-                                </>
-                            )}
-                        </button>
-                        
-                        <button 
-                            onClick={handleSaveBanner}
-                            disabled={isSaving || !selectedImage}
-                            className="w-full py-3 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-lg disabled:opacity-50 transition-all active:scale-[0.98]"
-                        >
-                             {isSaving ? <LoadingSpinner /> : 'Salvar Banner na Loja'}
-                        </button>
-                    </div>
+                    {/* Botão Salvar */}
+                    <button 
+                        onClick={handleSaveBanner}
+                        disabled={isSaving}
+                        className="w-full py-3.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 disabled:opacity-50 transition-all active:scale-[0.98] mt-2"
+                    >
+                         {isSaving ? <LoadingSpinner /> : (editingId ? 'Salvar Alterações' : 'Criar Banner')}
+                    </button>
                     
-                    {generateError && <div className="mt-4"><Alert message={generateError} type="error" /></div>}
-                    {saveMessage && <div className="mt-4"><Alert message={saveMessage.text} type={saveMessage.type} /></div>}
+                    {error && <Alert message={error} type="error" />}
+                    {saveMessage && <Alert message={saveMessage} type="success" />}
                 </div>
             </div>
 
-            {/* Lista de Banners */}
-            <div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Banners Ativos ({banners.length})</h2>
+            {/* LISTA (8 COLUNAS) */}
+            <div className="lg:col-span-7">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Banners Ativos</h2>
+                    <button onClick={fetchBanners} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:bg-slate-200 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4h-5v5M4 20h5v-5" /></svg>
+                    </button>
+                </div>
                 
-                {isLoadingBanners ? <div className="flex justify-center"><LoadingSpinner /></div> : (
-                    <div className="grid gap-4">
+                {isLoadingBanners ? <div className="flex justify-center p-10"><LoadingSpinner /></div> : (
+                    <div className="space-y-4">
                         {banners.length === 0 ? (
-                            <div className="text-center py-10 bg-slate-100 dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
-                                <p className="text-slate-500">Nenhum banner ativo. Adicione um ao lado.</p>
+                            <div className="text-center py-12 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                                <p className="text-slate-500">Nenhum banner encontrado.</p>
                             </div>
                         ) : (
                             banners.map(banner => (
-                                <div key={banner.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex gap-4 group">
-                                    <img src={banner.image_url} className="w-32 h-20 object-cover rounded-lg bg-slate-100" alt="Banner" />
-                                    <div className="flex-1 flex flex-col justify-between py-1">
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-900 dark:text-white line-clamp-1">{banner.prompt}</p>
-                                            {banner.link && <p className="text-xs text-indigo-600 truncate bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded w-fit mt-1">{banner.link}</p>}
+                                <div 
+                                    key={banner.id} 
+                                    className={`relative bg-white dark:bg-slate-800 p-4 rounded-xl border shadow-sm flex gap-4 transition-all group ${!banner.active ? 'opacity-60 grayscale border-slate-200' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}
+                                >
+                                    <div className={`w-32 h-20 rounded-lg overflow-hidden shrink-0 bg-slate-100 relative ${banner.position === 'grid' ? 'aspect-square w-20' : 'aspect-[2/1]'}`}>
+                                        <img src={banner.image_url} className="w-full h-full object-cover" alt="Banner" />
+                                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] font-bold px-2 py-0.5 text-center uppercase">
+                                            {getPositionLabel(banner.position)}
                                         </div>
-                                        <div className="flex justify-between items-end">
-                                            <span className="text-[10px] text-slate-400">{new Date(banner.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                    
+                                    <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                                        <div>
+                                            <div className="flex justify-between items-start">
+                                                <h4 className="font-bold text-slate-900 dark:text-white truncate pr-2">{banner.prompt || 'Sem Título'}</h4>
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${banner.active ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
+                                                    {banner.active ? 'Ativo' : 'Off'}
+                                                </span>
+                                            </div>
+                                            {banner.subtitle && <p className="text-xs text-slate-500 truncate">{banner.subtitle}</p>}
+                                            {banner.link && <p className="text-[10px] text-indigo-500 font-mono truncate mt-1 bg-indigo-50 dark:bg-indigo-900/20 px-1.5 py-0.5 rounded w-fit">{banner.link}</p>}
+                                        </div>
+                                        
+                                        <div className="flex justify-end gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                onClick={() => handleEdit(banner)}
+                                                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors"
+                                            >
+                                                Editar
+                                            </button>
                                             <button 
                                                 onClick={() => handleDeleteBanner(banner.id)}
-                                                className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
-                                                title="Excluir Banner"
+                                                className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors"
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                Excluir
                                             </button>
                                         </div>
                                     </div>

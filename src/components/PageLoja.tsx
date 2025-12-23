@@ -15,7 +15,7 @@ import SearchBar from './store/SearchBar';
 import CartDrawer from './store/CartDrawer';
 import PurchaseModal from './store/PurchaseModal';
 
-// --- SUB-COMPONENTE: VISUALIZAÇÃO DE LISTAGEM (SEARCH/CATEGORY/COLLECTION) ---
+// ... (ProductListingView mantido igual ao anterior, omitido para brevidade se não houve mudança lógica nele, mas vou incluir para garantir integridade do arquivo) ...
 const ProductListingView: React.FC<{
     title: string;
     products: Product[];
@@ -35,12 +35,10 @@ const ProductListingView: React.FC<{
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 animate-fade-in-right pb-safe relative z-20">
-            {/* Header Fixo */}
             <div className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-100 dark:border-slate-800 px-4 py-3 flex items-center gap-3 shadow-sm">
                 <button onClick={onBack} className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors active:scale-95">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                
                 {setSearchQuery ? (
                     <div className="flex-1">
                         <SearchBar value={searchQuery || ''} onChange={setSearchQuery} />
@@ -48,8 +46,6 @@ const ProductListingView: React.FC<{
                 ) : (
                     <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight truncate flex-1">{title}</h2>
                 )}
-
-                {/* Sort Button */}
                 <button 
                     onClick={() => setSortOrder(prev => prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'default')}
                     className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 active:scale-95 transition-transform"
@@ -59,13 +55,10 @@ const ProductListingView: React.FC<{
                     {sortOrder === 'desc' && <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" transform="rotate(180 12 12)" /></svg>}
                 </button>
             </div>
-
-            {/* Results Grid */}
             <div className="p-4">
                 <p className="text-xs font-bold text-slate-400 uppercase mb-4 pl-1">
                     {sortedProducts.length} {sortedProducts.length === 1 ? 'Produto' : 'Produtos'} encontrados
                 </p>
-
                 {sortedProducts.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                         <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4">
@@ -106,7 +99,6 @@ const ProductListingView: React.FC<{
     );
 };
 
-// --- COMPONENTE PRINCIPAL ---
 const PageLoja: React.FC = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [banners, setBanners] = useState<any[]>([]);
@@ -190,20 +182,18 @@ const PageLoja: React.FC = () => {
     // Handlers
     const navigateToProduct = (p: Product) => {
         setSelectedProduct(p);
-        // Não muda 'view' aqui, pois ProductDetails é um overlay fixo em cima de tudo
     };
 
     const navigateToListing = (title: string, filterFn: (p: Product) => boolean, isSearch = false) => {
         setListingConfig({ title, filter: filterFn, isSearch });
-        if (isSearch) setSearchQuery(''); // Reseta input visual inicial
+        if (isSearch) setSearchQuery('');
         setView('listing');
     };
 
     const handleSearchInput = (q: string) => {
         setSearchQuery(q);
-        // Se começar a digitar na Home, vai para listing
         if (view === 'home' && q.trim().length > 0) {
-            navigateToListing("Busca", (p) => true, true); // Filtro será aplicado dinamicamente na view
+            navigateToListing("Busca", (p) => true, true);
         }
     };
 
@@ -215,32 +205,29 @@ const PageLoja: React.FC = () => {
             navigateToListing(cat, (p) => p.category === cat);
         } else if (link.startsWith('collection:')) {
             const col = link.split(':')[1];
-            // Exemplo simples: Coleção 'Ofertas' filtra pro promotional_price
             if (col === 'Ofertas') navigateToListing('Ofertas Especiais', (p) => !!p.promotional_price);
             else navigateToListing(col, (p) => p.name.includes(col) || p.description?.includes(col) || false);
         } else if (link.startsWith('brand:')) {
             const brand = link.split(':')[1];
             navigateToListing(brand, (p) => p.brand === brand);
         } else {
-            // Busca genérica
             navigateToListing(link, (p) => p.name.toLowerCase().includes(link.toLowerCase()));
         }
     };
 
-    // Derived Data for Home
+    // Derived Data for Home (UPDATED LOGIC WITH TYPES)
     const bannerGroups = useMemo(() => {
-        // Fallbacks inteligentes
         const defaultBanners = [
-            { id: 'fb1', image_url: 'https://images.unsplash.com/photo-1603539278276-8f328406450f?auto=format&fit=crop&w=1200&q=80', prompt: 'Acessórios', link: 'category:Acessórios' },
-            { id: 'fb2', image_url: 'https://images.unsplash.com/photo-1595942472934-400890209c73?auto=format&fit=crop&w=1200&q=80', prompt: 'Moda Tech', link: 'collection:Novidades' },
-            { id: 'fb3', image_url: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80', prompt: 'Celulares', link: 'category:Celulares' },
-            { id: 'fb4', image_url: 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?auto=format&fit=crop&w=800&q=80', prompt: 'Eletrônicos', link: 'category:Informática' }
+            { id: 'fb1', image_url: 'https://images.unsplash.com/photo-1603539278276-8f328406450f', prompt: 'Acessórios', link: 'category:Acessórios', position: 'hero' },
+            { id: 'fb2', image_url: 'https://images.unsplash.com/photo-1595942472934-400890209c73', prompt: 'Moda Tech', link: 'collection:Novidades', position: 'slim' }
         ];
-        const all = banners.length > 0 ? banners : defaultBanners;
+        
+        const all = banners.length > 0 ? banners.filter(b => b.active) : defaultBanners;
+        
         return {
-            hero: all.slice(0, 3),
-            mid: all.slice(3, 4).length > 0 ? all.slice(3, 4) : [defaultBanners[0]],
-            bottom: all.slice(4, 6).length > 0 ? all.slice(4, 6) : defaultBanners.slice(2, 4)
+            hero: all.filter(b => b.position === 'hero' || !b.position), // Default to hero if no position
+            mid: all.filter(b => b.position === 'slim'),
+            bottom: all.filter(b => b.position === 'grid')
         };
     }, [banners]);
 
@@ -380,9 +367,11 @@ const PageLoja: React.FC = () => {
                     )}
 
                     {/* 4. BANNER SLIM */}
-                    <div className="py-2">
-                        <StoreCarousel variant="slim" bannersData={bannerGroups.mid} onBannerClick={handleBannerClick} />
-                    </div>
+                    {bannerGroups.mid.length > 0 && (
+                        <div className="py-2">
+                            <StoreCarousel variant="slim" bannersData={bannerGroups.mid} onBannerClick={handleBannerClick} />
+                        </div>
+                    )}
 
                     {/* 5. MARCAS */}
                     <div className="bg-white dark:bg-slate-900 py-3 border-y border-slate-100 dark:border-slate-800">
@@ -398,10 +387,12 @@ const PageLoja: React.FC = () => {
                     />
 
                     {/* 7. COLEÇÕES (BANNERS CLICKABLE) */}
-                    <div className="mt-4">
-                        <h2 className="px-4 text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Coleções</h2>
-                        <StoreCarousel variant="grid" bannersData={bannerGroups.bottom} onBannerClick={handleBannerClick} />
-                    </div>
+                    {bannerGroups.bottom.length > 0 && (
+                        <div className="mt-4">
+                            <h2 className="px-4 text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">Coleções</h2>
+                            <StoreCarousel variant="grid" bannersData={bannerGroups.bottom} onBannerClick={handleBannerClick} />
+                        </div>
+                    )}
 
                     {/* 8. ACESSÓRIOS */}
                     {accessories.length > 0 && (

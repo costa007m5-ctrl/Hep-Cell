@@ -286,14 +286,35 @@ async function handleSaveSettings(req: VercelRequest, res: VercelResponse) {
 
 async function handleGetBanners(res: VercelResponse) {
     const supabase = getSupabaseAdmin();
-    const { data } = await supabase.from('banners').select('*').eq('active', true).order('created_at', { ascending: false });
+    // Retorna todos os banners, não apenas os ativos, para gestão
+    const { data } = await supabase.from('banners').select('*').order('created_at', { ascending: false });
     return res.json(data || []);
 }
 
 async function handleSaveBanner(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdmin();
-    const { image_base64, prompt, link } = req.body;
-    await supabase.from('banners').insert({ image_url: image_base64, prompt, link, active: true });
+    const { id, image_base64, prompt, subtitle, link, position, active } = req.body;
+    
+    // Constrói payload dinamicamente
+    const payload: any = {};
+    if (image_base64) payload.image_url = image_base64; // Só atualiza imagem se enviada
+    if (prompt !== undefined) payload.prompt = prompt;
+    if (subtitle !== undefined) payload.subtitle = subtitle;
+    if (link !== undefined) payload.link = link;
+    if (position !== undefined) payload.position = position;
+    if (active !== undefined) payload.active = active;
+
+    if (id) {
+        // Update
+        const { error } = await supabase.from('banners').update(payload).eq('id', id);
+        if (error) throw error;
+    } else {
+        // Insert (Imagem é obrigatória)
+        if (!image_base64) return res.status(400).json({ error: "Imagem obrigatória para novo banner" });
+        const { error } = await supabase.from('banners').insert({ ...payload, active: true, position: position || 'hero' });
+        if (error) throw error;
+    }
+    
     return res.json({ success: true });
 }
 
@@ -316,14 +337,7 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
         });
         const suggestedLink = linkResponse.text?.trim() || "";
 
-        // 2. Gera/Edita Imagem (Simulado aqui pois endpoint de imagem requer form-data complexo ou url, 
-        // mas vamos usar o generateContent com suporte a imagem se o modelo permitir, ou retornar mock se falhar)
-        // Nota: O modelo gemini-2.5-flash-image não gera imagem do zero, ele edita ou analisa.
-        // Para gerar, usaríamos Imagen. Como fallback seguro, retornamos a própria imagem processada ou um placeholder se falhar.
-        
-        // MOCKUP INTELIGENTE: Em produção real, chamaríamos o Imagen 3.
-        // Aqui, devolvemos a imagem base com metadados para o front exibir.
-        
+        // Retorna a imagem original (ou processada no futuro) e o link sugerido
         return res.json({ image: imageBase64, suggestedLink }); 
 
     } catch (e: any) {
