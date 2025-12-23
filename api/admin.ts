@@ -37,8 +37,6 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
     }
 }
 
-// ... (Outras funções mantidas, focando nas correções de teste abaixo) ...
-
 // 8. TEST HEALTH CHECKS
 async function handleTestSupabase(res: VercelResponse) {
     try {
@@ -95,9 +93,6 @@ async function handleTestMercadoPago(res: VercelResponse) {
         return res.status(500).json({ error: e.message });
     }
 }
-
-// ... (Funções auxiliares de negócio: handleCreateSale, handleGetOrders, etc. precisam estar aqui para o arquivo completo funcionar) ...
-// Vou incluir as funções essenciais para garantir que o arquivo seja válido.
 
 async function handleCreateSale(req: VercelRequest, res: VercelResponse) {
     try {
@@ -345,10 +340,16 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             return res.json(JSON.parse(response.text || "{}"));
         }
         if (mode === 'image_creation') {
+            // Usando modelo Flash para evitar Resource Exhausted (429) no modelo Pro
             const response = await ai.models.generateContent({
-                model: "gemini-3-pro-image-preview",
+                model: "gemini-2.5-flash-image",
                 contents: { parts: [{ text: `Professional e-commerce banner image, high quality, advertising style. Theme: ${prompt}` }] },
-                config: { imageConfig: { aspectRatio: "16:9", imageSize: "1K" } },
+                config: { 
+                    imageConfig: { 
+                        aspectRatio: "16:9"
+                        // imageSize: "1K" // Não suportado no flash-image
+                    } 
+                },
             });
             for (const part of response.candidates?.[0]?.content?.parts || []) {
                 if (part.inlineData) {
@@ -358,7 +359,10 @@ async function handleGenerateBanner(req: VercelRequest, res: VercelResponse) {
             throw new Error("Não foi possível gerar a imagem.");
         }
         return res.status(400).json({ error: "Modo inválido." });
-    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+    } catch (e: any) { 
+        console.error("Erro Banner IA:", e);
+        return res.status(500).json({ error: e.message }); 
+    }
 }
 
 async function handleExecuteSql(req: VercelRequest, res: VercelResponse) {
