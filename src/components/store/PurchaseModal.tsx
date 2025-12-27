@@ -1,5 +1,4 @@
 
-// ... Imports anteriores mantidos ...
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Product, Profile } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
@@ -9,7 +8,6 @@ import Modal from '../Modal';
 import Logo from '../Logo'; 
 import { supabase } from '../../services/clients';
 
-// ... Interfaces mantidas ...
 interface PurchaseModalProps {
     product: Product;
     profile: Profile;
@@ -22,7 +20,6 @@ type PaymentMethod = 'pix' | 'boleto' | 'redirect';
 type Step = 'config' | 'address' | 'contract' | 'processing' | 'payment';
 
 const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose, onSuccess }) => {
-    // ... Estados mantidos ...
     const [step, setStep] = useState<Step>('config');
     const [saleType, setSaleType] = useState<SaleType>('direct');
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
@@ -31,9 +28,11 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [signature, setSignature] = useState<string | null>(null);
     const [selectedDueDay, setSelectedDueDay] = useState(10);
     
-    // Coins & Address & Internal states
+    // Coins
     const [useCoins, setUseCoins] = useState(false);
     const [userCoins, setUserCoins] = useState(0);
+    
+    // Endereço
     const [cep, setCep] = useState(profile.zip_code || '');
     const [address, setAddress] = useState({
         street: profile.street_name || '',
@@ -46,13 +45,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     const [shippingCost, setShippingCost] = useState(0);
     const [isLoadingCep, setIsLoadingCep] = useState(false);
     const numRef = useRef<HTMLInputElement>(null);
+
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [paymentResult, setPaymentResult] = useState<any>(null);
-    const [interestRate, setInterestRate] = useState(0);
     
-    // --- ESTADO NOVO: LIMITE DISPONÍVEL ---
-    const [availableMonthlyLimit, setAvailableMonthlyLimit] = useState(0);
+    const [interestRate, setInterestRate] = useState(0);
 
     const inputClass = "w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder-slate-400";
     const selectClass = "w-full p-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all";
@@ -63,7 +61,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 // Carrega juros e saldo atualizado
                 const [settingsRes, profileRes] = await Promise.all([
                     fetch('/api/admin/settings'),
-                    supabase.from('profiles').select('coins_balance, credit_limit').eq('id', profile.id).single()
+                    supabase.from('profiles').select('coins_balance').eq('id', profile.id).single()
                 ]);
                 
                 const settingsData = await settingsRes.json();
@@ -71,26 +69,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 
                 if (profileRes.data) {
                     setUserCoins(profileRes.data.coins_balance || 0);
-                    const limitTotal = profileRes.data.credit_limit || 0;
-
-                    // Calcula limite usado MENSALMENTE
-                    const { data: invoices } = await supabase
-                        .from('invoices')
-                        .select('amount, due_date, notes, month')
-                        .eq('user_id', profile.id)
-                        .or('status.eq.Em aberto,status.eq.Boleto Gerado');
-                    
-                    const monthlyCommitments: Record<string, number> = {};
-                    invoices?.forEach(inv => {
-                        // Ignora Avulsas e Entradas no cálculo de comprometimento mensal
-                        if (inv.notes?.includes('VENDA_AVISTA') || inv.notes?.includes('ENTRADA')) return;
-                        
-                        const dueMonth = inv.due_date.substring(0, 7);
-                        monthlyCommitments[dueMonth] = (monthlyCommitments[dueMonth] || 0) + inv.amount;
-                    });
-                    
-                    const maxUsed = Math.max(0, ...Object.values(monthlyCommitments));
-                    setAvailableMonthlyLimit(Math.max(0, limitTotal - maxUsed));
                 }
             } catch(e) { console.error(e); }
         };
@@ -99,7 +77,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     }, [profile.id]);
 
     const handleCepLookup = async (value: string) => {
-        // ... (Lógica de CEP mantida) ...
         const clean = value.replace(/\D/g, '');
         if (clean.length !== 8) return;
         setIsLoadingCep(true);
@@ -109,7 +86,16 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
             const data = await res.json();
             if (data.erro) throw new Error("CEP não encontrado.");
             if (data.uf !== 'AP') throw new Error("Entregamos apenas no Amapá.");
-            setAddress(prev => ({ ...prev, street: data.logradouro, neighborhood: data.bairro, city: data.localidade, uf: data.uf }));
+            
+            setAddress(prev => ({
+                ...prev,
+                street: data.logradouro,
+                neighborhood: data.bairro,
+                city: data.localidade,
+                uf: data.uf
+            }));
+
+            // Cálculo Frete
             const base = data.localidade === 'Santana' ? 7.90 : 12.90;
             setShippingCost(base + ((product.weight || 500)/1000) * 2.5);
             numRef.current?.focus();
@@ -118,6 +104,8 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     // Cálculos Financeiros
     const basePrice = product.price + shippingCost;
+    
+    // Desconto de Coins: 100 Coins = R$ 1.00
     const coinDiscountValue = useCoins ? Math.min(userCoins / 100, basePrice) : 0;
     const finalPrice = basePrice - coinDiscountValue;
 
@@ -128,9 +116,32 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
     // Gerador de Texto do Contrato
     const contractText = useMemo(() => {
-        // ... (Lógica de texto mantida) ...
         const today = new Date().toLocaleDateString('pt-BR');
-        return `CONTRATO DE COMPRA E VENDA - RELP CELL\n\nOBJETO:\nAquisição de 01 (um) ${product.name} - Valor Original: R$ ${product.price.toFixed(2)}.\n\nCONDIÇÕES:\nValor Financiado: R$ ${financed.toFixed(2)}\nParcelamento: ${installments}x de R$ ${instVal.toFixed(2)}\n\nMacapá/Santana, ${today}.`;
+        return `CONTRATO DE COMPRA E VENDA - RELP CELL
+
+IDENTIFICAÇÃO DAS PARTES:
+VENDEDOR: Relp Cell Eletrônicos, CNPJ xx.xxx.xxx/0001-xx.
+COMPRADOR: ${profile.first_name} ${profile.last_name}, CPF ${profile.identification_number || 'Não informado'}.
+
+OBJETO:
+Aquisição de 01 (um) ${product.name} - Valor Original: R$ ${product.price.toFixed(2)}.
+
+CONDIÇÕES DE PAGAMENTO (CREDIÁRIO):
+Valor Entrada: R$ ${dpVal.toFixed(2)}
+Valor Financiado: R$ ${financed.toFixed(2)}
+Parcelamento: ${installments}x de R$ ${instVal.toFixed(2)}
+Vencimento: Dia ${selectedDueDay} de cada mês.
+
+CLÁUSULA 1 - DO ATRASO:
+O não pagamento na data de vencimento acarretará multa de 2% e juros moratórios de 1% ao mês. O atraso superior a 30 dias poderá ensejar a inclusão nos órgãos de proteção ao crédito.
+
+CLÁUSULA 2 - DA ENTREGA:
+A entrega será realizada no endereço: ${address.street}, ${address.number}, ${address.neighborhood}, mediante assinatura deste termo.
+
+CLÁUSULA 3 - ACEITE:
+Ao assinar digitalmente abaixo, o COMPRADOR declara estar ciente e de acordo com todas as cláusulas acima.
+
+Macapá/Santana, ${today}.`;
     }, [product, profile, dpVal, financed, installments, instVal, selectedDueDay, address]);
 
     const handleConfirm = async () => {
@@ -143,7 +154,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                 body: JSON.stringify({
                     userId: profile.id,
                     productName: product.name,
-                    totalAmount: finalPrice, 
+                    totalAmount: finalPrice, // Valor total pós desconto
                     installments,
                     signature,
                     saleType,
@@ -151,7 +162,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     downPayment: dpVal,
                     dueDay: selectedDueDay,
                     address: { ...address, cep },
-                    coinsUsed: useCoins ? Math.floor(coinDiscountValue * 100) : 0, 
+                    coinsUsed: useCoins ? Math.floor(coinDiscountValue * 100) : 0, // Envia coins usados
                     discountValue: coinDiscountValue
                 }),
             });
@@ -169,16 +180,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
     };
 
     const next = () => {
-        if (step === 'config') {
-            // VALIDAÇÃO DE CRÉDITO CRÍTICA AQUI
-            if (saleType === 'crediario') {
-                if (instVal > availableMonthlyLimit) {
-                    setError(`Limite excedido! Sua parcela (R$ ${instVal.toFixed(2)}) é maior que sua margem disponível (R$ ${availableMonthlyLimit.toFixed(2)}). Aumente a entrada.`);
-                    return;
-                }
-            }
-            setStep('address');
-        }
+        if (step === 'config') setStep('address');
         else if (step === 'address') {
             if (!address.number) { setError("Informe o número da residência."); return; }
             if (saleType === 'crediario') setStep('contract');
@@ -239,13 +241,19 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                                         {[1,2,3,4,5,6,10,12].map(n => <option key={n} value={n}>{n}x de R$ {(financed / n).toFixed(2)}</option>)}
                                     </select>
                                 </div>
-                                
-                                {/* Aviso de Limite */}
-                                <div className="text-right">
-                                    <p className="text-[10px] text-indigo-400 font-bold uppercase">Sua Margem Disponível</p>
-                                    <p className={`text-lg font-black ${instVal > availableMonthlyLimit ? 'text-red-500' : 'text-indigo-600'}`}>
-                                        R$ {availableMonthlyLimit.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                                    </p>
+                                <div>
+                                    <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase mb-1.5">Dia de Vencimento</label>
+                                    <div className="flex gap-2">
+                                        {[5, 10, 15, 20, 25].map(day => (
+                                            <button 
+                                                key={day} 
+                                                onClick={() => setSelectedDueDay(day)}
+                                                className={`flex-1 py-2 text-xs font-bold rounded-lg border ${selectedDueDay === day ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-indigo-200 text-indigo-600'}`}
+                                            >
+                                                {day}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -273,7 +281,6 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     </div>
                 )}
 
-                {/* ... Steps Address e Contract mantidos iguais ao original, omitidos para brevidade mas incluídos na estrutura ... */}
                 {step === 'address' && (
                     <div className="space-y-4 animate-fade-in">
                         <div className="relative">
@@ -288,12 +295,17 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                         {address.street && (
                             <div className="grid grid-cols-4 gap-3 animate-fade-in-up">
                                 <div className="col-span-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <p className="text-[9px] text-slate-400 font-bold uppercase">Endereço Confirmado</p>
                                     <p className="text-sm font-bold text-slate-800 dark:text-white">{address.street}, {address.neighborhood}</p>
                                     <p className="text-xs text-slate-500 dark:text-slate-400">{address.city}, {address.uf}</p>
                                 </div>
                                 <div className="col-span-1">
                                     <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Nº</label>
                                     <input ref={numRef} type="text" value={address.number} onChange={e => setAddress({...address, number: e.target.value})} className={inputClass} />
+                                </div>
+                                <div className="col-span-4">
+                                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Complemento (Opcional)</label>
+                                    <input type="text" value={address.complement} onChange={e => setAddress({...address, complement: e.target.value})} className={inputClass} placeholder="Ex: Apto 101" />
                                 </div>
                             </div>
                         )}
@@ -302,6 +314,12 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
 
                 {step === 'contract' && (
                     <div className="space-y-4 animate-fade-in">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg text-yellow-600">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            </div>
+                            <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Assine digitalmente para confirmar.</p>
+                        </div>
                         <div className="h-48 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-[10px] text-slate-600 dark:text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
                              {contractText}
                         </div>
@@ -332,7 +350,7 @@ const PurchaseModal: React.FC<PurchaseModalProps> = ({ product, profile, onClose
                     </div>
                     <h3 className="text-3xl font-black text-slate-900 dark:text-white mb-2">Pedido Criado!</h3>
                     <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-xs mx-auto">
-                        Sua compra foi registrada.
+                        Sua compra foi registrada. Você ganhou <strong>{paymentResult.coinsEarned} Relp Coins</strong>!
                     </p>
                     <button onClick={() => { onClose(); onSuccess(); }} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg">Ver Meus Pedidos</button>
                 </div>
