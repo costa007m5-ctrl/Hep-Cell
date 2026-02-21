@@ -14,7 +14,6 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     const [isLoading, setIsLoading] = useState(false);
 
     const handleMarkAsRead = async (id: string) => {
-        // Otimistic update can be added here for better UX
         try {
             await supabase.from('notifications').update({ read: true }).eq('id', id);
             refreshNotifications();
@@ -26,8 +25,6 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     const handleClearAll = async () => {
         setIsLoading(true);
         try {
-            // Only mark visible unread as read, or delete older ones? 
-            // For now, let's just mark all unread as read for the user
             const { data: { user } } = await supabase.auth.getUser();
             if(user) {
                 await supabase.from('notifications').update({ read: true }).eq('user_id', user.id);
@@ -45,7 +42,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     return (
         <div className="fixed inset-0 z-[150] flex justify-end">
             <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
-            <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-up">
+            <div className="relative w-full max-w-md bg-white dark:bg-slate-900 h-full shadow-2xl flex flex-col animate-fade-in-right">
                 
                 {/* Header */}
                 <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900">

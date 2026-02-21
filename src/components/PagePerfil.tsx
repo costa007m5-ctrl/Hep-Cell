@@ -14,6 +14,7 @@ import ReferralView from './ReferralView';
 import SupportCenterView from './SupportCenterView';
 import OrdersHistoryView from './OrdersHistoryView';
 import ContractsHistoryView from './ContractsHistoryView';
+import ProfileDataEdit from './ProfileDataEdit';
 
 interface PagePerfilProps {
     session: Session;
@@ -115,7 +116,7 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     {activeView === 'referral' && <ReferralView userId={session.user.id} firstName={profile?.first_name || 'Cliente'} />}
                     {activeView === 'orders' && <OrdersHistoryView userId={session.user.id} />}
                     {activeView === 'contracts' && <ContractsHistoryView userId={session.user.id} />}
-                    {activeView === 'data' && <div className="p-10 text-center text-slate-400">Edição de dados em manutenção.</div>}
+                    {activeView === 'data' && profile && <ProfileDataEdit profile={profile} onSuccess={(updated) => { setProfile(updated); setActiveView('main'); }} />}
                 </div>
             )}
         </div>
