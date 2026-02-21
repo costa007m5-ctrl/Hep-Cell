@@ -11,6 +11,7 @@ import jsPDF from 'jspdf';
 import SignaturePad from './SignaturePad'; 
 import WalletView from './WalletView';
 import ReferralView from './ReferralView';
+import SupportCenterView from './SupportCenterView';
 
 interface PagePerfilProps {
     session: Session;
@@ -40,18 +41,11 @@ const StatBadge: React.FC<{ label: string; value: string | number; icon: React.R
     </div>
 );
 
-// ... (OrderTrackingView, ContractsView, OrdersView, PersonalDataView, SecurityView, HelpView mantidos) ...
-// Nota: Replicando apenas o necessário para o arquivo ser completo e funcional.
-
 const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMode, onGoToAdmin }) => {
     const [activeView, setActiveView] = useState<'main' | 'data' | 'orders' | 'tracking' | 'wallet' | 'referral' | 'help' | 'contracts' | 'security'>('main');
     const [profile, setProfile] = useState<Profile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const { addToast } = useToast();
-
-    const ADMIN_ID = '1da77e27-f1df-4e35-bcec-51dc2c5a9062';
-    const isAdmin = session.user.id === ADMIN_ID;
 
     useEffect(() => {
         const load = async () => {
@@ -95,7 +89,8 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                     </div>
 
                     <div className="space-y-4">
-                        <h3 className="font-black text-slate-400 text-[10px] uppercase tracking-[0.2em] mb-2 px-1">Financeiro</h3>
+                        <h3 className="font-black text-slate-400 text-[10px] uppercase tracking-[0.2em] mb-2 px-1">Relacionamento</h3>
+                        <MenuItem label="Central de Ajuda" description="Abra um chamado com nossa equipe" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>} onClick={() => setActiveView('help')} colorClass="bg-blue-100 text-blue-600" />
                         <MenuItem label="Minha Carteira" description="Extrato de Relp Coins" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2" /></svg>} onClick={() => setActiveView('wallet')} colorClass="bg-yellow-100 text-yellow-600" />
                         <MenuItem label="Indique e Ganhe" description="Ganhe moedas convidando amigos" icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 012 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>} onClick={() => setActiveView('referral')} colorClass="bg-purple-100 text-purple-600" />
                         
@@ -112,10 +107,11 @@ const PagePerfil: React.FC<PagePerfilProps> = ({ session, toggleTheme, isDarkMod
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                         Voltar
                     </button>
+                    {activeView === 'help' && <SupportCenterView userId={session.user.id} />}
                     {activeView === 'wallet' && <WalletView userId={session.user.id} balance={profile?.coins_balance || 0} />}
                     {activeView === 'referral' && <ReferralView userId={session.user.id} firstName={profile?.first_name || 'Cliente'} />}
-                    {/* Outras views omitidas para brevidade, mas mantidas na lógica real */}
-                    {activeView !== 'wallet' && activeView !== 'referral' && <div className="p-10 text-center text-slate-400">Seção em manutenção.</div>}
+                    {/* Outras views omitidas para brevidade */}
+                    {activeView !== 'help' && activeView !== 'wallet' && activeView !== 'referral' && <div className="p-10 text-center text-slate-400">Seção em manutenção.</div>}
                 </div>
             )}
         </div>
