@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Product, ProductReview, Profile } from '../../types';
 import LoadingSpinner from '../LoadingSpinner';
@@ -196,7 +195,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({ product, userProfile, o
                     </div>
                 )}
 
-                {/* --- PRODUTOS SIMILARES (Aba Loja em Carrossel) --- */}
+                {/* --- PRODUTOS SIMILARES --- */}
                 {similarProducts.length > 0 && (
                     <div className="pt-4 -mx-6">
                         <ProductCarousel 

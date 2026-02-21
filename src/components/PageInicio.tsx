@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getProfile } from '../services/profileService';
 import { supabase } from '../services/clients';
@@ -93,12 +92,10 @@ const DeliveryTrackingWidget: React.FC<{ order: any, onClick: () => void }> = ({
     );
 };
 
-// ... (Resto do código PageInicio mantido, apenas adicionando o Widget no return) ...
-
 const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const [profileData, setProfileData] = useState<Profile & { coins_balance?: number } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [activeOrder, setActiveOrder] = useState<any>(null); // Novo estado para pedido
+  const [activeOrder, setActiveOrder] = useState<any>(null); 
   const [pendingContract, setPendingContract] = useState<Contract | null>(null);
   const [activeLimitNotification, setActiveLimitNotification] = useState<{id: string, status: string} | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,7 +117,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
       { id: 'dicas', img: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=150&h=150&fit=crop', label: 'Dicas' },
   ];
 
-  // ... (Hooks de PWA e Helpers mantidos) ...
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -188,7 +184,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
     return () => window.removeEventListener('focus', handleFocus);
   }, [fetchHomeData]);
   
-  // ... (handleSignContract e outros handlers mantidos) ...
   const handleSignContract = async () => {
       if (!signature || !pendingContract) return;
       setIsSigning(true);
@@ -244,8 +239,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
   const entryInvoice = useMemo(() => {
       return invoices.find(i => i.notes?.includes('ENTRADA') && i.status === 'Em aberto');
   }, [invoices]);
-
-  const nextInvoice = invoices.filter(i => !i.notes?.includes('ENTRADA') && (i.status === 'Em aberto' || i.status === 'Boleto Gerado')).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0];
 
   const overdueCount = useMemo(() => {
       const now = new Date().getTime();
@@ -311,7 +304,7 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
             </div>
         </div>
 
-        {/* ACTIVE ORDER TRACKING (NEW) */}
+        {/* ACTIVE ORDER TRACKING */}
         {activeOrder && <DeliveryTrackingWidget order={activeOrder} onClick={() => setActiveTab(Tab.PERFIL)} />}
 
         {/* Alerts Priority */}
@@ -428,7 +421,6 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-3 px-2">
-             {/* ... Buttons ... */}
              <button onClick={() => setActiveTab(Tab.FATURAS)} className="flex flex-col items-center justify-center gap-2 p-3 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 w-full active:scale-95 transition-all">
                 <div className="text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg></div>
                 <span className="text-xs font-bold">Pagar Fatura</span>
@@ -465,14 +457,12 @@ const PageInicio: React.FC<PageInicioProps> = ({ setActiveTab }) => {
 
       </div>
 
-      {/* --- OVERLAYS (Modais) --- */}
-      {/* ... (Mantidos do original) ... */}
+      {/* --- OVERLAYS --- */}
       {activeStory === 'ofertas' && <OffersPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'seguranca' && <SecurityPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'novidades' && <NewsPage onClose={() => setActiveStory(null)} />}
       {activeStory === 'dicas' && <TipsPage onClose={() => setActiveStory(null)} />}
       
-      {/* Modal de Assinatura de Contrato */}
       {modalView === 'sign_contract' && isModalOpen && pendingContract && (
           <Modal isOpen={true} onClose={() => setIsModalOpen(false)}>
               <div className="space-y-4">
